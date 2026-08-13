@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Admin",
-  description: "Fleet payroll, attendance, billing, and profit management",
+  title: "MMT Agency Admin",
+  description: "MMT Agency payroll, attendance, billing, and profit management",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

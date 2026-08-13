@@ -1,5 +1,5 @@
-import FleetApp from "./fleet-app";
+import OperationsApp from "./operations-app";
 
 export default function Home() {
-  return <FleetApp />;
+  return <OperationsApp />;
 }
