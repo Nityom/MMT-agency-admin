@@ -5,6 +5,7 @@ export type VehicleType = "E-rickshaw" | "Rickshaw";
 export type VehicleStatus = "Running" | "Maintenance" | "Inactive";
 export type BillStatus = "Paid" | "Pending" | "Overdue";
 export type ExpenseTreatment = "Business cost" | "Employee reimbursement" | "Employee deduction";
+export type ClientCategory = "Rickshaw" | "E-rickshaw" | "Paper" | "Social media" | "Calendar" | "Other";
 
 export type Employee = {
   id: number;
@@ -34,9 +35,46 @@ export type Client = {
   ownerName: string;
   address: string;
   mobile: string;
+  alternatePhone?: string;
   dateOfBirth: ISODate | "";
   email: string;
+  categories: ClientCategory[];
   status: EmployeeStatus;
+};
+
+export type CampaignFacility = {
+  id: number;
+  category: BillChargeCategory;
+  description: string;
+  quantity: number;
+  rate: number;
+};
+
+export type CampaignVehiclePeriod = {
+  id: number;
+  type: VehicleType;
+  vehicleIds: number[];
+  startDate: ISODate;
+  endDate: ISODate;
+  quantity: number;
+  dailyRate: number;
+};
+
+export type CampaignBooking = {
+  id: number;
+  month: string;
+  clientId: number;
+  client: ClientSnapshot;
+  startDate: ISODate;
+  endDate: ISODate;
+  vehiclePeriods: CampaignVehiclePeriod[];
+  rickshawCount?: number;
+  rickshawDailyRate?: number;
+  eRickshawCount?: number;
+  eRickshawDailyRate?: number;
+  facilities: CampaignFacility[];
+  stoppedAt?: ISODate;
+  generatedBillId?: number;
 };
 
 export type Assignment = {
@@ -96,6 +134,8 @@ export type PayrollPayment = {
 export type BillVehicleLine = {
   id: number;
   vehicleId: number;
+  label?: string;
+  quantity?: number;
   startDate: ISODate;
   endDate: ISODate;
   bookedDays: number;
@@ -158,15 +198,32 @@ export type BusinessExpenseCategory =
   | "Self travel"
   | "Miscellaneous";
 
+export type BusinessExpensePayment = {
+  id: number;
+  date: ISODate;
+  amount: number;
+  reference: string;
+  note: string;
+};
+
 export type BusinessExpense = {
   id: number;
   date: ISODate;
+  clientId?: number;
+  clientName?: string;
   category: BusinessExpenseCategory;
   description: string;
   purpose: string;
   paidTo: string;
   reference: string;
+  quantity?: number;
+  unit?: string;
+  supplierRate?: number;
   amount: number;
+  clientBillingAmount?: number;
+  paidAmount?: number;
+  paidDate?: ISODate;
+  payments?: BusinessExpensePayment[];
 };
 
 export type CompanyProfile = {
@@ -189,8 +246,10 @@ export type FleetStore = {
   employeeRates: EmployeeRate[];
   vehicles: Vehicle[];
   clients: Client[];
+  campaignBookings: CampaignBooking[];
   assignments: Assignment[];
   attendance: Record<ISODate, Record<number, boolean>>;
+  vehicleAttendance: Record<ISODate, Record<number, boolean>>;
   employeeExpenses: EmployeeExpense[];
   advances: Advance[];
   payrollPayments: PayrollPayment[];
@@ -311,7 +370,7 @@ export function driversForVehiclePeriod(store: FleetStore, vehicleId: number, cl
 }
 
 export function calculateBillTotal(vehicleLines: BillVehicleLine[], charges: BillCharge[]): number {
-  const vehicleTotal = vehicleLines.reduce((sum, line) => sum + line.advertisementDays * line.dailyRate, 0);
+  const vehicleTotal = vehicleLines.reduce((sum, line) => sum + line.advertisementDays * line.dailyRate * (line.quantity ?? 1), 0);
   return vehicleTotal + charges.reduce((sum, charge) => sum + (charge.category === "Discount" ? -Math.abs(charge.amount) : charge.amount), 0);
 }
 
@@ -356,7 +415,25 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
       name: migrated.company.name === "Mrunal Multi Task Agency" ? "MMT Agency" : migrated.company.name,
       accountName: migrated.company.accountName === "Mrunal Multi Task Agency" ? "MMT Agency" : migrated.company.accountName,
     };
-    return { ...migrated, company, bills: migrated.bills.map((bill) => ({ ...bill, payments: Array.isArray(bill.payments) ? bill.payments : [] })) };
+    return {
+      ...migrated,
+      company,
+      clients: migrated.clients.map((client) => ({ ...client, categories: Array.isArray(client.categories) ? client.categories : [] })),
+      campaignBookings: Array.isArray(migrated.campaignBookings) ? migrated.campaignBookings.map((booking) => ({
+        ...booking,
+        vehiclePeriods: (Array.isArray(booking.vehiclePeriods) ? booking.vehiclePeriods : [
+          ...(booking.rickshawCount ? [{ id: 1, type: "Rickshaw" as const, startDate: booking.startDate, endDate: booking.endDate, quantity: booking.rickshawCount, dailyRate: booking.rickshawDailyRate ?? 0 }] : []),
+          ...(booking.eRickshawCount ? [{ id: 2, type: "E-rickshaw" as const, startDate: booking.startDate, endDate: booking.endDate, quantity: booking.eRickshawCount, dailyRate: booking.eRickshawDailyRate ?? 0 }] : []),
+        ]).map((period) => ({
+          ...period,
+          vehicleIds: Array.isArray((period as Partial<CampaignVehiclePeriod>).vehicleIds)
+            ? (period as CampaignVehiclePeriod).vehicleIds
+            : migrated.vehicles.filter((vehicle) => vehicle.type === period.type).slice(0, period.quantity).map((vehicle) => vehicle.id),
+        })),
+      })) : [],
+      vehicleAttendance: migrated.vehicleAttendance ?? {},
+      bills: migrated.bills.map((bill) => ({ ...bill, payments: Array.isArray(bill.payments) ? bill.payments : [] })),
+    };
   }
 
   const legacyDrivers = array(source.drivers);
@@ -391,6 +468,7 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
     mobile: text(party.contact),
     dateOfBirth: "",
     email: text(party.contact).includes("@") ? text(party.contact) : "",
+    categories: [],
     status: text(party.status) === "Inactive" ? "Inactive" : "Active",
   }));
   const assignments: Assignment[] = legacyDrivers.flatMap((driver, index) => {
@@ -441,6 +519,7 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
     clients,
     assignments,
     attendance: record(source.attendance) as FleetStore["attendance"],
+    vehicleAttendance: {},
     employeeExpenses,
     bills,
     businessExpenses,
@@ -456,8 +535,10 @@ export const emptyStore: FleetStore = {
   employeeRates: [],
   vehicles: [],
   clients: [],
+  campaignBookings: [],
   assignments: [],
   attendance: {},
+  vehicleAttendance: {},
   employeeExpenses: [],
   advances: [],
   payrollPayments: [],
