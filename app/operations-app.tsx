@@ -429,7 +429,7 @@ function Invoice({ bill, store, close, edit }: { bill: Bill; store: FleetStore; 
 export default function OperationsApp() {
   const [store, setStore] = useState<FleetStore>(() => { if (typeof window === "undefined") return seed; const saved = localStorage.getItem("fleetflow-store"); if (!saved) return seed; try { return migrateStore(JSON.parse(saved), seed); } catch { return seed; } });
   const [view, setView] = useState<View>("overview"), [menu, setMenu] = useState(false), [dialog, setDialog] = useState<Dialog>(null), [toast, setToast] = useState(""), [search, setSearch] = useState(""), [clientSearch, setClientSearch] = useState(""), [ledgerSearch, setLedgerSearch] = useState(""), [billingSearch, setBillingSearch] = useState(""), [clientCampaignFilter, setClientCampaignFilter] = useState<"Search" | "Ongoing" | "Completed">("Search"), [clientCategoryFilter, setClientCategoryFilter] = useState<ClientCategory | "All">("All");
-  const [openNavSections, setOpenNavSections] = useState(() => new Set(navSections.map((section) => section.label)));
+  const [openNavSections, setOpenNavSections] = useState<Set<string>>(() => new Set());
   const [editingEmployeeId, setEditingEmployeeId] = useState<number | null>(null);
   const [maintenanceEntryCategory, setMaintenanceEntryCategory] = useState<BusinessExpenseCategory>();
   const [maintenancePaymentExpense, setMaintenancePaymentExpense] = useState<FleetStore["businessExpenses"][number] | null>(null);
