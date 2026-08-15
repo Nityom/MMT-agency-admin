@@ -4,6 +4,7 @@ export type EmployeeStatus = "Active" | "Inactive";
 export type VehicleType = "E-rickshaw" | "Rickshaw";
 export type VehicleStatus = "Running" | "Maintenance" | "Inactive";
 export type BillStatus = "Paid" | "Pending" | "Overdue";
+export type PaymentMode = "Cash" | "Cheque" | "UPI";
 export type ExpenseTreatment = "Business cost" | "Employee reimbursement" | "Employee deduction";
 export type ClientCategory = "Rickshaw" | "E-rickshaw" | "Paper" | "Social media" | "Calendar" | "Other";
 
@@ -174,6 +175,7 @@ export type BillPayment = {
   id: number;
   date: ISODate;
   amount: number;
+  mode: PaymentMode;
   reference: string;
   note: string;
 };
@@ -187,6 +189,7 @@ export type Bill = {
   vehicleLines: BillVehicleLine[];
   charges: BillCharge[];
   advanceReceived: number;
+  paymentMode: PaymentMode;
   payments: BillPayment[];
   total: number;
   status: BillStatus;
@@ -255,6 +258,7 @@ export type FleetStore = {
   assignments: Assignment[];
   attendance: Record<ISODate, Record<number, boolean>>;
   vehicleAttendance: Record<ISODate, Record<number, boolean>>;
+  campaignAttendance: Record<ISODate, Record<string, boolean>>;
   employeeExpenses: EmployeeExpense[];
   advances: Advance[];
   payrollPayments: PayrollPayment[];
@@ -295,6 +299,7 @@ export type PayrollPreview = Omit<PayrollPayment, "id" | "status" | "paidAt"> & 
 
 export function calculatePayroll(store: FleetStore, employeeId: number, weekStart: ISODate): PayrollPreview {
   const weekEnd = addDays(weekStart, 6);
+  const payoutDate = addDays(weekEnd, 1);
   const breakdown = new Map<string, PayrollPreview["rateBreakdown"][number]>();
   let presentDays = 0;
 
@@ -315,15 +320,15 @@ export function calculatePayroll(store: FleetStore, employeeId: number, weekStar
   const reimbursements = relevantExpenses.filter((expense) => expense.treatment === "Employee reimbursement").reduce((sum, expense) => sum + expense.amount, 0);
   const deductions = relevantExpenses.filter((expense) => expense.treatment === "Employee deduction").reduce((sum, expense) => sum + expense.amount, 0);
   const gross = [...breakdown.values()].reduce((sum, item) => sum + item.amount, 0);
-  const priorPayment = store.payrollPayments.find((payment) => payment.employeeId === employeeId && payment.periodStart === weekStart);
-  const outstandingAdvance = store.advances.filter((advance) => advance.employeeId === employeeId).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
-  const advanceRecovery = priorPayment?.advanceRecovery ?? Math.min(outstandingAdvance, Math.max(0, gross + reimbursements - deductions));
+  const paidPayment = store.payrollPayments.find((payment) => payment.employeeId === employeeId && payment.periodStart === weekStart && payment.status === "Paid");
+  const outstandingAdvance = store.advances.filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
+  const advanceRecovery = paidPayment?.advanceRecovery ?? outstandingAdvance;
 
   return {
     employeeId,
     periodStart: weekStart,
     periodEnd: weekEnd,
-    payoutDate: addDays(weekEnd, 1),
+    payoutDate,
     presentDays,
     rateBreakdown: [...breakdown.values()],
     gross,
@@ -431,15 +436,24 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
           ...(booking.eRickshawCount ? [{ id: 2, type: "E-rickshaw" as const, startDate: booking.startDate, endDate: booking.endDate, quantity: booking.eRickshawCount, dailyRate: booking.eRickshawDailyRate ?? 0 }] : []),
         ]).map((period) => ({
           ...period,
-          vehicleIds: Array.isArray((period as Partial<CampaignVehiclePeriod>).vehicleIds)
-            ? (period as CampaignVehiclePeriod).vehicleIds
-            : migrated.vehicles.filter((vehicle) => vehicle.type === period.type).slice(0, period.quantity).map((vehicle) => vehicle.id),
+          quantity: Math.max(1, number(period.quantity, Array.isArray((period as Partial<CampaignVehiclePeriod>).vehicleIds) ? (period as CampaignVehiclePeriod).vehicleIds?.length : 1)),
+          vehicleIds: Array.isArray((period as Partial<CampaignVehiclePeriod>).vehicleIds) ? (period as CampaignVehiclePeriod).vehicleIds : [],
         })),
       })) : [],
       vehicleAttendance: migrated.vehicleAttendance ?? {},
+      campaignAttendance: migrated.campaignAttendance ?? {},
       employeeExpenses: migrated.employeeExpenses.map((expense) => ({ ...expense, employeeName: expense.employeeName || migrated.employees.find((employee) => employee.id === expense.employeeId)?.name || "Unassigned employee" })),
       advances: migrated.advances.map((advance) => ({ ...advance, employeeName: advance.employeeName || migrated.employees.find((employee) => employee.id === advance.employeeId)?.name || "Unassigned employee" })),
-      bills: migrated.bills.map((bill) => ({ ...bill, payments: Array.isArray(bill.payments) ? bill.payments : [] })),
+      bills: migrated.bills.map((bill) => {
+        const legacyBill = bill as Bill & { advancePaymentMode?: PaymentMode };
+        const legacyPayments = (Array.isArray(bill.payments) ? bill.payments : []) as (Omit<BillPayment, "mode"> & { mode?: PaymentMode })[];
+        const paymentMode = legacyBill.paymentMode ?? legacyBill.advancePaymentMode ?? legacyPayments.find((payment) => payment.mode)?.mode ?? "Cash";
+        return {
+          ...bill,
+          paymentMode,
+          payments: legacyPayments.map((payment) => ({ ...payment, mode: payment.mode ?? paymentMode })),
+        };
+      }),
     };
   }
 
@@ -506,6 +520,7 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
       vehicleLines,
       charges,
       advanceReceived: number(legacy.advance),
+      paymentMode: "Cash",
       payments: [],
       total: number(legacy.total, calculateBillTotal(vehicleLines, charges)),
       status: (["Paid", "Pending", "Overdue"].includes(text(legacy.status)) ? text(legacy.status) : "Pending") as BillStatus,
@@ -546,6 +561,7 @@ export const emptyStore: FleetStore = {
   assignments: [],
   attendance: {},
   vehicleAttendance: {},
+  campaignAttendance: {},
   employeeExpenses: [],
   advances: [],
   payrollPayments: [],
