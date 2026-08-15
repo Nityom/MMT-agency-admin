@@ -100,6 +100,7 @@ export type EmployeeExpenseCategory =
 export type EmployeeExpense = {
   id: number;
   employeeId: number;
+  employeeName?: string;
   date: ISODate;
   category: EmployeeExpenseCategory;
   description: string;
@@ -110,6 +111,7 @@ export type EmployeeExpense = {
 export type Advance = {
   id: number;
   employeeId: number;
+  employeeName?: string;
   date: ISODate;
   amount: number;
   recovered: number;
@@ -194,6 +196,9 @@ export type BusinessExpenseCategory =
   | "Maintenance"
   | "Printing"
   | "Pasting"
+  | "Recording"
+  | "Purchase"
+  | "Labour charges"
   | "Bond / banner material"
   | "Self travel"
   | "Miscellaneous";
@@ -432,6 +437,8 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
         })),
       })) : [],
       vehicleAttendance: migrated.vehicleAttendance ?? {},
+      employeeExpenses: migrated.employeeExpenses.map((expense) => ({ ...expense, employeeName: expense.employeeName || migrated.employees.find((employee) => employee.id === expense.employeeId)?.name || "Unassigned employee" })),
+      advances: migrated.advances.map((advance) => ({ ...advance, employeeName: advance.employeeName || migrated.employees.find((employee) => employee.id === advance.employeeId)?.name || "Unassigned employee" })),
       bills: migrated.bills.map((bill) => ({ ...bill, payments: Array.isArray(bill.payments) ? bill.payments : [] })),
     };
   }
@@ -509,7 +516,7 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
     .map((expense) => ({ id: number(expense.id), date: text(expense.date), category: text(expense.type) === "Maintenance" ? "Maintenance" : "Miscellaneous", description: text(expense.description), purpose: text(expense.description), paidTo: "", reference: text(expense.reference), amount: number(expense.amount) }));
   const employeeExpenses: EmployeeExpense[] = legacyExpenses
     .filter((expense) => text(expense.direction) !== "Business cost")
-    .map((expense) => ({ id: number(expense.id), employeeId: employees.find((employee) => text(expense.reference).includes(employee.name))?.id ?? 0, date: text(expense.date), category: "Other", description: text(expense.description), amount: number(expense.amount), treatment: text(expense.direction) === "Driver deduction" ? "Employee deduction" : "Employee reimbursement" }));
+    .map((expense) => { const employee = employees.find((item) => text(expense.reference).includes(item.name)); return { id: number(expense.id), employeeId: employee?.id ?? 0, employeeName: employee?.name ?? "Unassigned employee", date: text(expense.date), category: "Other", description: text(expense.description), amount: number(expense.amount), treatment: text(expense.direction) === "Driver deduction" ? "Employee deduction" : "Employee reimbursement" }; });
 
   return {
     ...fallback,
