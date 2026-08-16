@@ -871,7 +871,8 @@ function CampaignQuotation({ booking, store, close }: { booking: CampaignBooking
 
 export default function OperationsApp() {
   const remoteStore = useQuery(api.adminStore.get, { key: "primary" });
-  const saveRemoteStore = useMutation(api.adminStore.save);
+  const saveRemoteStoreChunk = useMutation(api.adminStore.saveChunk);
+  const commitRemoteStore = useMutation(api.adminStore.commit);
   const [store, setStore] = useState<FleetStore>(emptyStore);
   const [storageReady, setStorageReady] = useState(false);
   const [view, setView] = useState<View>("overview"), [menu, setMenu] = useState(false), [dialog, setDialog] = useState<Dialog>(null), [toast, setToast] = useState(""), [search, setSearch] = useState(""), [clientSearch, setClientSearch] = useState(""), [campaignSearch, setCampaignSearch] = useState(""), [campaignMonth, setCampaignMonth] = useState(""), [ledgerSearch, setLedgerSearch] = useState(""), [billingSearch, setBillingSearch] = useState(""), [clientCampaignFilter, setClientCampaignFilter] = useState<"Search" | "Ongoing" | "Completed">("Search"), [clientCategoryFilter, setClientCategoryFilter] = useState<ClientCategory | "All">("All");
@@ -935,10 +936,15 @@ export default function OperationsApp() {
   useEffect(() => {
     if (!storageReady) return;
     const timeout = window.setTimeout(() => {
-      void saveRemoteStore({ key: "primary", payload: JSON.stringify(store), schemaVersion: store.schemaVersion });
+      const payload = JSON.stringify(store);
+      const chunks = Array.from({ length: Math.ceil(payload.length / 250_000) }, (_, index) => payload.slice(index * 250_000, (index + 1) * 250_000));
+      const revision = Date.now();
+      void Promise.all(chunks.map((chunk, index) => saveRemoteStoreChunk({ key: "primary", revision, index, payload: chunk })))
+        .then(() => commitRemoteStore({ key: "primary", revision, chunkCount: chunks.length, schemaVersion: store.schemaVersion }))
+        .catch((error: unknown) => console.error("Unable to save admin data to Convex", error));
     }, 350);
     return () => window.clearTimeout(timeout);
-  }, [saveRemoteStore, storageReady, store]);
+  }, [commitRemoteStore, saveRemoteStoreChunk, storageReady, store]);
   useEffect(() => { const receivePayment = (event: Event) => setPaymentBill(store.bills.find((bill) => bill.id === (event as CustomEvent<number>).detail) ?? null); window.addEventListener("fleetflow:receive-payment", receivePayment); return () => window.removeEventListener("fleetflow:receive-payment", receivePayment); }, [store.bills]);
   useEffect(() => { const openReportDetail = (event: Event) => setReportDetail((event as CustomEvent<ReportDetailKind>).detail); window.addEventListener("fleetflow:report-detail", openReportDetail); return () => window.removeEventListener("fleetflow:report-detail", openReportDetail); }, []);
   useEffect(() => { const openQuotation = (event: Event) => setQuotationBooking(store.campaignBookings.find((booking) => booking.id === (event as CustomEvent<number>).detail) ?? null); window.addEventListener("fleetflow:campaign-quotation", openQuotation); return () => window.removeEventListener("fleetflow:campaign-quotation", openQuotation); }, [store.campaignBookings]);
