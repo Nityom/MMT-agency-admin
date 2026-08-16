@@ -1,9 +1,80 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
+const entityTables = {
+  employees: "employees",
+  employeeRates: "employeeRates",
+  vehicles: "vehicles",
+  clients: "clients",
+  campaignBookings: "campaignBookings",
+  assignments: "assignments",
+  attendance: "attendanceDays",
+  vehicleAttendance: "vehicleAttendanceDays",
+  campaignAttendance: "campaignAttendanceDays",
+  employeeExpenses: "employeeExpenses",
+  advances: "advances",
+  payrollPayments: "payrollPayments",
+  bills: "bills",
+  otherBills: "otherBills",
+  businessExpenses: "businessExpenses",
+  suppliers: "suppliers",
+  supplierPayments: "supplierPayments",
+} as const;
+
+const entityTableValidator = v.union(
+  v.literal("employees"),
+  v.literal("employeeRates"),
+  v.literal("vehicles"),
+  v.literal("clients"),
+  v.literal("campaignBookings"),
+  v.literal("assignments"),
+  v.literal("attendanceDays"),
+  v.literal("vehicleAttendanceDays"),
+  v.literal("campaignAttendanceDays"),
+  v.literal("employeeExpenses"),
+  v.literal("advances"),
+  v.literal("payrollPayments"),
+  v.literal("bills"),
+  v.literal("otherBills"),
+  v.literal("businessExpenses"),
+  v.literal("suppliers"),
+  v.literal("supplierPayments"),
+);
+
 export const get = query({
   args: { key: v.string() },
   handler: async (ctx, { key }) => {
+    const settings = await ctx.db
+      .query("fleetSettings")
+      .withIndex("by_store", (queryBuilder) => queryBuilder.eq("storeKey", key))
+      .unique();
+
+    if (settings) {
+      const entries = await Promise.all(Object.entries(entityTables).map(async ([field, table]) => {
+        const documents = await ctx.db
+          .query(table)
+          .withIndex("by_store", (queryBuilder) => queryBuilder.eq("storeKey", key))
+          .collect();
+        const ordered = documents.sort((left, right) => left.position - right.position);
+        const value = field.endsWith("Attendance") || field === "attendance"
+          ? Object.fromEntries(ordered.map((document) => [document.entityId, document.data]))
+          : ordered.map((document) => document.data);
+        return [field, value] as const;
+      }));
+      return {
+        payload: JSON.stringify({
+          schemaVersion: settings.schemaVersion,
+          company: settings.company,
+          nextBillNumber: settings.nextBillNumber,
+          nextOtherBillNumber: settings.nextOtherBillNumber,
+          ...Object.fromEntries(entries),
+        }),
+        schemaVersion: settings.schemaVersion,
+        updatedAt: settings.updatedAt,
+        normalized: true,
+      };
+    }
+
     const document = await ctx.db
       .query("adminStores")
       .withIndex("by_key", (queryBuilder) => queryBuilder.eq("key", key))
@@ -15,6 +86,7 @@ export const get = query({
         payload: document.payload ?? "",
         schemaVersion: document.schemaVersion,
         updatedAt: document.updatedAt,
+        normalized: false,
       };
     }
 
@@ -34,7 +106,67 @@ export const get = query({
         .join(""),
       schemaVersion: document.schemaVersion,
       updatedAt: document.updatedAt,
+      normalized: false,
     };
+  },
+});
+
+export const saveSettings = mutation({
+  args: {
+    storeKey: v.string(),
+    schemaVersion: v.number(),
+    company: v.any(),
+    nextBillNumber: v.number(),
+    nextOtherBillNumber: v.number(),
+    updatedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("fleetSettings")
+      .withIndex("by_store", (queryBuilder) => queryBuilder.eq("storeKey", args.storeKey))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, args);
+      return existing._id;
+    }
+    return ctx.db.insert("fleetSettings", args);
+  },
+});
+
+export const saveEntities = mutation({
+  args: {
+    storeKey: v.string(),
+    table: entityTableValidator,
+    updatedAt: v.number(),
+    entities: v.array(v.object({ entityId: v.string(), position: v.number(), data: v.any() })),
+  },
+  handler: async (ctx, { storeKey, table, updatedAt, entities }) => {
+    await Promise.all(entities.map(async (entity) => {
+      const existing = await ctx.db
+        .query(table)
+        .withIndex("by_store_entity", (queryBuilder) => queryBuilder.eq("storeKey", storeKey).eq("entityId", entity.entityId))
+        .unique();
+      const value = { storeKey, ...entity, updatedAt };
+      if (existing) await ctx.db.patch(existing._id, value);
+      else await ctx.db.insert(table, value);
+    }));
+  },
+});
+
+export const deleteEntities = mutation({
+  args: {
+    storeKey: v.string(),
+    table: entityTableValidator,
+    entityIds: v.array(v.string()),
+  },
+  handler: async (ctx, { storeKey, table, entityIds }) => {
+    await Promise.all(entityIds.map(async (entityId) => {
+      const existing = await ctx.db
+        .query(table)
+        .withIndex("by_store_entity", (queryBuilder) => queryBuilder.eq("storeKey", storeKey).eq("entityId", entityId))
+        .unique();
+      if (existing) await ctx.db.delete(existing._id);
+    }));
   },
 });
 

@@ -2,19 +2,25 @@
 
 import {
   Banknote, BarChart3, CalendarDays, Check, ChevronRight, CircleDollarSign,
-  ChevronDown, ChevronLeft, FileText, Gauge, Menu, Plus, Printer, ReceiptText, Search, Trash2, Truck,
+  ChevronDown, FileText, Gauge, Menu, Plus, Printer, ReceiptText, Search, Trash2, Truck,
   UserRound, UsersRound, WalletCards, Wrench, X,
 } from "lucide-react";
 import Image from "next/image";
-import { useMutation, useQuery } from "convex/react";
 import { FormEvent, useEffect, useState } from "react";
-import { api } from "../convex/_generated/api";
 import {
   addDays, Bill, BillCharge, BillChargeCategory, BillVehicleLine, BusinessExpenseCategory, CampaignBooking, CampaignVehiclePeriod,
-  calculateBillTotal, calculatePayroll, emptyStore,
-  ClientCategory, EmployeeExpenseCategory, ExpenseTreatment, FleetStore, inclusiveDays, migrateStore, OtherBill, OtherBillCategory, PaymentMode,
+  calculateBillTotal, calculatePayroll,
+  ClientCategory, EmployeeExpenseCategory, ExpenseTreatment, FleetStore, inclusiveDays, OtherBill, OtherBillCategory, PaymentMode,
   nextBillNumber, rateOnDate, weekFor,
 } from "./fleet-domain";
+import { Actions, AttendanceCalendar, Button, FormField, FormSelect, Modal, Row, Status, Table } from "./operations-components";
+import {
+  amount, billBalance, billPaid, bookingEnd, bookingStatus, bookingVehicleLines, campaignChargeCategories,
+  campaignMonthOptions, campaignSlotKey, campaignSlotPresentDays, clientCategories, expenseClientBilling,
+  expenseProfit, fmt, input, isoToday, matchesReportCategory, money, nextId, otherBillBalance, otherBillCost,
+  otherBillPaid, ReportProfitCategory, reportProfitCategories, supplierBalance, supplierPaid, vehiclePresentDays,
+} from "./operations-utils";
+import { useFleetStore } from "./use-fleet-store";
 
 type View = "overview" | "attendance" | "employees" | "employeeExpenses" | "employeeAdvances" | "vehicles" | "vehicleAttendance" | "clients" | "ledgers" | "campaigns" | "payroll" | "billing" | "otherBilling" | "otherBillLedgers" | "expenses" | "selfExpenses" | "maintenance" | "maintenanceLedger" | "maintenanceProfile" | "supplierProfiles" | "bannerPrinting" | "pasting" | "recording" | "purchase" | "labourCharges" | "reports";
 type Dialog = "employee" | "rate" | "vehicle" | "client" | "employeeExpense" | "advance" | "businessExpense" | "company" | null;
@@ -23,52 +29,6 @@ type ChargeDraft = Omit<BillCharge, "id" | "amount">;
 type VehiclePeriodDraft = Omit<CampaignVehiclePeriod, "id">;
 type ImportedContact = { id: number; firmName: string; mobile: string; alternatePhone?: string };
 type ReportDetailKind = "business" | "periodOutstanding" | "expenses" | "allOutstanding";
-
-const isoToday = () => new Date().toISOString().slice(0, 10);
-const money = (value: number) => `${value < 0 ? "-" : ""}₹${Math.abs(Math.round(value)).toLocaleString("en-IN")}`;
-const nextId = (items: { id: number }[]) => Math.max(0, ...items.map((item) => item.id)) + 1;
-const input = (data: FormData, name: string) => String(data.get(name) ?? "").trim();
-const amount = (data: FormData, name: string) => Number(data.get(name)) || 0;
-const fmt = (date: string) => date ? new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
-const billPaid = (bill: Bill | OtherBill) => ("advanceReceived" in bill ? bill.advanceReceived : 0) + (bill.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0);
-const billBalance = (bill: Bill | OtherBill) => Math.max(0, bill.total - billPaid(bill));
-const otherBillPaid = (bill: OtherBill) => bill.payments.reduce((sum, payment) => sum + payment.amount, 0);
-const otherBillBalance = (bill: OtherBill) => Math.max(0, bill.total - otherBillPaid(bill));
-const otherBillCost = (bill: OtherBill) => bill.items.reduce((sum, item) => sum + (item.costAmount ?? item.quantity * (item.costRate ?? 0)), 0);
-const supplierPaid = (expense: FleetStore["businessExpenses"][number]) => Math.min(expense.amount, (expense.paidAmount ?? expense.amount) + (expense.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0));
-const supplierBalance = (expense: FleetStore["businessExpenses"][number]) => Math.max(0, expense.amount - supplierPaid(expense));
-const expenseClientBilling = (expense: FleetStore["businessExpenses"][number]) => expense.category === "Self travel" || expense.category === "Self stay" ? 0 : expense.clientBillingAmount ?? expense.amount;
-const expenseProfit = (expense: FleetStore["businessExpenses"][number]) => expenseClientBilling(expense) - expense.amount;
-const reportProfitCategories = [{ value: "All", label: "All" }, { value: "Printing", label: "Banner" }, { value: "Pasting", label: "Pasting" }, { value: "Recording", label: "Recording" }, { value: "Purchase", label: "Purchase" }, { value: "Labour charges", label: "Labour" }, { value: "Paper", label: "Paper" }, { value: "Calendar", label: "Calendar" }, { value: "Self travel", label: "Self expense" }, { value: "Self stay", label: "Salary" }] as const satisfies readonly { value: BusinessExpenseCategory | "All"; label: string }[];
-type ReportProfitCategory = (typeof reportProfitCategories)[number]["value"] | "Self stay";
-const matchesReportCategory = (expense: FleetStore["businessExpenses"][number], category: ReportProfitCategory) => category === "All" || category === "Self travel" ? category === "All" || expense.category === "Self travel" || expense.category === "Self stay" : expense.category === category;
-const clientCategories: ClientCategory[] = ["Rickshaw", "E-rickshaw", "Paper", "Social media", "Calendar", "Other"];
-const campaignChargeCategories: BillChargeCategory[] = ["Banner / printing", "Pasting", "Recording", "Municipal tax", "Tea", "Breakfast", "Lunch", "Dinner", "Miscellaneous", "Discount"];
-const bookingEnd = (booking: CampaignBooking) => booking.stoppedAt && booking.stoppedAt < booking.endDate ? booking.stoppedAt : booking.endDate;
-const campaignMonthOptions = (bookings: CampaignBooking[]) => Array.from(new Set(bookings.flatMap((booking) => {
-  const months: string[] = [];
-  let month = booking.startDate.slice(0, 7);
-  const finalMonth = bookingEnd(booking).slice(0, 7);
-  while (month <= finalMonth) {
-    months.push(month);
-    const year = Number(month.slice(0, 4)), monthIndex = Number(month.slice(5, 7));
-    month = monthIndex === 12 ? `${year + 1}-01` : `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
-  }
-  return months;
-}))).sort((left, right) => right.localeCompare(left));
-const bookingStatus = (booking: CampaignBooking) => booking.generatedBillId ? "Billed" : isoToday() < booking.startDate ? "Scheduled" : isoToday() >= bookingEnd(booking) ? booking.stoppedAt ? "Stopped" : "Completed" : "Active";
-const vehiclePresentDays = (store: FleetStore, vehicleId: number, from: string, to: string) => Object.entries(store.vehicleAttendance).filter(([date, attendance]) => date >= from && date <= to && attendance[vehicleId]).length;
-const campaignSlotKey = (bookingId: number, periodId: number, slotIndex: number) => `${bookingId}:${periodId}:${slotIndex}`;
-const campaignSlotPresentDays = (store: FleetStore, bookingId: number, periodId: number, slotIndex: number, from: string, to: string, legacyVehicleId?: number) => Array.from({ length: inclusiveDays(from, to) }, (_, offset) => addDays(from, offset)).filter((date) => store.campaignAttendance[date]?.[campaignSlotKey(bookingId, periodId, slotIndex)] ?? (legacyVehicleId ? store.vehicleAttendance[date]?.[legacyVehicleId] : false)).length;
-const bookingVehicleLines = (store: FleetStore, booking: CampaignBooking, throughDate = bookingEnd(booking)): BillVehicleLine[] => booking.vehiclePeriods.flatMap((period, periodIndex) => {
-  const effectiveEnd = [period.endDate, bookingEnd(booking), throughDate].sort()[0];
-  if (effectiveEnd < period.startDate) return [];
-  const bookedDays = inclusiveDays(period.startDate, effectiveEnd);
-  return Array.from({ length: period.quantity }, (_, slotIndex) => {
-    const presentDays = campaignSlotPresentDays(store, booking.id, period.id, slotIndex, period.startDate, effectiveEnd, period.vehicleIds[slotIndex]);
-    return { id: periodIndex * 100 + slotIndex + 1, vehicleId: -(booking.id * 10000 + period.id * 100 + slotIndex + 1), label: `${booking.client.firmName} · ${period.type} ${slotIndex + 1}`, quantity: 1, startDate: period.startDate, endDate: effectiveEnd, bookedDays, advertisementDays: presentDays, offDays: bookedDays - presentDays, dailyRate: period.dailyRate, driverNames: [] };
-  });
-});
 
 const navSections = [
   { label: "Dashboard", icon: Gauge, items: [{ key: "overview", label: "Overview", icon: Gauge, view: "overview" }] },
@@ -79,10 +39,6 @@ const navSections = [
   { label: "Maintenance", icon: Wrench, items: [{ key: "maintenance-profile", label: "Profile", icon: UserRound, view: "supplierProfiles" }] },
   { label: "Reports", icon: BarChart3, items: [{ key: "reports", label: "Business reports", icon: BarChart3, view: "reports" }] },
 ] as const;
-
-function Button({ children, onClick, secondary = false, type = "button" }: { children: React.ReactNode; onClick?: () => void; secondary?: boolean; type?: "button" | "submit" }) {
-  return <button type={type} className={secondary ? "op-button secondary" : "op-button"} onClick={onClick}>{children}</button>;
-}
 
 function PageHead({ title, detail, action, onAction }: { title: string; detail: string; action?: string; onAction?: () => void }) {
   const printableSupplierLedger = title === "Maintenance payment ledger";
@@ -151,39 +107,6 @@ function ClientDonut({ items }: { items: { label: string; value: number }[] }) {
   const total = items.reduce((sum, item) => sum + item.value, 0), radius = 64, circumference = 2 * Math.PI * radius;
   const selected = hoveredIndex === null ? null : items[hoveredIndex];
   return <article className="op-graph op-donut"><header><div><h2>Revenue by client</h2><p>Hover or focus a segment for client details</p></div></header>{total ? <div><svg viewBox="0 0 180 180" role="img" aria-label="Client revenue distribution graph"><circle cx="90" cy="90" r={radius} className="donut-base"/>{items.map((item, index) => { const length = item.value / total * circumference; const offset = items.slice(0, index).reduce((sum, previous) => sum + previous.value / total * circumference, 0); return <circle key={item.label} cx="90" cy="90" r={radius} tabIndex={0} role="button" aria-label={`${item.label}: ${money(item.value)}, ${Math.round(item.value / total * 100)} percent`} className={`donut-segment ${hoveredIndex === index ? "active" : ""}`} stroke={colors[index % colors.length]} strokeDasharray={`${length} ${circumference - length}`} strokeDashoffset={-offset} onMouseEnter={() => setHoveredIndex(index)} onMouseLeave={() => setHoveredIndex(null)} onFocus={() => setHoveredIndex(index)} onBlur={() => setHoveredIndex(null)}/>; })}<text x="90" y="82" textAnchor="middle">{selected ? selected.label.slice(0, 16) : "Total"}</text><text x="90" y="101" textAnchor="middle" className="donut-total">{money(selected?.value ?? total)}</text>{selected && <text x="90" y="117" textAnchor="middle">{Math.round(selected.value / total * 100)}% of revenue</text>}</svg><section>{items.map((item, index) => <p key={item.label} tabIndex={0} className={hoveredIndex === index ? "active" : ""} onMouseEnter={() => setHoveredIndex(index)} onMouseLeave={() => setHoveredIndex(null)} onFocus={() => setHoveredIndex(index)} onBlur={() => setHoveredIndex(null)}><i style={{ background: colors[index % colors.length] }}/><span>{item.label}</span><b>{Math.round(item.value / total * 100)}%</b><small>{money(item.value)}</small></p>)}</section></div> : <div className="op-graph-empty">No billed revenue in this period</div>}</article>;
-}
-
-function AttendanceCalendar<T extends string | number>({ selected, attendance, employeeIds, onSelect }: { selected: string; attendance: Record<string, Record<T, boolean>>; employeeIds: T[]; onSelect: (date: string) => void }) {
-  const [month, setMonth] = useState(selected.slice(0, 7));
-  const [year, monthNumber] = month.split("-").map(Number);
-  const dayCount = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
-  const leadingDays = (new Date(Date.UTC(year, monthNumber - 1, 1)).getUTCDay() + 6) % 7;
-  const monthLabel = new Date(Date.UTC(year, monthNumber - 1, 1)).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
-  const moveMonth = (offset: number) => { const value = new Date(Date.UTC(year, monthNumber - 1 + offset, 1)); setMonth(`${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}`); };
-  return <section className="op-calendar"><header><button title="Previous month" onClick={() => moveMonth(-1)}><ChevronLeft/></button><h2>{monthLabel}</h2><button title="Next month" onClick={() => moveMonth(1)}><ChevronRight/></button></header><div className="op-calendar-weekdays">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => <b key={day}>{day}</b>)}</div><div className="op-calendar-days">{Array.from({ length: leadingDays }, (_, index) => <span key={`empty-${index}`}/>)}{Array.from({ length: dayCount }, (_, index) => { const day = index + 1, date = `${month}-${String(day).padStart(2, "0")}`, record = attendance[date], marked = employeeIds.filter((id) => record?.[id] !== undefined).length, present = employeeIds.filter((id) => record?.[id]).length, state = employeeIds.length > 0 && marked === employeeIds.length ? "complete" : marked > 0 ? "partial" : ""; return <button className={`${date === selected ? "selected" : ""} ${state}`} onClick={() => onSelect(date)} key={date}><span>{day}</span>{marked > 0 && <small>{present}/{employeeIds.length}</small>}</button>; })}</div><footer><span><i className="complete"/>Saved</span><span><i className="partial"/>Partial</span></footer></section>;
-}
-
-function Table({ headers, children }: { headers: string[]; children: React.ReactNode }) {
-  const signature = headers.join("|");
-  const mobileCards = signature === "Employee|Location and rate|Present|Absent" || signature === "Vehicle|Campaign on this date|Present|Absent" ? "attendance" : signature === "Employee|Current location|Daily rate|Effective from|Status|" ? "employees" : signature === "Vehicle|Type|Current campaign|Today|Vehicle status|" ? "fleet" : signature === "Date|Account|Description / purpose|Paid to|Reference|Amount|" ? "expenses" : "";
-  return <div className={`op-table-wrap${mobileCards ? ` op-mobile-cards ${mobileCards}` : ""}`}><div className="op-table" style={{ "--cols": headers.length } as React.CSSProperties}><header>{headers.map((header, index) => <b key={`${header}-${index}`}>{header}</b>)}</header>{children}</div></div>;
-}
-
-function Row({ children }: { children: React.ReactNode }) { return <div className="op-row">{children}</div>; }
-function Status({ children }: { children: string }) { return <span className={`op-status ${children.toLowerCase()}`}>{children}</span>; }
-function Actions({ edit, payment, view, remove }: { edit?: () => void; payment?: () => void; view?: () => void; remove?: () => void }) { return <span className="op-actions">{edit && <button title="Edit" onClick={edit}><ChevronRight size={17}/></button>}{payment && <button title="Record payment" onClick={payment}><Banknote size={16}/></button>}{view && <button title="Print / preview" onClick={view}><Printer size={16}/></button>}{remove && <button className="delete" title="Delete" onClick={remove}><Trash2 size={16}/></button>}</span>; }
-
-function FormField({ label, name, type = "text", defaultValue, required = false, min }: { label: string; name: string; type?: string; defaultValue?: string | number; required?: boolean; min?: number }) {
-  return <label className="op-field"><span>{label}</span><input name={name} type={type} defaultValue={defaultValue} required={required} min={min ?? (type === "number" ? 0 : undefined)}/></label>;
-}
-
-function FormSelect({ label, name, options, defaultValue, required = false }: { label: string; name: string; options: { value: string | number; label: string }[]; defaultValue?: string | number; required?: boolean }) {
-  return <label className="op-field"><span>{label}</span><select name={name} defaultValue={defaultValue ?? ""} required={required}><option value="">Select</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
-}
-
-function Modal({ title, close, children }: { title: string; close: () => void; children: React.ReactNode }) {
-  const printable = title.endsWith("· client ledger") || title.endsWith("· complete record");
-  return <div className={`op-modal-backdrop${printable ? " op-print-ledger-modal" : ""}`} onMouseDown={(event) => event.target === event.currentTarget && close()}><section className="op-modal"><header><h2>{title}</h2><span className="op-modal-actions">{printable && <button className="op-modal-print" onClick={() => window.print()}><Printer size={17}/>Print all records</button>}<button title="Close" onClick={close}><X/></button></span></header>{children}</section></div>;
 }
 
 function ReportDetailModal({ kind, store, reportStart, reportEnd, reportBills, reportOtherBills, reportExpenses, reportEmployeeExpenses, reportPayroll, close }: { kind: ReportDetailKind; store: FleetStore; reportStart: string; reportEnd: string; reportBills: Bill[]; reportOtherBills: OtherBill[]; reportExpenses: FleetStore["businessExpenses"]; reportEmployeeExpenses: FleetStore["employeeExpenses"]; reportPayroll: FleetStore["payrollPayments"]; close: () => void }) {
@@ -870,11 +793,7 @@ function CampaignQuotation({ booking, store, close }: { booking: CampaignBooking
 }
 
 export default function OperationsApp() {
-  const remoteStore = useQuery(api.adminStore.get, { key: "primary" });
-  const saveRemoteStoreChunk = useMutation(api.adminStore.saveChunk);
-  const commitRemoteStore = useMutation(api.adminStore.commit);
-  const [store, setStore] = useState<FleetStore>(emptyStore);
-  const [storageReady, setStorageReady] = useState(false);
+  const { store, setStore, storageReady } = useFleetStore();
   const [view, setView] = useState<View>("overview"), [menu, setMenu] = useState(false), [dialog, setDialog] = useState<Dialog>(null), [toast, setToast] = useState(""), [search, setSearch] = useState(""), [clientSearch, setClientSearch] = useState(""), [campaignSearch, setCampaignSearch] = useState(""), [campaignMonth, setCampaignMonth] = useState(""), [ledgerSearch, setLedgerSearch] = useState(""), [billingSearch, setBillingSearch] = useState(""), [clientCampaignFilter, setClientCampaignFilter] = useState<"Search" | "Ongoing" | "Completed">("Search"), [clientCategoryFilter, setClientCategoryFilter] = useState<ClientCategory | "All">("All");
   const [openNavSections, setOpenNavSections] = useState<Set<string>>(() => new Set());
   const [editingEmployeeId, setEditingEmployeeId] = useState<number | null>(null);
@@ -905,20 +824,6 @@ export default function OperationsApp() {
   const [vehicleAttendanceDraft, setVehicleAttendanceDraft] = useState<Record<number, boolean>>(() => ({ ...(store.vehicleAttendance[isoToday()] ?? {}) }));
   const [vehicleAttendanceDirty, setVehicleAttendanceDirty] = useState(false);
   useEffect(() => {
-    if (remoteStore === undefined || storageReady) return;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-      if (remoteStore === null) {
-        setStore(emptyStore);
-      } else {
-        try { setStore(migrateStore(JSON.parse(remoteStore.payload), emptyStore)); } catch { setStore(emptyStore); }
-      }
-      setStorageReady(true);
-    });
-    return () => { cancelled = true; };
-  }, [remoteStore, storageReady]);
-  useEffect(() => {
     if (!storageReady) return;
     let cancelled = false;
     fetch("/imported-contacts.json").then((response) => response.json() as Promise<ImportedContact[]>).then((contacts) => {
@@ -932,19 +837,7 @@ export default function OperationsApp() {
       });
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [storageReady]);
-  useEffect(() => {
-    if (!storageReady) return;
-    const timeout = window.setTimeout(() => {
-      const payload = JSON.stringify(store);
-      const chunks = Array.from({ length: Math.ceil(payload.length / 250_000) }, (_, index) => payload.slice(index * 250_000, (index + 1) * 250_000));
-      const revision = Date.now();
-      void Promise.all(chunks.map((chunk, index) => saveRemoteStoreChunk({ key: "primary", revision, index, payload: chunk })))
-        .then(() => commitRemoteStore({ key: "primary", revision, chunkCount: chunks.length, schemaVersion: store.schemaVersion }))
-        .catch((error: unknown) => console.error("Unable to save admin data to Convex", error));
-    }, 350);
-    return () => window.clearTimeout(timeout);
-  }, [commitRemoteStore, saveRemoteStoreChunk, storageReady, store]);
+  }, [setStore, storageReady]);
   useEffect(() => { const receivePayment = (event: Event) => setPaymentBill(store.bills.find((bill) => bill.id === (event as CustomEvent<number>).detail) ?? null); window.addEventListener("fleetflow:receive-payment", receivePayment); return () => window.removeEventListener("fleetflow:receive-payment", receivePayment); }, [store.bills]);
   useEffect(() => { const openReportDetail = (event: Event) => setReportDetail((event as CustomEvent<ReportDetailKind>).detail); window.addEventListener("fleetflow:report-detail", openReportDetail); return () => window.removeEventListener("fleetflow:report-detail", openReportDetail); }, []);
   useEffect(() => { const openQuotation = (event: Event) => setQuotationBooking(store.campaignBookings.find((booking) => booking.id === (event as CustomEvent<number>).detail) ?? null); window.addEventListener("fleetflow:campaign-quotation", openQuotation); return () => window.removeEventListener("fleetflow:campaign-quotation", openQuotation); }, [store.campaignBookings]);
