@@ -195,6 +195,32 @@ export type Bill = {
   status: BillStatus;
 };
 
+export type OtherBillCategory = "Paper" | "Calendar";
+
+export type OtherBillItem = {
+  id: number;
+  description: string;
+  quantity: number;
+  unit: string;
+  rate: number;
+  amount: number;
+  costRate?: number;
+  costAmount?: number;
+};
+
+export type OtherBill = {
+  id: number;
+  number: number;
+  billDate: ISODate;
+  clientId: number;
+  client: ClientSnapshot;
+  category: OtherBillCategory;
+  items: OtherBillItem[];
+  payments: BillPayment[];
+  total: number;
+  status: BillStatus;
+};
+
 export type BusinessExpenseCategory =
   | "Maintenance"
   | "Printing"
@@ -204,6 +230,9 @@ export type BusinessExpenseCategory =
   | "Labour charges"
   | "Bond / banner material"
   | "Self travel"
+  | "Self stay"
+  | "Paper"
+  | "Calendar"
   | "Miscellaneous";
 
 export type BusinessExpensePayment = {
@@ -214,11 +243,28 @@ export type BusinessExpensePayment = {
   note: string;
 };
 
+export type SupplierPayment = BusinessExpensePayment & {
+  supplierName: string;
+};
+
+export type SupplierProfile = {
+  id: number;
+  name: string;
+  createdAt: ISODate;
+};
+
+export type SelfExpenseItem = {
+  id: number;
+  name: string;
+  amount: number;
+};
+
 export type BusinessExpense = {
   id: number;
   date: ISODate;
   clientId?: number;
   clientName?: string;
+  campaignId?: number;
   category: BusinessExpenseCategory;
   description: string;
   purpose: string;
@@ -232,6 +278,11 @@ export type BusinessExpense = {
   paidAmount?: number;
   paidDate?: ISODate;
   payments?: BusinessExpensePayment[];
+  fromLocation?: string;
+  toLocation?: string;
+  startDate?: ISODate;
+  endDate?: ISODate;
+  items?: SelfExpenseItem[];
 };
 
 export type CompanyProfile = {
@@ -239,6 +290,7 @@ export type CompanyProfile = {
   address: string;
   mobile: string;
   email: string;
+  pan: string;
   bankName: string;
   accountName: string;
   accountNumber: string;
@@ -263,7 +315,11 @@ export type FleetStore = {
   advances: Advance[];
   payrollPayments: PayrollPayment[];
   bills: Bill[];
+  nextOtherBillNumber: number;
+  otherBills: OtherBill[];
   businessExpenses: BusinessExpense[];
+  suppliers: SupplierProfile[];
+  supplierPayments: SupplierPayment[];
 };
 
 const DAY_MS = 86_400_000;
@@ -389,14 +445,15 @@ export function nextBillNumber(bills: Bill[], configuredNext: number): number {
 }
 
 const defaultCompany: CompanyProfile = {
-  name: "MMT Agency",
+  name: "Mrunal Multi Task Agency",
   address: "Near Namdev Math, Malgujaripura, Wardha 442 001",
   mobile: "9850545111",
   email: "madhav.bhalerao25@gmail.com",
+  pan: "BEYPB6075B",
   bankName: "Bank of India",
-  accountName: "MMT Agency",
-  accountNumber: "",
-  ifsc: "",
+  accountName: "Mrunal Multi Task Agency",
+  accountNumber: "23213213213",
+  ifsc: "ABCD000211",
   branch: "Wardha",
 };
 
@@ -422,9 +479,15 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
     const migrated = { ...fallback, ...source } as FleetStore;
     const company = {
       ...migrated.company,
-      name: migrated.company.name === "Mrunal Multi Task Agency" ? "MMT Agency" : migrated.company.name,
-      accountName: migrated.company.accountName === "Mrunal Multi Task Agency" ? "MMT Agency" : migrated.company.accountName,
+      name: migrated.company.name === "MMT Agency" ? "Mrunal Multi Task Agency" : migrated.company.name,
+      pan: migrated.company.pan || fallback.company.pan,
+      accountName: "Mrunal Multi Task Agency",
+      bankName: "Bank of India",
+      branch: "Wardha",
+      accountNumber: "23213213213",
+      ifsc: "ABCD000211",
     };
+    const suppliers = Array.isArray(migrated.suppliers) ? migrated.suppliers : Array.from(new Map(migrated.businessExpenses.map((expense) => expense.paidTo.trim()).filter(Boolean).map((name) => [name.toLowerCase(), name])).values()).map((name, index) => ({ id: index + 1, name, createdAt: new Date().toISOString().slice(0, 10) }));
     return {
       ...migrated,
       company,
@@ -442,6 +505,10 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
       })) : [],
       vehicleAttendance: migrated.vehicleAttendance ?? {},
       campaignAttendance: migrated.campaignAttendance ?? {},
+      suppliers,
+      supplierPayments: Array.isArray(migrated.supplierPayments) ? migrated.supplierPayments : [],
+      nextOtherBillNumber: migrated.nextOtherBillNumber || 1,
+      otherBills: Array.isArray(migrated.otherBills) ? migrated.otherBills.map((bill) => ({ ...bill, items: bill.items.map((item) => ({ ...item, costRate: item.costRate ?? 0, costAmount: item.costAmount ?? item.quantity * (item.costRate ?? 0) })) })) : [],
       employeeExpenses: migrated.employeeExpenses.map((expense) => ({ ...expense, employeeName: expense.employeeName || migrated.employees.find((employee) => employee.id === expense.employeeId)?.name || "Unassigned employee" })),
       advances: migrated.advances.map((advance) => ({ ...advance, employeeName: advance.employeeName || migrated.employees.find((employee) => employee.id === advance.employeeId)?.name || "Unassigned employee" })),
       bills: migrated.bills.map((bill) => {
@@ -566,5 +633,9 @@ export const emptyStore: FleetStore = {
   advances: [],
   payrollPayments: [],
   bills: [],
+  nextOtherBillNumber: 1,
+  otherBills: [],
   businessExpenses: [],
+  suppliers: [],
+  supplierPayments: [],
 };

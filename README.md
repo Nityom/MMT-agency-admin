@@ -1,4 +1,14 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MMT Agency Admin
+
+This Next.js application uses a dedicated Convex project for admin operational data.
+
+## Database layout
+
+- `NEXT_PUBLIC_CONVEX_URL` points to the `mmt-agency-admin` Convex project. All admin writes belong here.
+- `APP_CONVEX_URL` is reserved for the separate app project. Keep it server-only when app data is added to this dashboard.
+- Do not point both variables at the same deployment. Admin mutations must never target the app database.
+
+The current admin domain is stored as one versioned snapshot in the `adminStores` table. Run `npx convex dev` while changing Convex functions and use `npx convex deploy` when deploying the production backend.
 
 ## Getting Started
 
