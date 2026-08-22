@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 
 const entityTables = {
   employees: "employees",
@@ -40,6 +40,29 @@ const entityTableValidator = v.union(
   v.literal("suppliers"),
   v.literal("supplierPayments"),
 );
+
+async function updateStoreRevision(ctx: MutationCtx, storeKey: string, revision: number) {
+  const existing = await ctx.db
+    .query("storeRevisions")
+    .withIndex("by_store", (queryBuilder) => queryBuilder.eq("storeKey", storeKey))
+    .unique();
+  if (existing) {
+    if (revision > existing.revision) await ctx.db.patch(existing._id, { revision });
+    return;
+  }
+  await ctx.db.insert("storeRevisions", { storeKey, revision });
+}
+
+export const getRevision = query({
+  args: { key: v.string() },
+  handler: async (ctx, { key }) => {
+    const revision = await ctx.db
+      .query("storeRevisions")
+      .withIndex("by_store", (queryBuilder) => queryBuilder.eq("storeKey", key))
+      .unique();
+    return revision?.revision ?? null;
+  },
+});
 
 export const get = query({
   args: { key: v.string() },
@@ -127,9 +150,12 @@ export const saveSettings = mutation({
       .unique();
     if (existing) {
       await ctx.db.patch(existing._id, args);
+      await updateStoreRevision(ctx, args.storeKey, args.updatedAt);
       return existing._id;
     }
-    return ctx.db.insert("fleetSettings", args);
+    const id = await ctx.db.insert("fleetSettings", args);
+    await updateStoreRevision(ctx, args.storeKey, args.updatedAt);
+    return id;
   },
 });
 
@@ -150,6 +176,7 @@ export const saveEntities = mutation({
       if (existing) await ctx.db.patch(existing._id, value);
       else await ctx.db.insert(table, value);
     }));
+    await updateStoreRevision(ctx, storeKey, updatedAt);
   },
 });
 
@@ -157,9 +184,10 @@ export const deleteEntities = mutation({
   args: {
     storeKey: v.string(),
     table: entityTableValidator,
+    updatedAt: v.optional(v.number()),
     entityIds: v.array(v.string()),
   },
-  handler: async (ctx, { storeKey, table, entityIds }) => {
+  handler: async (ctx, { storeKey, table, updatedAt, entityIds }) => {
     await Promise.all(entityIds.map(async (entityId) => {
       const existing = await ctx.db
         .query(table)
@@ -167,6 +195,7 @@ export const deleteEntities = mutation({
         .unique();
       if (existing) await ctx.db.delete(existing._id);
     }));
+    if (updatedAt !== undefined) await updateStoreRevision(ctx, storeKey, updatedAt);
   },
 });
 

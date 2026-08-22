@@ -6,6 +6,7 @@ import { api } from "../convex/_generated/api";
 import { emptyStore, FleetStore, migrateStore } from "./fleet-domain";
 
 const STORE_KEY = "primary";
+const STORE_CACHE_KEY = "fleet-store-cache-v1";
 const SAVE_DELAY_MS = 350;
 const MUTATION_BATCH_SIZE = 75;
 const MUTATION_CONCURRENCY = 8;
@@ -39,6 +40,32 @@ type StoreSnapshot = {
   settings: string;
   collections: Map<EntityTable, Map<string, string>>;
 };
+type CachedStore = {
+  revision: number | null;
+  store: FleetStore;
+};
+
+function readStoreCache(): CachedStore | null {
+  try {
+    const cached = localStorage.getItem(STORE_CACHE_KEY);
+    if (!cached) return null;
+    const value = JSON.parse(cached) as Partial<CachedStore>;
+    if ((value.revision !== null && typeof value.revision !== "number") || !value.store) return null;
+    return { revision: value.revision, store: migrateStore(value.store, emptyStore) };
+  } catch {
+    return null;
+  }
+}
+
+function writeStoreCache(store: FleetStore, revision: number | null) {
+  try {
+    localStorage.setItem(STORE_CACHE_KEY, JSON.stringify({ revision, store } satisfies CachedStore));
+  } catch {
+    try {
+      localStorage.removeItem(STORE_CACHE_KEY);
+    } catch {}
+  }
+}
 
 function settingsSnapshot(store: FleetStore) {
   return JSON.stringify({
@@ -89,17 +116,40 @@ async function runMutationQueue(tasks: (() => Promise<unknown>)[]) {
 }
 
 export function useFleetStore() {
-  const remoteStore = useQuery(api.adminStore.get, { key: STORE_KEY });
+  const [store, setStore] = useState<FleetStore>(emptyStore);
+  const [storageReady, setStorageReady] = useState(false);
+  const [loadRemoteStore, setLoadRemoteStore] = useState(false);
+  const remoteRevision = useQuery(api.adminStore.getRevision, storageReady ? "skip" : { key: STORE_KEY });
+  const remoteStore = useQuery(api.adminStore.get, loadRemoteStore && !storageReady ? { key: STORE_KEY } : "skip");
   const saveSettings = useMutation(api.adminStore.saveSettings);
   const saveEntities = useMutation(api.adminStore.saveEntities);
   const deleteEntities = useMutation(api.adminStore.deleteEntities);
-  const [store, setStore] = useState<FleetStore>(emptyStore);
-  const [storageReady, setStorageReady] = useState(false);
   const persisted = useRef<StoreSnapshot | null>(null);
+  const revision = useRef<number | null>(null);
   const saveQueue = useRef(Promise.resolve());
 
   useEffect(() => {
-    if (remoteStore === undefined || storageReady) return;
+    if (remoteRevision === undefined || storageReady) return;
+    let cancelled = false;
+    const cached = readStoreCache();
+    if (!cached || cached.revision !== remoteRevision) {
+      queueMicrotask(() => {
+        if (!cancelled) setLoadRemoteStore(true);
+      });
+    } else {
+      queueMicrotask(() => {
+        if (cancelled) return;
+        revision.current = cached.revision;
+        persisted.current = createSnapshot(cached.store);
+        setStore(cached.store);
+        setStorageReady(true);
+      });
+    }
+    return () => { cancelled = true; };
+  }, [remoteRevision, storageReady]);
+
+  useEffect(() => {
+    if (!loadRemoteStore || remoteStore === undefined || storageReady) return;
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
@@ -112,11 +162,13 @@ export function useFleetStore() {
         }
       }
       persisted.current = remoteStore?.normalized ? createSnapshot(loadedStore) : null;
+      revision.current = remoteRevision ?? null;
+      if (remoteStore?.normalized) writeStoreCache(loadedStore, revision.current);
       setStore(loadedStore);
       setStorageReady(true);
     });
     return () => { cancelled = true; };
-  }, [remoteStore, storageReady]);
+  }, [loadRemoteStore, remoteRevision, remoteStore, storageReady]);
 
   useEffect(() => {
     if (!storageReady) return;
@@ -135,11 +187,12 @@ export function useFleetStore() {
             mutations.push(() => saveEntities({ storeKey: STORE_KEY, table, updatedAt, entities }));
           }
           for (const entityIds of batches(removed)) {
-            mutations.push(() => deleteEntities({ storeKey: STORE_KEY, table, entityIds }));
+            mutations.push(() => deleteEntities({ storeKey: STORE_KEY, table, updatedAt, entityIds }));
           }
         }
         await runMutationQueue(mutations);
         const nextSettings = settingsSnapshot(nextStore);
+        let wroteData = mutations.length > 0;
         if (!previous || previous.settings !== nextSettings) {
           await saveSettings({
             storeKey: STORE_KEY,
@@ -149,8 +202,11 @@ export function useFleetStore() {
             nextOtherBillNumber: nextStore.nextOtherBillNumber,
             updatedAt,
           });
+          wroteData = true;
         }
         persisted.current = createSnapshot(nextStore);
+        if (wroteData) revision.current = updatedAt;
+        writeStoreCache(nextStore, revision.current);
       }).catch((error: unknown) => {
         console.error("Unable to save admin data to Convex", error);
       });

@@ -38,6 +38,11 @@ export default defineSchema({
   suppliers: entityTable(),
   supplierPayments: entityTable(),
 
+  storeRevisions: defineTable({
+    storeKey: v.string(),
+    revision: v.number(),
+  }).index("by_store", ["storeKey"]),
+
   // Kept temporarily so existing deployments can migrate on their next save.
   adminStores: defineTable({
     key: v.string(),
