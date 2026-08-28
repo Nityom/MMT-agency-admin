@@ -1,6 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check, Printer } from "lucide-react";
 import { FormEvent, useState } from "react";
 import {
   addDays,
@@ -9,12 +9,14 @@ import {
   EmployeeExpenseCategory,
   ExpenseTreatment,
   FleetStore,
+  PaymentMode,
   rateOnDate,
 } from "./fleet-domain";
 import {
   Button,
   FormField,
   FormSelect,
+  MaintenancePaymentReceiptModal,
   Modal,
 } from "./operations-components";
 import {
@@ -87,6 +89,9 @@ export function EntryForm({
         : editingBusinessExpense?.amount) ??
       0,
   );
+  const [expenseDiscount, setExpenseDiscount] = useState(
+    editingBusinessExpense?.discount ?? 0,
+  );
   const [expenseSupplierBill, setExpenseSupplierBill] = useState(0);
   const [expensePaid, setExpensePaid] = useState(
     editingBusinessExpense?.paidAmount ?? editingBusinessExpense?.amount ?? 0,
@@ -94,10 +99,12 @@ export function EntryForm({
   const [expenseClientBill, setExpenseClientBill] = useState(
     editingBusinessExpense?.clientBillingAmount ?? 0,
   );
-  const calculatedSupplierBill =
+  const calculatedGrossSupplierBill =
     expenseQuantity > 0
       ? expenseQuantity * expenseSupplierRate
       : expenseSupplierRate;
+  const calculatedSupplierBill =
+    expenseSupplierBill || Math.max(0, calculatedGrossSupplierBill - expenseDiscount);
   const calculatedSupplierBalance = Math.max(
     0,
     calculatedSupplierBill - expensePaid,
@@ -310,10 +317,13 @@ export function EntryForm({
       };
     }
     if (dialog === "businessExpense") {
-      const supplierBillAmount =
+      const grossBillAmount =
         amount(data, "quantity") > 0
           ? amount(data, "quantity") * amount(data, "supplierRate")
           : amount(data, "supplierRate");
+      const discountVal = amount(data, "discount");
+      const supplierBillAmount =
+        amount(data, "amount") || Math.max(0, grossBillAmount - discountVal);
       const selectedClient = store.clients.find(
         (client) => client.id === expenseClientId,
       );
@@ -331,6 +341,7 @@ export function EntryForm({
         quantity: amount(data, "quantity"),
         unit: input(data, "unit"),
         supplierRate: amount(data, "supplierRate"),
+        discount: discountVal,
         amount: supplierBillAmount,
         clientBillingAmount: amount(data, "clientBillingAmount"),
         paidAmount: Math.min(supplierBillAmount, amount(data, "paidAmount")),
@@ -764,6 +775,22 @@ export function EntryForm({
                 />
               </label>
               <label className="op-field">
+                <span>Discount</span>
+                <input
+                  name="discount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={expenseDiscount || ""}
+                  onChange={(event) =>
+                    setExpenseDiscount(Number(event.target.value))
+                  }
+                  placeholder="Discount amount"
+                />
+              </label>
+            </div>
+            <div className="op-form-grid">
+              <label className="op-field">
                 <span>Supplier billing amount</span>
                 <input
                   name="amount"
@@ -773,7 +800,7 @@ export function EntryForm({
                   placeholder={
                     calculatedSupplierBill
                       ? String(calculatedSupplierBill)
-                      : "Auto from quantity × rate"
+                      : "Auto from quantity × rate - discount"
                   }
                   onChange={(event) =>
                     setExpenseSupplierBill(Number(event.target.value))
@@ -932,9 +959,13 @@ export function MaintenanceEntryForm({
 }) {
   const [quantity, setQuantity] = useState(expense?.quantity ?? 0);
   const [supplierRate, setSupplierRate] = useState(expense?.supplierRate ?? expense?.amount ?? 0);
+  const [discount, setDiscount] = useState(expense?.discount ?? 0);
+  const [clientBillingAmount, setClientBillingAmount] = useState(expense?.clientBillingAmount ?? 0);
   const [clientSearch, setClientSearch] = useState(expense?.clientName ?? "");
-  const calculatedAmount =
-    quantity > 0 ? quantity * supplierRate : supplierRate;
+  const [showReceipt, setShowReceipt] = useState(false);
+  const grossAmount = quantity > 0 ? quantity * supplierRate : supplierRate;
+  const calculatedAmount = Math.max(0, grossAmount - discount);
+  const calculatedProfit = clientBillingAmount > 0 ? clientBillingAmount - calculatedAmount : 0;
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -946,6 +977,7 @@ export function MaintenanceEntryForm({
     const client = store.clients.find((item) => item.id === clientId);
     const manualClientName = input(data, "clientName").trim();
     const supplierBill = calculatedAmount;
+    const clientBillingVal = amount(data, "clientBillingAmount");
     save({
       id: expense?.id ?? nextId(store.businessExpenses),
       date: input(data, "date"),
@@ -966,8 +998,9 @@ export function MaintenanceEntryForm({
       quantity,
       unit: input(data, "unit"),
       supplierRate,
+      discount,
       amount: supplierBill,
-      clientBillingAmount: 0,
+      clientBillingAmount: clientBillingVal,
       paidAmount: expense?.paidAmount ?? 0,
       payments: expense?.payments ?? [],
     });
@@ -1002,9 +1035,9 @@ export function MaintenanceEntryForm({
           <FormSelect
             label="Work category"
             name="category"
-            options={categories.map((category) => ({
-              value: category,
-              label: category === "Printing" ? "Banner printing" : category,
+            options={categories.map((cat) => ({
+              value: cat,
+              label: cat === "Printing" ? "Banner printing" : cat,
             }))}
             defaultValue={expense?.category ?? category}
             required
@@ -1035,9 +1068,9 @@ export function MaintenanceEntryForm({
               Supplier: <b>{supplierName}</b>
             </p>
           ) : (
-            <FormField label="Supplier profile name" name="paidTo" required />
+            <FormField label="Supplier profile name" name="paidTo" defaultValue={expense?.paidTo} required />
           )}
-          <FormField label="Reference / vehicle" name="reference" />
+          <FormField label="Reference / vehicle" name="reference" defaultValue={expense?.reference} />
         </div>
         <FormField label="Purpose / notes" name="purpose" defaultValue={expense?.purpose} />
         <div className="op-form-grid">
@@ -1047,14 +1080,15 @@ export function MaintenanceEntryForm({
               name="quantity"
               type="number"
               min="0"
-                value={quantity || ""}
+              step="any"
+              value={quantity || ""}
               onChange={(event) => setQuantity(Number(event.target.value))}
             />
           </label>
           <FormSelect
             label="Unit"
             name="unit"
-            defaultValue="sq ft"
+            defaultValue={expense?.unit ?? "sq ft"}
             options={[
               { value: "sq ft", label: "Square feet" },
               { value: "units", label: "Units" },
@@ -1064,7 +1098,7 @@ export function MaintenanceEntryForm({
         </div>
         <div className="op-form-grid">
           <label className="op-field">
-            <span>Supplier rate / total charge</span>
+            <span>Supplier rate / charge</span>
             <input
               name="supplierRate"
               type="number"
@@ -1075,28 +1109,89 @@ export function MaintenanceEntryForm({
               required
             />
           </label>
+          <label className="op-field">
+            <span>Discount (optional)</span>
+            <input
+              name="discount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={discount || ""}
+              onChange={(event) => setDiscount(Number(event.target.value))}
+              placeholder="Discount amount"
+            />
+          </label>
+        </div>
+        <div className="op-form-grid">
+          <label className="op-field">
+            <span>Amount charged to client</span>
+            <input
+              name="clientBillingAmount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={clientBillingAmount || ""}
+              onChange={(event) => setClientBillingAmount(Number(event.target.value))}
+              placeholder="Client billing amount"
+            />
+          </label>
         </div>
         <section className="op-maintenance-calculation">
-          <span>Calculated supplier amount</span>
+          <span>Gross charge</span>
+          <strong>{money(grossAmount)}</strong>
+          {discount > 0 && (
+            <>
+              <span>Discount</span>
+              <strong className="op-profit">- {money(discount)}</strong>
+            </>
+          )}
+          <span>Calculated net supplier bill</span>
           <strong>{money(calculatedAmount)}</strong>
           <small>
             {quantity > 0
-              ? `${quantity} × ${money(supplierRate)}`
-              : "Enter quantity for quantity × rate, or use rate as the total"}
+              ? `${quantity} × ${money(supplierRate)}${discount > 0 ? ` - ${money(discount)} discount` : ""}`
+              : discount > 0
+                ? `${money(supplierRate)} - ${money(discount)} discount`
+                : "Enter quantity for quantity × rate, or use rate as the total"}
           </small>
-          <span>Supplier balance</span>
-          <strong>{money(calculatedAmount)}</strong>
+          <span>Amount charged to client</span>
+          <strong>{money(clientBillingAmount)}</strong>
+          <span>Calculated profit</span>
+          <strong className={calculatedProfit < 0 ? "op-loss" : "op-profit"}>
+            {money(calculatedProfit)}
+          </strong>
         </section>
         <footer>
           <Button secondary onClick={close}>
             Cancel
           </Button>
+          {(expense?.paidAmount || (expense?.payments?.length ?? 0) > 0) && (
+            <Button secondary onClick={() => setShowReceipt(true)}>
+              <Printer size={16} />
+              Generate receipt
+            </Button>
+          )}
           <Button type="submit">
             <Check size={17} />
             Save record
           </Button>
         </footer>
       </form>
+      {showReceipt && (
+        <MaintenancePaymentReceiptModal
+          store={store}
+          paidTo={supplierName ?? expense?.paidTo ?? "Supplier"}
+          description={expense?.description}
+          category={expense?.category ?? category}
+          payment={{
+            date: expense?.paidDate ?? expense?.date ?? isoToday(),
+            amount: expense?.paidAmount || (expense?.payments?.[0]?.amount ?? calculatedAmount),
+            mode: expense?.payments?.[0]?.mode ?? "Cash",
+            reference: expense?.reference,
+          }}
+          close={() => setShowReceipt(false)}
+        />
+      )}
     </Modal>
   );
 }

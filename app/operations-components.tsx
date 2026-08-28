@@ -1,7 +1,109 @@
-"use client";
-
-import { Banknote, ChevronLeft, ChevronRight, Printer, Trash2, X } from "lucide-react";
+import { Banknote, ChevronLeft, ChevronRight, Printer, ReceiptText, Trash2, X } from "lucide-react";
 import { useState } from "react";
+import { FleetStore, PaymentMode } from "./fleet-domain";
+import { fmt, money } from "./operations-utils";
+
+export function MaintenancePaymentReceiptModal({
+  store,
+  paidTo,
+  description,
+  category,
+  payment,
+  close,
+}: {
+  store: FleetStore;
+  paidTo: string;
+  description?: string;
+  category?: string;
+  payment: {
+    id?: number;
+    date: string;
+    amount: number;
+    mode?: PaymentMode;
+    reference?: string;
+    note?: string;
+  };
+  close: () => void;
+}) {
+  return (
+    <div className="invoice-backdrop">
+      <div className="invoice-dialog" style={{ width: "min(640px, 100%)" }}>
+        <div className="invoice-toolbar">
+          <Button secondary onClick={close}>
+            <X size={17} />
+            Close
+          </Button>
+          <Button onClick={() => window.print()}>
+            <Printer size={17} />
+            Print receipt
+          </Button>
+        </div>
+        <article className="invoice-sheet" style={{ minHeight: "auto", padding: "24px" }}>
+          <header className="invoice-brand" style={{ marginBottom: "16px", borderRadius: "6px" }}>
+            <ReceiptText size={32} />
+            <div>
+              <h2>{store.company.name}</h2>
+              <p>{store.company.address} · {store.company.mobile}</p>
+            </div>
+          </header>
+          <h1 style={{ fontSize: "22px", margin: "16px 0", borderBottom: "2px solid #222", paddingBottom: "8px" }}>
+            MAINTENANCE PAYMENT RECEIPT
+          </h1>
+          <table className="op-supplier-ledger-table" style={{ width: "100%", fontSize: "14px", marginBottom: "20px" }}>
+            <tbody>
+              <tr>
+                <th style={{ width: "35%", background: "#f3f7f4" }}>Receipt Date</th>
+                <td><b>{fmt(payment.date)}</b></td>
+              </tr>
+              <tr>
+                <th style={{ background: "#f3f7f4" }}>Supplier / Party</th>
+                <td><b>{paidTo}</b></td>
+              </tr>
+              {category && (
+                <tr>
+                  <th style={{ background: "#f3f7f4" }}>Work Category</th>
+                  <td>{category}</td>
+                </tr>
+              )}
+              {description && (
+                <tr>
+                  <th style={{ background: "#f3f7f4" }}>Work / Item Details</th>
+                  <td>{description}</td>
+                </tr>
+              )}
+              <tr>
+                <th style={{ background: "#f3f7f4" }}>Payment Mode</th>
+                <td><strong style={{ color: "#1f6a53" }}>{payment.mode || "Cash"}</strong></td>
+              </tr>
+              {payment.reference && (
+                <tr>
+                  <th style={{ background: "#f3f7f4" }}>Reference No. / Vehicle</th>
+                  <td>{payment.reference}</td>
+                </tr>
+              )}
+              {payment.note && (
+                <tr>
+                  <th style={{ background: "#f3f7f4" }}>Note / Details</th>
+                  <td>{payment.note}</td>
+                </tr>
+              )}
+              <tr style={{ background: "#eef6f1", fontSize: "16px" }}>
+                <th>Amount Paid</th>
+                <td><strong style={{ fontSize: "20px", color: "#165944" }}>{money(payment.amount)}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+          <div style={{ marginTop: "28px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", paddingTop: "14px", borderTop: "1px dashed #999" }}>
+            <small style={{ color: "#666" }}>Computer generated receipt · {store.company.name}</small>
+            <div style={{ textAlign: "center" }}>
+              <p style={{ margin: 0, fontWeight: 700 }}>Authorized Signatory</p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  );
+}
 
 export function Button({ children, onClick, secondary = false, type = "button" }: { children: React.ReactNode; onClick?: () => void; secondary?: boolean; type?: "button" | "submit" }) {
   return <button type={type} className={secondary ? "op-button secondary" : "op-button"} onClick={onClick}>{children}</button>;

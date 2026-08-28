@@ -12,7 +12,14 @@ import {
 } from "./fleet-domain";
 
 export const isoToday = () => new Date().toISOString().slice(0, 10);
-export const money = (value: number) => `${value < 0 ? "-" : ""}₹${Math.abs(Math.round(value)).toLocaleString("en-IN")}`;
+export const money = (value: number) => {
+  const isNegative = value < 0;
+  const absVal = Math.abs(value);
+  const formatted = absVal % 1 !== 0
+    ? absVal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : absVal.toLocaleString("en-IN");
+  return `${isNegative ? "-" : ""}₹${formatted}`;
+};
 export const nextId = (items: { id: number }[]) => Math.max(0, ...items.map((item) => item.id)) + 1;
 export const input = (data: FormData, name: string) => String(data.get(name) ?? "").trim();
 export const amount = (data: FormData, name: string) => Number(data.get(name)) || 0;

@@ -249,8 +249,8 @@ export type BusinessExpensePayment = {
   id: number;
   date: ISODate;
   amount: number;
-  reference: string;
-  note: string;
+  reference?: string;
+  note?: string;
   mode?: PaymentMode;
 };
 
@@ -285,6 +285,7 @@ export type BusinessExpense = {
   quantity?: number;
   unit?: string;
   supplierRate?: number;
+  discount?: number;
   amount: number;
   clientBillingAmount?: number;
   paidAmount?: number;
@@ -389,8 +390,11 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
   const deductions = relevantExpenses.filter((expense) => expense.treatment === "Employee deduction").reduce((sum, expense) => sum + expense.amount, 0);
   const gross = [...breakdown.values()].reduce((sum, item) => sum + item.amount, 0);
   const carryForward = store.payrollPayments
-    .filter((payment) => payment.employeeId === employeeId && payment.periodStart < periodStart && payment.status === "Pending")
-    .reduce((sum, payment) => sum + Math.max(0, payment.net - (payment.paidAmount ?? 0)), 0);
+    .filter((payment) => payment.employeeId === employeeId && payment.periodStart < periodStart)
+    .reduce((sum, payment) => {
+      const paid = payment.status === "Paid" ? (payment.paidAmount ?? payment.net) : (payment.paidAmount ?? 0);
+      return sum + Math.max(0, payment.net - paid);
+    }, 0);
   const paidPayment = store.payrollPayments.find((payment) => payment.employeeId === employeeId && payment.periodStart === periodStart && payment.status === "Paid");
   const outstandingAdvance = store.advances.filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
   const advanceRecovery = paidPayment?.advanceRecovery ?? outstandingAdvance;
