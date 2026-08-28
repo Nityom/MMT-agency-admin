@@ -82,6 +82,10 @@ export default function OperationsApp() {
   const [consolidatedBills, setConsolidatedBills] = useState<Bill[]>([]);
   const [attendanceDate, setAttendanceDate] = useState(isoToday()), [attendanceReportFrom, setAttendanceReportFrom] = useState(`${isoToday().slice(0, 7)}-01`), [attendanceReportTo, setAttendanceReportTo] = useState(isoToday()), [payrollWeek, setPayrollWeek] = useState(weekFor(isoToday()).start), [payrollPeriodEnd, setPayrollPeriodEnd] = useState(weekFor(isoToday()).end), [composeBill, setComposeBill] = useState(false), [billingClientId, setBillingClientId] = useState(0), [invoice, setInvoice] = useState<Bill | null>(null), [receipt, setReceipt] = useState<Bill | null>(null), [reportPeriod, setReportPeriod] = useState<"Month" | "Quarter" | "Year" | "Date range">("Month");
   const [reportFrom, setReportFrom] = useState(`${isoToday().slice(0, 7)}-01`), [reportTo, setReportTo] = useState(isoToday());
+  const [reportMonth, setReportMonth] = useState(() => isoToday().slice(0, 7));
+  const [reportQuarter, setReportQuarter] = useState(() => Math.floor((Number(isoToday().slice(5, 7)) - 1) / 3) + 1);
+  const [reportQuarterYear, setReportQuarterYear] = useState(() => Number(isoToday().slice(0, 4)));
+  const [reportYear, setReportYear] = useState(() => Number(isoToday().slice(0, 4)));
   const [reportProfitCategory, setSelectedReportProfitCategory] = useState<ReportProfitCategory>("All");
   const [reportCategoryDetail, setReportCategoryDetail] = useState<ReportProfitCategory | null>(null);
   const [reportDetail, setReportDetail] = useState<ReportDetailKind | null>(null);
@@ -274,10 +278,30 @@ export default function OperationsApp() {
     }));
     notify(`All salaries marked paid for period ${fmt(payrollWeek)} – ${fmt(payrollPeriodEnd)}`);
   };
-  const presetReportEnd = isoToday();
-  const customReportStart = reportFrom <= reportTo ? reportFrom : reportTo, customReportEnd = reportFrom <= reportTo ? reportTo : reportFrom;
-  const reportEnd = reportPeriod === "Date range" ? customReportEnd : presetReportEnd;
-  const reportStart = reportPeriod === "Date range" ? customReportStart : reportPeriod === "Month" ? `${reportEnd.slice(0, 7)}-01` : reportPeriod === "Quarter" ? `${reportEnd.slice(0, 5)}${String(Math.floor((Number(reportEnd.slice(5, 7)) - 1) / 3) * 3 + 1).padStart(2, "0")}-01` : `${reportEnd.slice(0, 4)}-01-01`;
+  let reportStart = `${isoToday().slice(0, 7)}-01`;
+  let reportEnd = isoToday();
+
+  if (reportPeriod === "Month") {
+    const [yStr, mStr] = reportMonth.split("-");
+    const yearNum = Number(yStr) || Number(isoToday().slice(0, 4));
+    const monthNum = Number(mStr) || Number(isoToday().slice(5, 7));
+    const lastDay = new Date(yearNum, monthNum, 0).getDate();
+    reportStart = `${yearNum}-${String(monthNum).padStart(2, "0")}-01`;
+    reportEnd = `${yearNum}-${String(monthNum).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  } else if (reportPeriod === "Quarter") {
+    const qStartMonth = (reportQuarter - 1) * 3 + 1;
+    const qEndMonth = reportQuarter * 3;
+    const lastDay = new Date(reportQuarterYear, qEndMonth, 0).getDate();
+    reportStart = `${reportQuarterYear}-${String(qStartMonth).padStart(2, "0")}-01`;
+    reportEnd = `${reportQuarterYear}-${String(qEndMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  } else if (reportPeriod === "Year") {
+    reportStart = `${reportYear}-01-01`;
+    reportEnd = `${reportYear}-12-31`;
+  } else if (reportPeriod === "Date range") {
+    reportStart = reportFrom <= reportTo ? reportFrom : reportTo;
+    reportEnd = reportFrom <= reportTo ? reportTo : reportFrom;
+  }
+
   const reportBills = store.bills.filter((bill) => bill.billDate >= reportStart && bill.billDate <= reportEnd), reportOtherBills = store.otherBills.filter((bill) => bill.billDate >= reportStart && bill.billDate <= reportEnd), reportOtherBillExpenses: FleetStore["businessExpenses"] = reportOtherBills.map((bill) => ({ id: -bill.id, date: bill.billDate, category: bill.category === "Other" ? "Miscellaneous" : bill.category, description: bill.items.map((item) => item.description).filter(Boolean).join(", ") || `${bill.category} bill`, purpose: `${bill.category} bill #${String(bill.number).padStart(4, "0")}`, paidTo: "Paper / calendar supplier", reference: "", amount: otherBillCost(bill), clientId: bill.clientId, clientName: bill.client.firmName, clientBillingAmount: bill.total, paidAmount: otherBillCost(bill) })), reportExpenses = [...store.businessExpenses.filter((expense) => expense.date >= reportStart && expense.date <= reportEnd), ...reportOtherBillExpenses], reportEmployeeExpenses = store.employeeExpenses.filter((expense) => expense.date >= reportStart && expense.date <= reportEnd && expense.treatment !== "Employee deduction"), reportPayroll = store.payrollPayments.filter((payment) => payment.status === "Paid" && payment.paidAt && payment.paidAt >= reportStart && payment.paidAt <= reportEnd), reportOutstanding = reportBills.reduce((sum, bill) => sum + billBalance(bill), 0) + reportOtherBills.reduce((sum, bill) => sum + otherBillBalance(bill), 0), reportTotalExpenses = reportExpenses.reduce((sum, item) => sum + item.amount, 0) + reportEmployeeExpenses.reduce((sum, item) => sum + item.amount, 0) + reportPayroll.reduce((sum, item) => sum + item.net, 0);
   const reportRevenue = reportBills.reduce((sum, item) => sum + item.total, 0) + reportOtherBills.reduce((sum, item) => sum + item.total, 0);
   const reportSalaryExpenses: FleetStore["businessExpenses"] = reportPayroll.map((payment) => ({ id: payment.id, date: payment.paidAt ?? payment.payoutDate, category: "Self stay", description: store.employees.find((employee) => employee.id === payment.employeeId)?.name ?? "Employee salary", purpose: `${fmt(payment.periodStart)} to ${fmt(payment.periodEnd)}`, paidTo: "Employee salary", reference: "", amount: payment.net, clientBillingAmount: 0, paidAmount: payment.net }));
@@ -419,6 +443,43 @@ export default function OperationsApp() {
         notify("Supplier installment recorded");
       }}
     />}
-    {view === "reports" && <ReportsView store={store} reportPeriod={reportPeriod} setReportPeriod={setReportPeriod} reportFrom={reportFrom} setReportFrom={setReportFrom} reportTo={reportTo} setReportTo={setReportTo} reportStart={reportStart} reportEnd={reportEnd} reportProfitCategory={reportProfitCategory} reportCategorySupplierCost={reportCategorySupplierCost} reportCategoryClientBilling={reportCategoryClientBilling} reportCategoryProfit={reportCategoryProfit} reportCategoryRecordCount={reportCategoryExpenses.length} reportProfitBreakdown={reportProfitBreakdown} setReportProfitCategory={setReportProfitCategory} reportTrend={reportTrend} reportClientChart={reportClientChart} reportRevenue={reportRevenue} reportOutstanding={reportOutstanding} reportBills={reportBills} reportTotalExpenses={reportTotalExpenses} reportExpenses={reportExpenses} reportEmployeeExpenses={reportEmployeeExpenses} reportPayroll={reportPayroll} outstanding={outstanding}/>}
+    {view === "reports" && (
+      <ReportsView
+        store={store}
+        reportPeriod={reportPeriod}
+        setReportPeriod={setReportPeriod}
+        reportMonth={reportMonth}
+        setReportMonth={setReportMonth}
+        reportQuarter={reportQuarter}
+        setReportQuarter={setReportQuarter}
+        reportQuarterYear={reportQuarterYear}
+        setReportQuarterYear={setReportQuarterYear}
+        reportYear={reportYear}
+        setReportYear={setReportYear}
+        reportFrom={reportFrom}
+        setReportFrom={setReportFrom}
+        reportTo={reportTo}
+        setReportTo={setReportTo}
+        reportStart={reportStart}
+        reportEnd={reportEnd}
+        reportProfitCategory={reportProfitCategory}
+        reportCategorySupplierCost={reportCategorySupplierCost}
+        reportCategoryClientBilling={reportCategoryClientBilling}
+        reportCategoryProfit={reportCategoryProfit}
+        reportCategoryRecordCount={reportCategoryExpenses.length}
+        reportProfitBreakdown={reportProfitBreakdown}
+        setReportProfitCategory={setReportProfitCategory}
+        reportTrend={reportTrend}
+        reportClientChart={reportClientChart}
+        reportRevenue={reportRevenue}
+        reportOutstanding={reportOutstanding}
+        reportBills={reportBills}
+        reportTotalExpenses={reportTotalExpenses}
+        reportExpenses={reportExpenses}
+        reportEmployeeExpenses={reportEmployeeExpenses}
+        reportPayroll={reportPayroll}
+        outstanding={outstanding}
+      />
+    )}
   </OperationsShell>;
 }

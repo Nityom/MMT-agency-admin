@@ -7,7 +7,7 @@ import {
   ReceiptText,
   WalletCards,
 } from "lucide-react";
-import type { FleetStore } from "./fleet-domain";
+import { addDays, type FleetStore } from "./fleet-domain";
 import {
   ClientDonut,
   Metric,
@@ -18,6 +18,7 @@ import {
 import {
   billBalance,
   fmt,
+  isoToday,
   money,
   type ReportProfitCategory,
 } from "./operations-utils";
@@ -28,6 +29,14 @@ type ReportsViewProps = {
   store: FleetStore;
   reportPeriod: ReportPeriod;
   setReportPeriod: (period: ReportPeriod) => void;
+  reportMonth: string;
+  setReportMonth: (month: string) => void;
+  reportQuarter: number;
+  setReportQuarter: (quarter: number) => void;
+  reportQuarterYear: number;
+  setReportQuarterYear: (year: number) => void;
+  reportYear: number;
+  setReportYear: (year: number) => void;
   reportFrom: string;
   setReportFrom: (date: string) => void;
   reportTo: string;
@@ -62,6 +71,14 @@ export function ReportsView({
   store,
   reportPeriod,
   setReportPeriod,
+  reportMonth,
+  setReportMonth,
+  reportQuarter,
+  setReportQuarter,
+  reportQuarterYear,
+  setReportQuarterYear,
+  reportYear,
+  setReportYear,
   reportFrom,
   setReportFrom,
   reportTo,
@@ -86,12 +103,16 @@ export function ReportsView({
   reportPayroll,
   outstanding,
 }: ReportsViewProps) {
+  const currentYear = Number(isoToday().slice(0, 4));
+  const currentMonthStr = isoToday().slice(0, 7);
+
   return (
     <>
       <PageHead
         title="Business reports"
         detail="Revenue, outstanding, expenses, and profit by work category"
       />
+
       <div className="op-report-period">
         <div className="op-period-tabs">
           {(["Month", "Quarter", "Year", "Date range"] as const).map(
@@ -106,9 +127,175 @@ export function ReportsView({
             ),
           )}
         </div>
+
+        {/* Month Selector */}
+        {reportPeriod === "Month" && (
+          <div
+            className="op-report-range"
+            style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
+          >
+            <label className="op-field" style={{ width: "180px" }}>
+              <span>Choose Month</span>
+              <input
+                type="month"
+                value={reportMonth}
+                onChange={(e) =>
+                  setReportMonth(e.target.value || currentMonthStr)
+                }
+              />
+            </label>
+
+            <div className="op-salary-tabs" style={{ margin: 0 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const [y, m] = reportMonth.split("-").map(Number);
+                  const prev = new Date(y, m - 2, 1);
+                  setReportMonth(
+                    `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
+                  );
+                }}
+              >
+                ← Prev Month
+              </button>
+              <button
+                type="button"
+                className={reportMonth === currentMonthStr ? "active" : ""}
+                onClick={() => setReportMonth(currentMonthStr)}
+              >
+                Current Month
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const [y, m] = reportMonth.split("-").map(Number);
+                  const next = new Date(y, m, 1);
+                  setReportMonth(
+                    `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`,
+                  );
+                }}
+              >
+                Next Month →
+              </button>
+            </div>
+
+            <p style={{ marginLeft: "auto" }}>
+              <CalendarDays size={17} />
+              {new Date(`${reportStart}T00:00:00`).toLocaleDateString("en-IN", {
+                month: "long",
+                year: "numeric",
+              })}{" "}
+              ({fmt(reportStart)} to {fmt(reportEnd)})
+            </p>
+          </div>
+        )}
+
+        {/* Quarter Selector */}
+        {reportPeriod === "Quarter" && (
+          <div
+            className="op-report-range"
+            style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
+          >
+            <label className="op-field" style={{ width: "130px" }}>
+              <span>Year</span>
+              <select
+                value={reportQuarterYear}
+                onChange={(e) => setReportQuarterYear(Number(e.target.value))}
+              >
+                {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2, currentYear - 3].map(
+                  (y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+
+            <div className="op-salary-tabs" style={{ margin: 0 }}>
+              {[
+                { q: 1, label: "Q1 (Jan – Mar)" },
+                { q: 2, label: "Q2 (Apr – Jun)" },
+                { q: 3, label: "Q3 (Jul – Sep)" },
+                { q: 4, label: "Q4 (Oct – Dec)" },
+              ].map(({ q, label }) => (
+                <button
+                  key={q}
+                  type="button"
+                  className={reportQuarter === q ? "active" : ""}
+                  onClick={() => setReportQuarter(q)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <p style={{ marginLeft: "auto" }}>
+              <CalendarDays size={17} />
+              Q{reportQuarter} {reportQuarterYear} ({fmt(reportStart)} to{" "}
+              {fmt(reportEnd)})
+            </p>
+          </div>
+        )}
+
+        {/* Year Selector */}
+        {reportPeriod === "Year" && (
+          <div
+            className="op-report-range"
+            style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
+          >
+            <label className="op-field" style={{ width: "130px" }}>
+              <span>Choose Year</span>
+              <select
+                value={reportYear}
+                onChange={(e) => setReportYear(Number(e.target.value))}
+              >
+                {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4].map(
+                  (y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+
+            <div className="op-salary-tabs" style={{ margin: 0 }}>
+              <button
+                type="button"
+                onClick={() => setReportYear(reportYear - 1)}
+              >
+                ← {reportYear - 1}
+              </button>
+              <button
+                type="button"
+                className={reportYear === currentYear ? "active" : ""}
+                onClick={() => setReportYear(currentYear)}
+              >
+                Current Year ({currentYear})
+              </button>
+              <button
+                type="button"
+                onClick={() => setReportYear(reportYear + 1)}
+              >
+                {reportYear + 1} →
+              </button>
+            </div>
+
+            <p style={{ marginLeft: "auto" }}>
+              <CalendarDays size={17} />
+              Full Year {reportYear} ({fmt(reportStart)} to {fmt(reportEnd)})
+            </p>
+          </div>
+        )}
+
+        {/* Date Range Selector */}
         {reportPeriod === "Date range" && (
-          <div className="op-report-range">
-            <label className="op-field">
+          <div
+            className="op-report-range"
+            style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
+          >
+            <label className="op-field" style={{ width: "160px" }}>
               <span>From</span>
               <input
                 type="date"
@@ -116,8 +303,8 @@ export function ReportsView({
                 onChange={(event) => setReportFrom(event.target.value)}
               />
             </label>
-            <span>to</span>
-            <label className="op-field">
+            <span style={{ paddingBottom: "10px" }}>to</span>
+            <label className="op-field" style={{ width: "160px" }}>
               <span>To</span>
               <input
                 type="date"
@@ -125,7 +312,49 @@ export function ReportsView({
                 onChange={(event) => setReportTo(event.target.value)}
               />
             </label>
-            <p>
+
+            <div className="op-salary-tabs" style={{ margin: 0 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportFrom(addDays(isoToday(), -6));
+                  setReportTo(isoToday());
+                }}
+              >
+                Last 7 Days
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportFrom(addDays(isoToday(), -29));
+                  setReportTo(isoToday());
+                }}
+              >
+                Last 30 Days
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportFrom(`${currentMonthStr}-01`);
+                  setReportTo(isoToday());
+                }}
+              >
+                This Month
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const currM = Number(isoToday().slice(5, 7));
+                  const fyStart = currM >= 4 ? currentYear : currentYear - 1;
+                  setReportFrom(`${fyStart}-04-01`);
+                  setReportTo(isoToday());
+                }}
+              >
+                FY {Number(isoToday().slice(5, 7)) >= 4 ? `${currentYear}–${currentYear + 1}` : `${currentYear - 1}–${currentYear}`}
+              </button>
+            </div>
+
+            <p style={{ marginLeft: "auto" }}>
               <CalendarDays size={17} />
               {fmt(reportStart)} to {fmt(reportEnd)}
             </p>
