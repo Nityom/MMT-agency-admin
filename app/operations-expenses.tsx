@@ -107,7 +107,7 @@ function SelfExpenseForm({
   close: () => void;
   save: (expense: FleetStore["businessExpenses"][number]) => void;
 }) {
-  const [category, setCategory] = useState<"Self travel" | "Self stay">(
+  const [category] = useState<"Self travel" | "Self stay">(
     "Self travel",
   );
   const [items, setItems] = useState([{ id: 1, name: "", amount: 0 }]);
@@ -115,23 +115,15 @@ function SelfExpenseForm({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    const startDate = input(data, "startDate"),
-      endDate = input(data, "endDate");
-    if (endDate < startDate) {
-      const field = event.currentTarget.elements.namedItem(
-        "endDate",
-      ) as HTMLInputElement;
-      field.setCustomValidity("End date must be on or after the start date.");
-      field.reportValidity();
-      return;
-    }
+    const tourDate = input(data, "tourDate") || input(data, "paidDate") || isoToday();
     const savedItems = items
       .filter((item) => item.name.trim() && item.amount > 0)
       .map((item) => ({ ...item, name: item.name.trim() }));
     if (!savedItems.length) return;
     save({
       id: 0,
-      date: startDate,
+      date: tourDate,
+      tourName: input(data, "tourName"),
       category,
       description: input(data, "description"),
       purpose: input(data, "purpose"),
@@ -144,8 +136,6 @@ function SelfExpenseForm({
       payments: [],
       fromLocation: input(data, "fromLocation"),
       toLocation: input(data, "toLocation"),
-      startDate,
-      endDate,
       items: savedItems,
     });
   };
@@ -153,18 +143,7 @@ function SelfExpenseForm({
     <Modal title="Add self expense record" close={close}>
       <form className="op-form op-self-expense-form" onSubmit={submit}>
         <div className="op-form-grid">
-          <label className="op-field">
-            <span>Expense type</span>
-            <select
-              value={category}
-              onChange={(event) =>
-                setCategory(event.target.value as "Self travel" | "Self stay")
-              }
-            >
-              <option value="Self travel">Travel expense</option>
-              <option value="Self stay">Stay expense</option>
-            </select>
-          </label>
+          <FormField label="Tour name" name="tourName" required />
           <FormField
             label="Payment date"
             name="paidDate"
@@ -173,22 +152,7 @@ function SelfExpenseForm({
             required
           />
         </div>
-        <div className="op-form-grid">
-          <FormField
-            label="Start date"
-            name="startDate"
-            type="date"
-            defaultValue={isoToday()}
-            required
-          />
-          <FormField
-            label="End date"
-            name="endDate"
-            type="date"
-            defaultValue={isoToday()}
-            required
-          />
-        </div>
+        <FormField label="Tour date (optional)" name="tourDate" type="date" />
         <div className="op-form-grid">
           <FormField
             label={category === "Self travel" ? "Travel from" : "Home / origin"}
@@ -429,7 +393,7 @@ function SelfExpenseEditorForm({
   close: () => void;
   save: (expense: FleetStore["businessExpenses"][number]) => void;
 }) {
-  const [category, setCategory] = useState<"Self travel" | "Self stay">(
+  const [category] = useState<"Self travel" | "Self stay">(
     expense?.category === "Self stay" ? "Self stay" : "Self travel",
   );
   const [items, setItems] = useState(
@@ -441,16 +405,7 @@ function SelfExpenseEditorForm({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    const startDate = input(data, "startDate"),
-      endDate = input(data, "endDate");
-    if (endDate < startDate) {
-      const field = event.currentTarget.elements.namedItem(
-        "endDate",
-      ) as HTMLInputElement;
-      field.setCustomValidity("End date must be on or after the start date.");
-      field.reportValidity();
-      return;
-    }
+    const tourDate = input(data, "tourDate") || input(data, "paidDate") || isoToday();
     const savedItems = items
       .filter((item) => item.name.trim() && item.amount > 0)
       .map((item) => ({ ...item, name: item.name.trim() }));
@@ -458,7 +413,8 @@ function SelfExpenseEditorForm({
     save({
       ...expense,
       id: expense?.id ?? 0,
-      date: startDate,
+      date: tourDate,
+      tourName: input(data, "tourName"),
       category,
       description: input(data, "description"),
       purpose: input(data, "purpose"),
@@ -471,8 +427,6 @@ function SelfExpenseEditorForm({
       payments: [],
       fromLocation: input(data, "fromLocation"),
       toLocation: input(data, "toLocation"),
-      startDate,
-      endDate,
       items: savedItems,
     });
   };
@@ -483,18 +437,7 @@ function SelfExpenseEditorForm({
     >
       <form className="op-form op-self-expense-form" onSubmit={submit}>
         <div className="op-form-grid">
-          <label className="op-field">
-            <span>Expense type</span>
-            <select
-              value={category}
-              onChange={(event) =>
-                setCategory(event.target.value as "Self travel" | "Self stay")
-              }
-            >
-              <option value="Self travel">Travel expense</option>
-              <option value="Self stay">Stay expense</option>
-            </select>
-          </label>
+          <FormField label="Tour name" name="tourName" defaultValue={expense?.tourName ?? expense?.description} required />
           <FormField
             label="Payment date"
             name="paidDate"
@@ -503,22 +446,7 @@ function SelfExpenseEditorForm({
             required
           />
         </div>
-        <div className="op-form-grid">
-          <FormField
-            label="Start date"
-            name="startDate"
-            type="date"
-            defaultValue={expense?.startDate ?? expense?.date ?? isoToday()}
-            required
-          />
-          <FormField
-            label="End date"
-            name="endDate"
-            type="date"
-            defaultValue={expense?.endDate ?? expense?.date ?? isoToday()}
-            required
-          />
-        </div>
+        <FormField label="Tour date (optional)" name="tourDate" type="date" defaultValue={expense?.date} />
         <div className="op-form-grid">
           <FormField
             label={category === "Self travel" ? "Travel from" : "Home / origin"}

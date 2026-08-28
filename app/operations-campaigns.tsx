@@ -60,7 +60,12 @@ export function CampaignBookingForm({
       0,
   );
   const [clientQuery, setClientQuery] = useState(
-    booking ? booking.client.firmName : "",
+    booking ? booking.client.mobile : "",
+  );
+  const [campaignClientName, setCampaignClientName] = useState(
+    booking?.client.firmName ??
+      store.clients.find((client) => client.status === "Active")?.firmName ??
+      "",
   );
   const [clientResultLimit, setClientResultLimit] = useState(100);
   const [campaignStartDate, setCampaignStartDate] = useState(initialStartDate);
@@ -151,7 +156,7 @@ export function CampaignBookingForm({
       month: input(data, "month"),
       clientId,
       client: {
-        firmName: client.firmName,
+        firmName: campaignClientName.trim() || client.firmName,
         ownerName: client.ownerName,
         address: client.address,
         mobile: client.mobile,
@@ -192,7 +197,7 @@ export function CampaignBookingForm({
             <span>Find existing client</span>
             <input
               value={clientQuery}
-              placeholder="Search firm, owner, or phone"
+              placeholder="Search client name or phone number"
               onChange={(event) => {
                 setClientQuery(event.target.value);
                 setClientResultLimit(100);
@@ -209,7 +214,14 @@ export function CampaignBookingForm({
             value={
               clientMatches.some((item) => item.id === clientId) ? clientId : ""
             }
-            onChange={(event) => setClientId(Number(event.target.value))}
+            onChange={(event) => {
+              const nextClientId = Number(event.target.value);
+              setClientId(nextClientId);
+              setCampaignClientName(
+                store.clients.find((item) => item.id === nextClientId)
+                  ?.firmName ?? "",
+              );
+            }}
             required
           >
             <option value="">Select client</option>
@@ -236,7 +248,14 @@ export function CampaignBookingForm({
         )}
         {client && (
           <section className="op-client-prefill">
-            <b>{client.firmName}</b>
+            <label className="op-field">
+              <span>Campaign client name</span>
+              <input
+                value={campaignClientName}
+                onChange={(event) => setCampaignClientName(event.target.value)}
+                required
+              />
+            </label>
             <span>
               {client.ownerName} · {client.mobile}
             </span>
@@ -496,12 +515,14 @@ function LegacyCampaignBookingCard({
   store,
   booking,
   edit,
+  deleteBooking,
   stop,
   generateBill,
 }: {
   store: FleetStore;
   booking: CampaignBooking;
   edit: () => void;
+  deleteBooking: () => void;
   stop: () => void;
   generateBill: () => void;
 }) {
@@ -612,6 +633,7 @@ function LegacyCampaignBookingCard({
         <Button secondary onClick={edit}>
           Edit / extend / schedule stop
         </Button>
+        <Button secondary onClick={deleteBooking}>Delete campaign</Button>
         {status === "Active" && (
           <Button secondary onClick={stop}>
             Stop now
@@ -636,12 +658,16 @@ function CampaignSlotCardContent({
   store,
   booking,
   edit,
+  renew,
+  deleteBooking,
   stop,
   generateBill,
 }: {
   store: FleetStore;
   booking: CampaignBooking;
   edit: () => void;
+  renew: () => void;
+  deleteBooking: () => void;
   stop: () => void;
   generateBill: () => void;
 }) {
@@ -651,6 +677,7 @@ function CampaignSlotCardContent({
         store={store}
         booking={booking}
         edit={edit}
+        deleteBooking={deleteBooking}
         stop={stop}
         generateBill={generateBill}
       />
@@ -760,6 +787,8 @@ function CampaignSlotCardContent({
         <Button secondary onClick={edit}>
           Edit / extend / schedule stop
         </Button>
+        {status !== "Active" && <Button secondary onClick={renew}>Renew campaign</Button>}
+        <Button secondary onClick={deleteBooking}>Delete campaign</Button>
         {status === "Active" && (
           <Button secondary onClick={stop}>
             Stop now
@@ -784,12 +813,16 @@ export function CampaignSlotCard({
   store,
   booking,
   edit,
+  renew,
+  deleteBooking,
   stop,
   generateBill,
 }: {
   store: FleetStore;
   booking: CampaignBooking;
   edit: () => void;
+  renew: () => void;
+  deleteBooking: () => void;
   stop: () => void;
   generateBill: () => void;
 }) {
@@ -833,6 +866,8 @@ export function CampaignSlotCard({
         store={store}
         booking={booking}
         edit={edit}
+        renew={renew}
+        deleteBooking={deleteBooking}
         stop={stop}
         generateBill={generateBill}
       />
@@ -936,6 +971,18 @@ export function CampaignAttendanceView({
               }}
             >
               Mark all present
+            </Button>
+            <Button
+              secondary
+              onClick={() => {
+                setDraft((current) => ({
+                  ...current,
+                  ...Object.fromEntries(slots.map((key) => [key, false])),
+                }));
+                setDirty(true);
+              }}
+            >
+              Mark all absent
             </Button>
             <Button onClick={save}>
               <Check size={17} />

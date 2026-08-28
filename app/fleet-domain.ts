@@ -130,6 +130,7 @@ export type PayrollPayment = {
   deductions: number;
   advanceRecovery: number;
   net: number;
+  paidAmount?: number;
   status: "Pending" | "Paid";
   paidAt?: ISODate;
 };
@@ -153,6 +154,7 @@ export type BillChargeCategory =
   | "Pasting"
   | "Recording"
   | "Municipal tax"
+  | "Design"
   | "Tea"
   | "Breakfast"
   | "Lunch"
@@ -167,6 +169,10 @@ export type BillCharge = {
   quantity: number;
   rate: number;
   amount: number;
+  fromDate?: ISODate;
+  toDate?: ISODate;
+  recurring?: boolean;
+  design?: string;
 };
 
 export type ClientSnapshot = Pick<Client, "firmName" | "ownerName" | "address" | "mobile" | "email">;
@@ -195,7 +201,7 @@ export type Bill = {
   status: BillStatus;
 };
 
-export type OtherBillCategory = "Paper" | "Calendar";
+export type OtherBillCategory = "Paper" | "Calendar" | "Other";
 
 export type OtherBillItem = {
   id: number;
@@ -206,6 +212,9 @@ export type OtherBillItem = {
   amount: number;
   costRate?: number;
   costAmount?: number;
+  fromDate?: ISODate;
+  toDate?: ISODate;
+  publishingDate?: ISODate;
 };
 
 export type OtherBill = {
@@ -219,6 +228,7 @@ export type OtherBill = {
   payments: BillPayment[];
   total: number;
   status: BillStatus;
+  discount?: number;
 };
 
 export type BusinessExpenseCategory =
@@ -241,6 +251,7 @@ export type BusinessExpensePayment = {
   amount: number;
   reference: string;
   note: string;
+  mode?: PaymentMode;
 };
 
 export type SupplierPayment = BusinessExpensePayment & {
@@ -262,6 +273,7 @@ export type SelfExpenseItem = {
 export type BusinessExpense = {
   id: number;
   date: ISODate;
+  tourName?: string;
   clientId?: number;
   clientName?: string;
   campaignId?: number;
@@ -350,17 +362,17 @@ export function rateOnDate(rates: EmployeeRate[], employeeId: number, date: ISOD
 
 export type PayrollPreview = Omit<PayrollPayment, "id" | "status" | "paidAt"> & {
   presentDays: number;
+  carryForward: number;
   rateBreakdown: { location: string; dailyRate: number; days: number; amount: number }[];
 };
 
-export function calculatePayroll(store: FleetStore, employeeId: number, weekStart: ISODate): PayrollPreview {
-  const weekEnd = addDays(weekStart, 6);
-  const payoutDate = addDays(weekEnd, 1);
+export function calculatePayrollRange(store: FleetStore, employeeId: number, periodStart: ISODate, periodEnd: ISODate): PayrollPreview {
+  const payoutDate = addDays(periodEnd, 1);
   const breakdown = new Map<string, PayrollPreview["rateBreakdown"][number]>();
   let presentDays = 0;
 
-  for (let offset = 0; offset < 7; offset += 1) {
-    const date = addDays(weekStart, offset);
+  for (let offset = 0; offset < inclusiveDays(periodStart, periodEnd); offset += 1) {
+    const date = addDays(periodStart, offset);
     if (!store.attendance[date]?.[employeeId]) continue;
     presentDays += 1;
     const rate = rateOnDate(store.employeeRates, employeeId, date);
@@ -372,18 +384,21 @@ export function calculatePayroll(store: FleetStore, employeeId: number, weekStar
     breakdown.set(key, current);
   }
 
-  const relevantExpenses = store.employeeExpenses.filter((expense) => expense.employeeId === employeeId && expense.date >= weekStart && expense.date <= weekEnd);
+  const relevantExpenses = store.employeeExpenses.filter((expense) => expense.employeeId === employeeId && expense.date >= periodStart && expense.date <= periodEnd);
   const reimbursements = relevantExpenses.filter((expense) => expense.treatment === "Employee reimbursement").reduce((sum, expense) => sum + expense.amount, 0);
   const deductions = relevantExpenses.filter((expense) => expense.treatment === "Employee deduction").reduce((sum, expense) => sum + expense.amount, 0);
   const gross = [...breakdown.values()].reduce((sum, item) => sum + item.amount, 0);
-  const paidPayment = store.payrollPayments.find((payment) => payment.employeeId === employeeId && payment.periodStart === weekStart && payment.status === "Paid");
+  const carryForward = store.payrollPayments
+    .filter((payment) => payment.employeeId === employeeId && payment.periodStart < periodStart && payment.status === "Pending")
+    .reduce((sum, payment) => sum + Math.max(0, payment.net - (payment.paidAmount ?? 0)), 0);
+  const paidPayment = store.payrollPayments.find((payment) => payment.employeeId === employeeId && payment.periodStart === periodStart && payment.status === "Paid");
   const outstandingAdvance = store.advances.filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
   const advanceRecovery = paidPayment?.advanceRecovery ?? outstandingAdvance;
 
   return {
     employeeId,
-    periodStart: weekStart,
-    periodEnd: weekEnd,
+    periodStart,
+    periodEnd,
     payoutDate,
     presentDays,
     rateBreakdown: [...breakdown.values()],
@@ -391,8 +406,13 @@ export function calculatePayroll(store: FleetStore, employeeId: number, weekStar
     reimbursements,
     deductions,
     advanceRecovery,
-    net: gross + reimbursements - deductions - advanceRecovery,
+    carryForward,
+    net: gross + reimbursements - deductions - advanceRecovery + carryForward,
   };
+}
+
+export function calculatePayroll(store: FleetStore, employeeId: number, weekStart: ISODate): PayrollPreview {
+  return calculatePayrollRange(store, employeeId, weekStart, addDays(weekStart, 6));
 }
 
 export type CampaignProgress = {

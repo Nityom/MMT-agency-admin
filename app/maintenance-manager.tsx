@@ -1,0 +1,30 @@
+"use client";
+
+import { Banknote, Check, Pencil, Printer, Search, Wrench, X } from "lucide-react";
+import { FormEvent, useState } from "react";
+import { BusinessExpense, BusinessExpenseCategory, FleetStore, PaymentMode } from "./fleet-domain";
+import { Button, FormField, Modal, Table, Row } from "./operations-components";
+import { MaintenanceEntryForm } from "./operations-forms";
+import { PageHead } from "./operations-reports";
+import { fmt, input, isoToday, money, nextId, supplierBalance, supplierPaid } from "./operations-utils";
+
+function PaymentForm({ expense, close, save }: { expense: BusinessExpense; close: () => void; save: (payment: { date: string; amount: number; mode: PaymentMode; reference: string; note: string }) => void }) {
+  const balance = supplierBalance(expense);
+  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const amount = Number(data.get("amount") || 0); if (amount <= 0) return; save({ date: input(data, "date"), amount, mode: input(data, "mode") as PaymentMode, reference: input(data, "reference"), note: input(data, "note") }); };
+  return <Modal title={`Maintenance payment · ${expense.paidTo}`} close={close}><form className="op-form" onSubmit={submit}><p className="op-form-note">Balance {money(balance)}</p><div className="op-form-grid"><FormField label="Payment date" name="date" type="date" defaultValue={isoToday()} required/><FormField label="Amount" name="amount" type="number" min={0.01} defaultValue={balance} required/><label className="op-field"><span>Payment mode</span><select name="mode" defaultValue="Cash"><option>Cash</option><option>Cheque</option><option>UPI</option></select></label></div><FormField label="Receipt reference" name="reference"/><FormField label="Note" name="note"/><footer><Button secondary onClick={close}>Cancel</Button><Button type="submit"><Check size={17}/>Save payment</Button></footer></form></Modal>;
+}
+
+function PaymentReceipt({ expense, payment, close }: { expense: BusinessExpense; payment: NonNullable<BusinessExpense["payments"]>[number]; close: () => void }) {
+  return <div className="invoice-backdrop"><div className="invoice-dialog"><div className="invoice-toolbar"><Button secondary onClick={close}><X size={17}/>Close</Button><Button onClick={() => window.print()}><Printer size={17}/>Print receipt</Button></div><article className="invoice-sheet"><h1>MAINTENANCE PAYMENT RECEIPT</h1><p><b>Supplier:</b> {expense.paidTo}</p><p><b>Work:</b> {expense.description}</p><p><b>Date:</b> {fmt(payment.date)}</p><p><b>Mode:</b> {payment.mode}</p><p><b>Reference:</b> {payment.reference || "—"}</p><h2>{money(payment.amount)}</h2></article></div></div>;
+}
+
+export function MaintenanceManager({ store, setStore, notify, remove }: { store: FleetStore; setStore: React.Dispatch<React.SetStateAction<FleetStore>>; notify: (message: string) => void; remove: (collection: "employees" | "vehicles" | "clients" | "businessExpenses", id: number) => void }) {
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<BusinessExpense | null | undefined>(undefined);
+  const [payment, setPayment] = useState<BusinessExpense | null>(null);
+  const [receipt, setReceipt] = useState<{ expense: BusinessExpense; payment: NonNullable<BusinessExpense["payments"]>[number] } | null>(null);
+  const categories = new Set<BusinessExpenseCategory>(["Printing", "Pasting", "Recording", "Purchase", "Labour charges"]);
+  const records = store.businessExpenses.filter((expense) => categories.has(expense.category) && `${expense.paidTo} ${expense.description} ${expense.reference}`.toLowerCase().includes(search.trim().toLowerCase())).sort((a, b) => b.date.localeCompare(a.date));
+  const saveExpense = (expense: BusinessExpense) => { setStore((current) => ({ ...current, businessExpenses: current.businessExpenses.some((item) => item.id === expense.id) ? current.businessExpenses.map((item) => item.id === expense.id ? expense : item) : [...current.businessExpenses, expense] })); setEditing(undefined); notify("Maintenance record saved"); };
+  return <><PageHead title="Maintenance payments" detail="Search, edit, pay, and print supplier receipts" action="Add maintenance work" onAction={() => setEditing(null)}/><div className="op-toolbar"><label className="op-search"><Search/><input placeholder="Search supplier or work" value={search} onChange={(event) => setSearch(event.target.value)}/></label><p>{records.length} records</p></div>{records.length ? <Table headers={["Date", "Supplier", "Work", "Bill", "Paid", "Balance", "Actions"]}>{records.map((expense) => <Row key={expense.id}><span>{fmt(expense.date)}</span><b>{expense.paidTo}</b><span>{expense.description}<small>{expense.category}</small></span><strong>{money(expense.amount)}</strong><span>{money(supplierPaid(expense))}</span><strong>{money(supplierBalance(expense))}</strong><span className="op-actions"><button title="Edit" onClick={() => setEditing(expense)}><Pencil size={16}/></button>{supplierBalance(expense) > 0 && <button title="Add payment" onClick={() => setPayment(expense)}><Banknote size={16}/></button>}<button title="Delete" onClick={() => remove("businessExpenses", expense.id)}>×</button></span></Row>)}</Table> : <div className="op-empty-state"><Wrench/><h2>No maintenance records</h2></div>}{editing !== undefined && <MaintenanceEntryForm expense={editing ?? undefined} store={store} close={() => setEditing(undefined)} save={saveExpense}/>} {payment && <PaymentForm expense={payment} close={() => setPayment(null)} save={(saved) => { const record = { ...saved, id: nextId(payment.payments ?? []) }; setStore((current) => ({ ...current, businessExpenses: current.businessExpenses.map((item) => item.id === payment.id ? { ...item, payments: [...(item.payments ?? []), record] } : item) })); setPayment(null); setReceipt({ expense: payment, payment: record }); notify("Maintenance payment saved"); }}/>} {receipt && <PaymentReceipt expense={receipt.expense} payment={receipt.payment} close={() => setReceipt(null)}/>}</>;
+}

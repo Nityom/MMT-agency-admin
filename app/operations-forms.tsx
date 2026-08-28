@@ -491,7 +491,7 @@ export function EntryForm({
                 required
               />
               <FormField
-                label="Owner name"
+                label="Concerend person name"
                 name="ownerName"
                 defaultValue={editingClient?.ownerName}
               />
@@ -916,23 +916,25 @@ export function EntryForm({
 }
 
 export function MaintenanceEntryForm({
+  category,
+  expense,
   supplierName,
   store,
   close,
   save,
 }: {
   category?: BusinessExpenseCategory;
+  expense?: FleetStore["businessExpenses"][number];
   supplierName?: string;
   store: FleetStore;
   close: () => void;
   save: (expense: FleetStore["businessExpenses"][number]) => void;
 }) {
-  const [quantity, setQuantity] = useState(0);
-  const [supplierRate, setSupplierRate] = useState(0);
-  const [clientBillingAmount, setClientBillingAmount] = useState(0);
+  const [quantity, setQuantity] = useState(expense?.quantity ?? 0);
+  const [supplierRate, setSupplierRate] = useState(expense?.supplierRate ?? expense?.amount ?? 0);
+  const [clientSearch, setClientSearch] = useState(expense?.clientName ?? "");
   const calculatedAmount =
     quantity > 0 ? quantity * supplierRate : supplierRate;
-  const calculatedProfit = clientBillingAmount - calculatedAmount;
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -942,20 +944,21 @@ export function MaintenanceEntryForm({
     );
     const clientId = campaign?.clientId ?? amount(data, "clientId");
     const client = store.clients.find((item) => item.id === clientId);
+    const manualClientName = input(data, "clientName").trim();
     const supplierBill = calculatedAmount;
     save({
-      id: nextId(store.businessExpenses),
+      id: expense?.id ?? nextId(store.businessExpenses),
       date: input(data, "date"),
       ...(client
-        ? { clientId: client.id, clientName: client.firmName }
+        ? { clientId: client.id, clientName: manualClientName || client.firmName }
         : campaign
           ? {
               clientId: campaign.clientId,
               clientName: campaign.client.firmName,
             }
-          : {}),
+              : manualClientName ? { clientName: manualClientName } : {}),
       ...(campaign ? { campaignId: campaign.id } : {}),
-      category: input(data, "category") as BusinessExpenseCategory,
+      category: (category ?? input(data, "category")) as BusinessExpenseCategory,
       description: input(data, "description"),
       purpose: input(data, "purpose"),
       paidTo: supplierName ?? input(data, "paidTo"),
@@ -964,9 +967,9 @@ export function MaintenanceEntryForm({
       unit: input(data, "unit"),
       supplierRate,
       amount: supplierBill,
-      clientBillingAmount,
-      paidAmount: 0,
-      payments: [],
+      clientBillingAmount: 0,
+      paidAmount: expense?.paidAmount ?? 0,
+      payments: expense?.payments ?? [],
     });
   };
   const categories: BusinessExpenseCategory[] = [
@@ -979,7 +982,11 @@ export function MaintenanceEntryForm({
   return (
     <Modal
       title={
-        supplierName ? `Add charge · ${supplierName}` : "Add maintenance work"
+        expense
+          ? "Edit maintenance work"
+          : supplierName
+            ? `Add charge · ${supplierName}`
+            : "Add maintenance work"
       }
       close={close}
     >
@@ -989,7 +996,7 @@ export function MaintenanceEntryForm({
             label="Date"
             name="date"
             type="date"
-            defaultValue={isoToday()}
+            defaultValue={expense?.date ?? isoToday()}
             required
           />
           <FormSelect
@@ -999,18 +1006,19 @@ export function MaintenanceEntryForm({
               value: category,
               label: category === "Printing" ? "Banner printing" : category,
             }))}
+            defaultValue={expense?.category ?? category}
             required
           />
         </div>
         <div className="op-form-grid">
-          <FormSelect
-            label="Supplied to client (optional)"
-            name="clientId"
-            options={store.clients.map((client) => ({
-              value: client.id,
-              label: client.firmName,
-            }))}
-          />
+          <label className="op-field">
+            <span>Supplied to client (optional)</span>
+            <input name="clientName" value={clientSearch} placeholder="Search or enter client name" onChange={(event) => setClientSearch(event.target.value)} />
+            <select name="clientId" defaultValue={expense?.clientId ?? ""} onChange={(event) => setClientSearch(store.clients.find((client) => client.id === Number(event.target.value))?.firmName ?? "")}>
+              <option value="">No linked client</option>
+              {store.clients.filter((client) => `${client.firmName} ${client.mobile}`.toLowerCase().includes(clientSearch.trim().toLowerCase())).map((client) => <option value={client.id} key={client.id}>{client.firmName} · {client.mobile}</option>)}
+            </select>
+          </label>
           <FormSelect
             label="From campaign (optional)"
             name="campaignId"
@@ -1020,7 +1028,7 @@ export function MaintenanceEntryForm({
             }))}
           />
         </div>
-        <FormField label="Work / item details" name="description" required />
+        <FormField label="Work / item details" name="description" defaultValue={expense?.description} required />
         <div className="op-form-grid">
           {supplierName ? (
             <p className="op-form-note">
@@ -1031,7 +1039,7 @@ export function MaintenanceEntryForm({
           )}
           <FormField label="Reference / vehicle" name="reference" />
         </div>
-        <FormField label="Purpose / notes" name="purpose" />
+        <FormField label="Purpose / notes" name="purpose" defaultValue={expense?.purpose} />
         <div className="op-form-grid">
           <label className="op-field">
             <span>Quantity / sq ft</span>
@@ -1039,7 +1047,7 @@ export function MaintenanceEntryForm({
               name="quantity"
               type="number"
               min="0"
-              value={quantity || ""}
+                value={quantity || ""}
               onChange={(event) => setQuantity(Number(event.target.value))}
             />
           </label>
@@ -1061,21 +1069,10 @@ export function MaintenanceEntryForm({
               name="supplierRate"
               type="number"
               min="0"
+              step="0.01"
               value={supplierRate || ""}
               onChange={(event) => setSupplierRate(Number(event.target.value))}
               required
-            />
-          </label>
-          <label className="op-field">
-            <span>Amount paid by client</span>
-            <input
-              name="clientBillingAmount"
-              type="number"
-              min="0"
-              value={clientBillingAmount || ""}
-              onChange={(event) =>
-                setClientBillingAmount(Number(event.target.value))
-              }
             />
           </label>
         </div>
@@ -1087,14 +1084,8 @@ export function MaintenanceEntryForm({
               ? `${quantity} × ${money(supplierRate)}`
               : "Enter quantity for quantity × rate, or use rate as the total"}
           </small>
-          <span>Calculated profit</span>
-          <strong className={calculatedProfit < 0 ? "is-negative" : ""}>
-            {money(calculatedProfit)}
-          </strong>
-          <small>
-            Client billing {money(clientBillingAmount)} − supplier amount{" "}
-            {money(calculatedAmount)}
-          </small>
+          <span>Supplier balance</span>
+          <strong>{money(calculatedAmount)}</strong>
         </section>
         <footer>
           <Button secondary onClick={close}>

@@ -16,6 +16,7 @@ import {
 import Image from "next/image";
 import React, { FormEvent, useState } from "react";
 import {
+  inclusiveDays,
   FleetStore,
   OtherBill,
   OtherBillCategory,
@@ -56,9 +57,12 @@ function OtherBillForm({
   const [clientId, setClientId] = useState(
     bill?.clientId ?? store.clients[0]?.id ?? 0,
   );
+  const [clientSearch, setClientSearch] = useState("");
   const [category, setCategory] = useState<OtherBillCategory>(
     bill?.category ?? "Paper",
   );
+  const [discount, setDiscount] = useState(bill?.discount ?? 0);
+  const clients = store.clients.filter((client) => `${client.firmName} ${client.ownerName} ${client.mobile}`.toLowerCase().includes(clientSearch.trim().toLowerCase()));
   const [items, setItems] = useState(
     (
       bill?.items ?? [
@@ -81,9 +85,13 @@ function OtherBillForm({
         itemIndex === index ? { ...item, ...patch } : item,
       ),
     );
-  const total = items.reduce((sum, item) => sum + item.quantity * item.rate, 0);
+  const itemQuantity = (item: (typeof items)[number]) =>
+    item.fromDate && item.toDate && item.toDate >= item.fromDate
+      ? inclusiveDays(item.fromDate, item.toDate)
+      : item.quantity;
+  const total = Math.max(0, items.reduce((sum, item) => sum + itemQuantity(item) * item.rate, 0) - discount);
   const costTotal = items.reduce(
-    (sum, item) => sum + item.quantity * (item.costRate ?? 0),
+    (sum, item) => sum + itemQuantity(item) * (item.costRate ?? 0),
     0,
   );
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -94,13 +102,15 @@ function OtherBillForm({
       !client ||
       !items.length ||
       items.some((item) => !item.description.trim())
+      || items.some((item) => item.fromDate && item.toDate && item.toDate < item.fromDate)
     )
       return;
     const savedItems = items.map((item, index) => ({
       ...item,
       id: index + 1,
-      amount: item.quantity * item.rate,
-      costAmount: item.quantity * (item.costRate ?? 0),
+      quantity: itemQuantity(item),
+      amount: itemQuantity(item) * item.rate,
+      costAmount: itemQuantity(item) * (item.costRate ?? 0),
     }));
     const payments = bill?.payments ?? [];
     save({
@@ -119,6 +129,7 @@ function OtherBillForm({
       items: savedItems,
       payments,
       total,
+      discount,
       status:
         payments.reduce((sum, payment) => sum + payment.amount, 0) >= total
           ? "Paid"
@@ -138,12 +149,13 @@ function OtherBillForm({
         <div className="op-form-grid">
           <label className="op-field">
             <span>Client profile</span>
+            <input placeholder="Search client name or number" value={clientSearch} onChange={(event) => setClientSearch(event.target.value)} />
             <select
               value={clientId}
               onChange={(event) => setClientId(Number(event.target.value))}
               required
             >
-              {store.clients.map((client) => (
+              {clients.map((client) => (
                 <option value={client.id} key={client.id}>
                   {client.firmName} · {client.ownerName || client.mobile}
                 </option>
@@ -160,6 +172,7 @@ function OtherBillForm({
             >
               <option>Paper</option>
               <option>Calendar</option>
+              <option>Other</option>
             </select>
           </label>
         </div>
@@ -207,29 +220,33 @@ function OtherBillForm({
               />
             </label>
             <label>
-              <span>Quantity</span>
+              <span>From date</span>
               <input
-                type="number"
-                min="1"
-                value={item.quantity}
+                type="date"
+                value={item.fromDate ?? ""}
                 onChange={(event) =>
-                  updateItem(index, {
-                    quantity: Math.max(1, Number(event.target.value)),
-                  })
+                  updateItem(index, { fromDate: event.target.value })
                 }
               />
             </label>
             <label>
-              <span>Unit</span>
+              <span>To date</span>
               <input
-                value={item.unit}
-                onChange={(event) =>
-                  updateItem(index, { unit: event.target.value })
-                }
+                type="date"
+                value={item.toDate ?? ""}
+                onChange={(event) => updateItem(index, { toDate: event.target.value })}
               />
             </label>
             <label>
-              <span>Client rate</span>
+              <span>Publishing date</span>
+              <input type="date" value={item.publishingDate ?? ""} onChange={(event) => updateItem(index, { publishingDate: event.target.value })} />
+            </label>
+            <label>
+              <span>Days / months (optional)</span>
+              <input type="number" min="0" step="1" value={item.quantity} onChange={(event) => updateItem(index, { quantity: Math.max(0, Number(event.target.value)) })} />
+            </label>
+            <label>
+              <span>Supplier rate / day or month</span>
               <input
                 type="number"
                 min="0"
@@ -250,7 +267,7 @@ function OtherBillForm({
                 }
               />
             </label>
-            <strong>{money(item.quantity * item.rate)}</strong>
+            <strong>{money(itemQuantity(item) * item.rate)}</strong>
             <button
               type="button"
               title="Remove item"
@@ -265,7 +282,8 @@ function OtherBillForm({
           </div>
         ))}
         <section className="op-maintenance-calculation">
-          <span>Client billing {money(total)}</span>
+          <span>Discount</span><input className="op-number-input" type="number" min="0" step="0.01" value={discount || ""} onChange={(event) => setDiscount(Number(event.target.value))} />
+          <span>Billing amount {money(total)}</span>
           <span>Cost {money(costTotal)}</span>
           <strong>Profit {money(total - costTotal)}</strong>
           <small>{items.length} item records</small>
@@ -418,18 +436,16 @@ function OtherBillPrint({
             <thead>
               <tr>
                 <th>Item</th>
-                <th>Quantity</th>
-                <th>Unit</th>
-                <th>Rate</th>
+                <th>Days / months</th>
+                <th>Supplier rate / day or month</th>
                 <th>Amount</th>
               </tr>
             </thead>
             <tbody>
               {bill.items.map((item) => (
                 <tr key={item.id}>
-                  <td>{item.description}</td>
+                  <td>{item.description}{item.fromDate && item.toDate && <><br />{fmt(item.fromDate)} to {fmt(item.toDate)}</>}{item.publishingDate && <><br />Publishing: {fmt(item.publishingDate)}</>}</td>
                   <td>{item.quantity}</td>
-                  <td>{item.unit}</td>
                   <td>{money(item.rate)}</td>
                   <td>{money(item.amount)}</td>
                 </tr>
@@ -557,7 +573,7 @@ function OtherBillClientLedger({
           <div>
             <b>{client.firmName}</b>
             <span>
-              {client.ownerName || "No owner name"} · {client.mobile}
+              {client.ownerName || "No concerned person"} · {client.mobile}
             </span>
             <small>Paper and calendar bill ledger</small>
           </div>
@@ -715,7 +731,6 @@ export function OtherBillsView({
             "Total",
             "Received",
             "Balance",
-            "Status",
             "Actions",
           ]}
         >
@@ -734,9 +749,6 @@ export function OtherBillsView({
                 <strong>{money(bill.total)}</strong>
                 <span>{money(otherBillPaid(bill))}</span>
                 <strong>{money(otherBillBalance(bill))}</strong>
-                <Status>
-                  {otherBillBalance(bill) === 0 ? "Paid" : "Pending"}
-                </Status>
                 <span className="op-actions">
                   {otherBillBalance(bill) > 0 && (
                     <button

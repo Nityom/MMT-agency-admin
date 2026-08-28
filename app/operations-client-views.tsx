@@ -4,7 +4,7 @@ import { ReceiptText, Search } from "lucide-react";
 import type { Bill, CampaignBooking, Client, ClientCategory, FleetStore } from "./fleet-domain";
 import { Actions, Button, Row, Status, Table } from "./operations-components";
 import { CampaignSlotCard } from "./operations-campaigns";
-import { ClientLedgerModal } from "./operations-records";
+import { ClientLedgerModal } from "./operations-client-ledger";
 import { PageHead } from "./operations-reports";
 import { billBalance, billPaid, clientCategories, fmt, money } from "./operations-utils";
 
@@ -60,10 +60,12 @@ export type CampaignsViewProps = {
   setCampaignSearch: (search: string) => void;
   newBooking: () => void;
   editBooking: (booking: CampaignBooking) => void;
+  renewBooking: (booking: CampaignBooking) => void;
+  deleteBooking: (booking: CampaignBooking) => void;
   stopBooking: (booking: CampaignBooking) => void;
   generateBill: (booking: CampaignBooking) => void;
 };
 
-export function CampaignsView({ store, campaignSearch, normalizedCampaignSearch, filteredCampaignBookings, setCampaignSearch, newBooking, editBooking, stopBooking, generateBill }: CampaignsViewProps) {
-  return <><PageHead title="Monthly campaign bookings" detail="Set vehicle type and quantity; attendance is recorded by party slots" action="New booking" onAction={newBooking}/><div className="op-toolbar op-client-search"><label className="op-search"><Search/><input placeholder="Search campaign by client name or phone" value={campaignSearch} onChange={(event) => setCampaignSearch(event.target.value)}/></label><p>Showing <b>{filteredCampaignBookings.length}</b> of <b>{store.campaignBookings.length}</b> campaigns</p></div>{filteredCampaignBookings.length ? <section className="op-campaign-list">{filteredCampaignBookings.map((booking) => <CampaignSlotCard key={booking.id} store={store} booking={booking} edit={() => editBooking(booking)} stop={() => stopBooking(booking)} generateBill={() => generateBill(booking)}/>)}</section> : <div className="op-empty-state"><Search/><h2>{normalizedCampaignSearch ? "No client campaigns found" : "No campaign bookings"}</h2><p>{normalizedCampaignSearch ? "Try another client name or phone number." : "Create a monthly booking, select a client, and enter the required count for each vehicle type."}</p></div>}</>;
+export function CampaignsView({ store, campaignSearch, normalizedCampaignSearch, filteredCampaignBookings, setCampaignSearch, newBooking, editBooking, renewBooking, deleteBooking, stopBooking, generateBill }: CampaignsViewProps) {
+  return <><PageHead title="Monthly campaign bookings" detail="Set vehicle type and quantity; attendance is recorded by party slots" action="New booking" onAction={newBooking}/><div className="op-toolbar op-client-search"><label className="op-search"><Search/><input placeholder="Search campaign by client name or phone" value={campaignSearch} onChange={(event) => setCampaignSearch(event.target.value)}/></label><p>Showing <b>{filteredCampaignBookings.length}</b> of <b>{store.campaignBookings.length}</b> campaigns</p></div>{filteredCampaignBookings.length ? <section className="op-campaign-list">{filteredCampaignBookings.map((booking) => <CampaignSlotCard key={booking.id} store={store} booking={booking} edit={() => editBooking(booking)} renew={() => renewBooking(booking)} deleteBooking={() => deleteBooking(booking)} stop={() => stopBooking(booking)} generateBill={() => generateBill(booking)}/>)}</section> : <div className="op-empty-state"><Search/><h2>{normalizedCampaignSearch ? "No client campaigns found" : "No campaign bookings"}</h2><p>{normalizedCampaignSearch ? "Try another client name or phone number." : "Create a monthly booking, select a client, and enter the required count for each vehicle type."}</p></div>}</>;
 }

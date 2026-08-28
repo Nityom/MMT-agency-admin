@@ -116,7 +116,7 @@ export function BillingComposer({
   const [clientId, setClientId] = useState(initialBillingClientId);
   const [billDate, setBillDate] = useState(initialBillDate);
   const [advance, setAdvance] = useState(bill?.advanceReceived ?? 0);
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>(
+  const [paymentMode] = useState<PaymentMode>(
     bill?.paymentMode ?? "Cash",
   );
   const [markFullPayment, setMarkFullPayment] = useState(false);
@@ -148,6 +148,10 @@ export function BillingComposer({
           description: charge.description,
           quantity: charge.quantity,
           rate: charge.rate,
+          fromDate: charge.fromDate,
+          toDate: charge.toDate,
+          recurring: charge.recurring,
+          design: charge.design,
         }))
       : [],
   );
@@ -166,10 +170,9 @@ export function BillingComposer({
   const finalLines: BillVehicleLine[] = lines.map((line, index) => ({
     ...line,
     id: index + 1,
-    bookedDays:
-      line.startDate <= line.endDate
-        ? inclusiveDays(line.startDate, line.endDate)
-        : 0,
+    bookedDays: line.startDate <= line.endDate ? inclusiveDays(line.startDate, line.endDate) : 0,
+    advertisementDays: line.startDate <= line.endDate ? (line.vehicleId < 0 ? line.advertisementDays : vehiclePresentDays(store, line.vehicleId, line.startDate, line.endDate)) : 0,
+    offDays: line.startDate <= line.endDate ? Math.max(0, inclusiveDays(line.startDate, line.endDate) - (line.vehicleId < 0 ? line.advertisementDays : vehiclePresentDays(store, line.vehicleId, line.startDate, line.endDate))) : 0,
     driverNames: [],
   }));
   const finalCharges: BillCharge[] = charges.map((charge, index) => ({
@@ -337,7 +340,7 @@ export function BillingComposer({
               </select>
             </label>
             <label>
-              <span>Start</span>
+              <span>From date</span>
               <input
                 type="date"
                 value={line.startDate}
@@ -347,36 +350,12 @@ export function BillingComposer({
               />
             </label>
             <label>
-              <span>End</span>
+              <span>To date</span>
               <input
                 type="date"
                 value={line.endDate}
                 onChange={(event) =>
                   updateLine(index, { endDate: event.target.value })
-                }
-              />
-            </label>
-            <label>
-              <span>Present days</span>
-              <input
-                type="number"
-                min="0"
-                value={line.advertisementDays}
-                onChange={(event) =>
-                  updateLine(index, {
-                    advertisementDays: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-            <label>
-              <span>Absent days</span>
-              <input
-                type="number"
-                min="0"
-                value={line.offDays}
-                onChange={(event) =>
-                  updateLine(index, { offDays: Number(event.target.value) })
                 }
               />
             </label>
@@ -403,8 +382,8 @@ export function BillingComposer({
             </button>
             <small>
               {inclusiveDays(line.startDate, line.endDate)} booked days ·{" "}
-              {line.advertisementDays} vehicle-present days · Auto-filled from
-              campaign vehicle attendance
+              {line.advertisementDays} present days in selected range ·
+              {line.offDays} absent days
             </small>
           </div>
         ))}
@@ -443,6 +422,7 @@ export function BillingComposer({
                 "Pasting",
                 "Recording",
                 "Municipal tax",
+                "Design",
                 "Tea",
                 "Breakfast",
                 "Lunch",
@@ -473,11 +453,14 @@ export function BillingComposer({
               aria-label="Rate"
               type="number"
               min="0"
+              step="0.01"
               value={charge.rate}
               onChange={(event) =>
                 updateCharge(index, { rate: Number(event.target.value) })
               }
             />
+            <label className="op-charge-date"><span>From date</span><input aria-label="From date" type="date" value={charge.fromDate ?? ""} onChange={(event) => updateCharge(index, { fromDate: event.target.value })} /></label>
+            <label className="op-charge-date"><span>To date</span><input aria-label="To date" type="date" value={charge.toDate ?? ""} onChange={(event) => updateCharge(index, { toDate: event.target.value })} /></label>
             <b>{money(charge.quantity * charge.rate)}</b>
             <button
               title="Remove charge"
@@ -500,19 +483,6 @@ export function BillingComposer({
               value={advance}
               onChange={(event) => setAdvance(Number(event.target.value))}
             />
-          </label>
-          <label className="op-field">
-            <span>Overall bill payment mode</span>
-            <select
-              value={paymentMode}
-              onChange={(event) =>
-                setPaymentMode(event.target.value as PaymentMode)
-              }
-            >
-              <option>Cash</option>
-              <option>Cheque</option>
-              <option>UPI</option>
-            </select>
           </label>
           {bill && remainingBalance > 0 && (
             <div className="op-full-payment">
@@ -990,31 +960,14 @@ export function CampaignBillModeModal({
   close: () => void;
   generate: (mode: PaymentMode) => void;
 }) {
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>("Cash");
   return (
     <Modal title={`Generate bill · ${booking.client.firmName}`} close={close}>
       <div className="op-form">
-        <p className="op-form-note">
-          Select the overall payment mode for this bill.
-        </p>
-        <label className="op-field">
-          <span>Overall bill payment mode</span>
-          <select
-            value={paymentMode}
-            onChange={(event) =>
-              setPaymentMode(event.target.value as PaymentMode)
-            }
-          >
-            <option>Cash</option>
-            <option>Cheque</option>
-            <option>UPI</option>
-          </select>
-        </label>
         <footer>
           <Button secondary onClick={close}>
             Cancel
           </Button>
-          <Button onClick={() => generate(paymentMode)}>
+          <Button onClick={() => generate("Cash")}>
             <FileText size={17} />
             Generate bill
           </Button>
@@ -1429,7 +1382,7 @@ export function Invoice({
           )}
           <Button onClick={() => window.print()}>
             <Printer size={17} />
-            {quotation ? "Print quotation" : "Print / PDF"}
+            {quotation ? "Print quotation" : "Print bill"}
           </Button>
         </div>
         <article className="invoice-sheet op-invoice">
@@ -1470,8 +1423,7 @@ export function Invoice({
             <thead>
               <tr>
                 <th>Booking</th>
-                <th>Booking days</th>
-                <th>Present days</th>
+                <th>Date range</th>
                 <th>Absent days</th>
                 <th>Rate / day</th>
                 <th>Amount</th>
@@ -1497,8 +1449,7 @@ export function Invoice({
                       <br />
                       Campaign vehicle attendance
                     </td>
-                    <td>{line.bookedDays}</td>
-                    <td>{line.advertisementDays}</td>
+                    <td>{fmt(line.startDate)} to {fmt(line.endDate)}</td>
                     <td>{line.offDays}</td>
                     <td>{money(line.dailyRate)}</td>
                     <td>
@@ -1705,7 +1656,7 @@ export function CampaignQuotation({
             <thead>
               <tr>
                 <th>Booking</th>
-                <th>Booking days</th>
+                <th>Date range</th>
                 <th>Quantity</th>
                 <th>Rate / day</th>
                 <th>Amount</th>
@@ -1726,7 +1677,7 @@ export function CampaignQuotation({
                     <br />
                     Proposed campaign booking
                   </td>
-                  <td>{line.bookedDays}</td>
+                  <td>{fmt(line.startDate)} to {fmt(line.endDate)}</td>
                   <td>{line.quantity ?? 1}</td>
                   <td>{money(line.dailyRate)}</td>
                   <td>

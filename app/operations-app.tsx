@@ -8,7 +8,7 @@ import {
 import { useEffect, useState } from "react";
 import {
   addDays, Bill, BillCharge, BusinessExpenseCategory, CampaignBooking,
-  calculateBillTotal, calculatePayroll,
+  calculateBillTotal, calculatePayrollRange,
   ClientCategory, FleetStore, inclusiveDays, PaymentMode,
   nextBillNumber, rateOnDate, weekFor,
 } from "./fleet-domain";
@@ -36,12 +36,12 @@ import {
   ReportProfitCategory, reportProfitCategories, supplierBalance, supplierPaid,
 } from "./operations-utils";
 import { EditableSelfExpensesView } from "./operations-expenses";
+import { MaintenanceManager } from "./maintenance-manager";
 import type { Dialog } from "./operations-forms";
 import type { ReportDetailKind } from "./operations-reports";
 export { SelfExpensesView } from "./operations-expenses";
 import { useFleetStore } from "./use-fleet-store";
 import {
-  MaintenanceLedgerView,
   SupplierCardsView,
   SupplierPaymentModal,
 } from "./operations-suppliers";
@@ -63,8 +63,14 @@ export default function OperationsApp() {
   const [ledgerClientId, setLedgerClientId] = useState<number | null>(null);
   const [editingVehicleId, setEditingVehicleId] = useState<number | null>(null);
   const [editingCampaign, setEditingCampaign] = useState<CampaignBooking | null>(null);
+  const [renewingCampaign, setRenewingCampaign] = useState(false);
   const [campaignFormOpen, setCampaignFormOpen] = useState(false);
   const [campaignBillBooking, setCampaignBillBooking] = useState<CampaignBooking | null>(null);
+  const [draftCampaignBooking, setDraftCampaignBooking] = useState<CampaignBooking | null>(null);
+  useEffect(() => {
+    if (!renewingCampaign || !editingCampaign || store.campaignBookings.some((booking) => booking.id === editingCampaign.id)) return;
+    setStore((current) => ({ ...current, campaignBookings: [...current.campaignBookings, editingCampaign] }));
+  }, [editingCampaign, renewingCampaign, setStore, store.campaignBookings]);
   const [composeQuotation, setComposeQuotation] = useState(false);
   const [quotationDraft, setQuotationDraft] = useState<Bill | null>(null);
   const [quotationBooking, setQuotationBooking] = useState<CampaignBooking | null>(null);
@@ -72,7 +78,7 @@ export default function OperationsApp() {
   const [paymentBill, setPaymentBill] = useState<Bill | null>(null);
   const [consolidateOpen, setConsolidateOpen] = useState(false);
   const [consolidatedBills, setConsolidatedBills] = useState<Bill[]>([]);
-  const [attendanceDate, setAttendanceDate] = useState(isoToday()), [payrollWeek, setPayrollWeek] = useState(weekFor(isoToday()).start), [composeBill, setComposeBill] = useState(false), [billingClientId, setBillingClientId] = useState(0), [invoice, setInvoice] = useState<Bill | null>(null), [reportPeriod, setReportPeriod] = useState<"Month" | "Quarter" | "Year" | "Date range">("Month");
+  const [attendanceDate, setAttendanceDate] = useState(isoToday()), [attendanceReportFrom, setAttendanceReportFrom] = useState(`${isoToday().slice(0, 7)}-01`), [attendanceReportTo, setAttendanceReportTo] = useState(isoToday()), [payrollWeek, setPayrollWeek] = useState(weekFor(isoToday()).start), [payrollPeriodEnd, setPayrollPeriodEnd] = useState(weekFor(isoToday()).end), [composeBill, setComposeBill] = useState(false), [billingClientId, setBillingClientId] = useState(0), [invoice, setInvoice] = useState<Bill | null>(null), [reportPeriod, setReportPeriod] = useState<"Month" | "Quarter" | "Year" | "Date range">("Month");
   const [reportFrom, setReportFrom] = useState(`${isoToday().slice(0, 7)}-01`), [reportTo, setReportTo] = useState(isoToday());
   const [reportProfitCategory, setSelectedReportProfitCategory] = useState<ReportProfitCategory>("All");
   const [reportCategoryDetail, setReportCategoryDetail] = useState<ReportProfitCategory | null>(null);
@@ -114,6 +120,7 @@ export default function OperationsApp() {
   const setReportProfitCategory = (category: ReportProfitCategory) => { setSelectedReportProfitCategory(category); setReportCategoryDetail(category); };
   const selectAttendanceDate = (date: string) => { if (attendanceDirty && !window.confirm("Discard unsaved attendance changes?")) return; setAttendanceDate(date); setAttendanceDraft({ ...(store.attendance[date] ?? {}) }); setAttendanceDirty(false); };
   const markAllEmployeesPresent = () => { setAttendanceDraft((current) => ({ ...current, ...Object.fromEntries(attendanceEmployees.map((employee) => [employee.id, true])) })); setAttendanceDirty(true); };
+  const markAllEmployeesAbsent = () => { setAttendanceDraft((current) => ({ ...current, ...Object.fromEntries(attendanceEmployees.map((employee) => [employee.id, false])) })); setAttendanceDirty(true); };
   const setEmployeeAttendance = (employeeId: number, present: boolean) => { setAttendanceDraft((current) => ({ ...current, [employeeId]: present })); setAttendanceDirty(true); };
   const saveAttendance = () => { setStore((current) => ({ ...current, attendance: { ...current.attendance, [attendanceDate]: attendanceDraft } })); setAttendanceDirty(false); notify(`Attendance saved for ${fmt(attendanceDate)}`); };
   const selectVehicleAttendanceDate = (date: string) => { if (vehicleAttendanceDirty && !window.confirm("Discard unsaved vehicle attendance changes?")) return; setVehicleAttendanceDate(date); setVehicleAttendanceDraft({ ...(store.vehicleAttendance[date] ?? {}) }); setVehicleAttendanceDirty(false); };
@@ -161,15 +168,15 @@ export default function OperationsApp() {
     return `${bill.number} INV-${String(bill.number).padStart(4, "0")} ${bill.client.firmName} ${bill.client.ownerName} ${bill.client.mobile} ${status}`.toLowerCase().includes(normalizedBillingSearch);
   });
   const currentWeek = weekFor(isoToday());
-  const payrollPreviews = activeEmployees.map((employee) => calculatePayroll(store, employee.id, payrollWeek));
+  const payrollPreviews = activeEmployees.map((employee) => calculatePayrollRange(store, employee.id, payrollWeek, payrollPeriodEnd));
   const payrollGrossTotal = payrollPreviews.reduce((sum, preview) => sum + preview.gross + preview.reimbursements - preview.deductions, 0);
   const payrollAdvanceRecoveryTotal = payrollPreviews.reduce((sum, preview) => sum + preview.advanceRecovery, 0);
-  const payrollOutstandingAdvanceTotal = store.advances.filter((advance) => advance.date <= addDays(payrollWeek, 7)).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
+  const payrollOutstandingAdvanceTotal = store.advances.filter((advance) => advance.date <= addDays(payrollPeriodEnd, 1)).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
   const payrollNetTotal = payrollPreviews.reduce((sum, preview) => sum + preview.net, 0);
-  const payrollPeriodEnd = addDays(payrollWeek, 6), payrollPayoutDate = addDays(payrollWeek, 7);
+  const payrollPayoutDate = addDays(payrollPeriodEnd, 1);
   const payrollRemainingAdvanceTotal = Math.max(0, payrollOutstandingAdvanceTotal - payrollAdvanceRecoveryTotal);
   const payrollRows = payrollPreviews.map((preview) => ({ preview, employee: store.employees.find((item) => item.id === preview.employeeId), saved: store.payrollPayments.find((item) => item.employeeId === preview.employeeId && item.periodStart === payrollWeek) }));
-  const selectPayrollWeek = (date: string) => setPayrollWeek(weekFor(date).start);
+  const selectPayrollWeek = (date: string) => setPayrollWeek(date);
   const outstanding = store.bills.reduce((sum, bill) => sum + billBalance(bill), 0) + store.otherBills.reduce((sum, bill) => sum + otherBillBalance(bill), 0);
   const totalBusiness = store.bills.reduce((sum, bill) => sum + bill.total, 0) + store.otherBills.reduce((sum, bill) => sum + bill.total, 0);
   const totalExpenses = store.businessExpenses.reduce((sum, expense) => sum + expense.amount, 0) + store.employeeExpenses.filter((expense) => expense.treatment !== "Employee deduction").reduce((sum, expense) => sum + expense.amount, 0) + store.otherBills.reduce((sum, bill) => sum + otherBillCost(bill), 0);
@@ -184,15 +191,16 @@ export default function OperationsApp() {
     const vehicleLines = bookingVehicleLines(store, booking, billThroughDate);
     const charges: BillCharge[] = booking.facilities.map((facility) => ({ ...facility, amount: facility.quantity * facility.rate }));
     const bill: Bill = { id: nextId(store.bills), number: nextBillNumber(store.bills, store.nextBillNumber), billDate: isoToday(), clientId: booking.clientId, client: booking.client, vehicleLines, charges, advanceReceived: 0, paymentMode, payments: [], total: calculateBillTotal(vehicleLines, charges), status: "Pending" };
-    setStore((current) => ({ ...current, nextBillNumber: bill.number + 1, bills: [...current.bills, bill], campaignBookings: current.campaignBookings.map((item) => item.id === booking.id ? { ...item, generatedBillId: bill.id } : item) }));
     setCampaignBillBooking(null);
-    setInvoice(bill);
-    notify(`Final bill generated for ${booking.client.firmName}`);
+    setDraftCampaignBooking(booking);
+    setEditingBill(bill);
+    setBillingClientId(booking.clientId);
+    setComposeBill(true);
   };
-  const setPayrollStatus = (preview: (typeof payrollPreviews)[number], status: "Pending" | "Paid") => {
+  const setPayrollStatus = (preview: (typeof payrollPreviews)[number], status: "Pending" | "Paid", paidAmount?: number) => {
     setStore((current) => {
       const existing = current.payrollPayments.find((payment) => payment.employeeId === preview.employeeId && payment.periodStart === preview.periodStart);
-      const payment = { ...preview, id: existing?.id ?? nextId(current.payrollPayments), status, ...(status === "Paid" ? { paidAt: isoToday() } : {}) };
+      const payment = { ...preview, id: existing?.id ?? nextId(current.payrollPayments), status, ...(paidAmount !== undefined ? { paidAmount } : existing?.paidAmount !== undefined ? { paidAmount: existing.paidAmount } : {}), ...(status === "Paid" ? { paidAt: isoToday() } : {}) };
       const payrollPayments = [...current.payrollPayments.filter((item) => item.id !== payment.id && (item.employeeId !== preview.employeeId || item.periodStart !== preview.periodStart)), payment];
       const paidRecoveries = new Map(current.employees.map((employee) => [employee.id, payrollPayments.filter((item) => item.employeeId === employee.id && item.status === "Paid").reduce((sum, item) => sum + item.advanceRecovery, 0)]));
       const advances = current.advances.map((advanceItem) => {
@@ -202,6 +210,15 @@ export default function OperationsApp() {
       return { ...current, payrollPayments, advances };
     });
     notify(`Salary marked ${status.toLowerCase()}`);
+  };
+  const exportPayroll = () => {
+    const rows = [["Employee", "Period from", "Period to", "Present days", "Salary", "Paid", "Balance", "Status"], ...payrollRows.map(({ preview, employee, saved }) => [employee?.name ?? "", preview.periodStart, preview.periodEnd, String(preview.presentDays), String(preview.net), String(saved?.paidAmount ?? 0), String(preview.net - (saved?.paidAmount ?? 0)), saved?.status ?? "Pending"])];
+    const csv = rows.map((row) => row.map((value) => `"${value.replaceAll('"', '""')}"`).join(",")).join("\n");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    link.download = `salary-${payrollWeek}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
   };
   const releasePayroll = () => {
     const firstPaymentId = nextId(store.payrollPayments);
@@ -222,7 +239,7 @@ export default function OperationsApp() {
   const customReportStart = reportFrom <= reportTo ? reportFrom : reportTo, customReportEnd = reportFrom <= reportTo ? reportTo : reportFrom;
   const reportEnd = reportPeriod === "Date range" ? customReportEnd : presetReportEnd;
   const reportStart = reportPeriod === "Date range" ? customReportStart : reportPeriod === "Month" ? `${reportEnd.slice(0, 7)}-01` : reportPeriod === "Quarter" ? `${reportEnd.slice(0, 5)}${String(Math.floor((Number(reportEnd.slice(5, 7)) - 1) / 3) * 3 + 1).padStart(2, "0")}-01` : `${reportEnd.slice(0, 4)}-01-01`;
-  const reportBills = store.bills.filter((bill) => bill.billDate >= reportStart && bill.billDate <= reportEnd), reportOtherBills = store.otherBills.filter((bill) => bill.billDate >= reportStart && bill.billDate <= reportEnd), reportOtherBillExpenses: FleetStore["businessExpenses"] = reportOtherBills.map((bill) => ({ id: -bill.id, date: bill.billDate, category: bill.category, description: bill.items.map((item) => item.description).filter(Boolean).join(", ") || `${bill.category} bill`, purpose: `${bill.category} bill #${String(bill.number).padStart(4, "0")}`, paidTo: "Paper / calendar supplier", reference: "", amount: otherBillCost(bill), clientId: bill.clientId, clientName: bill.client.firmName, clientBillingAmount: bill.total, paidAmount: otherBillCost(bill) })), reportExpenses = [...store.businessExpenses.filter((expense) => expense.date >= reportStart && expense.date <= reportEnd), ...reportOtherBillExpenses], reportEmployeeExpenses = store.employeeExpenses.filter((expense) => expense.date >= reportStart && expense.date <= reportEnd && expense.treatment !== "Employee deduction"), reportPayroll = store.payrollPayments.filter((payment) => payment.status === "Paid" && payment.paidAt && payment.paidAt >= reportStart && payment.paidAt <= reportEnd), reportOutstanding = reportBills.reduce((sum, bill) => sum + billBalance(bill), 0) + reportOtherBills.reduce((sum, bill) => sum + otherBillBalance(bill), 0), reportTotalExpenses = reportExpenses.reduce((sum, item) => sum + item.amount, 0) + reportEmployeeExpenses.reduce((sum, item) => sum + item.amount, 0) + reportPayroll.reduce((sum, item) => sum + item.net, 0);
+  const reportBills = store.bills.filter((bill) => bill.billDate >= reportStart && bill.billDate <= reportEnd), reportOtherBills = store.otherBills.filter((bill) => bill.billDate >= reportStart && bill.billDate <= reportEnd), reportOtherBillExpenses: FleetStore["businessExpenses"] = reportOtherBills.map((bill) => ({ id: -bill.id, date: bill.billDate, category: bill.category === "Other" ? "Miscellaneous" : bill.category, description: bill.items.map((item) => item.description).filter(Boolean).join(", ") || `${bill.category} bill`, purpose: `${bill.category} bill #${String(bill.number).padStart(4, "0")}`, paidTo: "Paper / calendar supplier", reference: "", amount: otherBillCost(bill), clientId: bill.clientId, clientName: bill.client.firmName, clientBillingAmount: bill.total, paidAmount: otherBillCost(bill) })), reportExpenses = [...store.businessExpenses.filter((expense) => expense.date >= reportStart && expense.date <= reportEnd), ...reportOtherBillExpenses], reportEmployeeExpenses = store.employeeExpenses.filter((expense) => expense.date >= reportStart && expense.date <= reportEnd && expense.treatment !== "Employee deduction"), reportPayroll = store.payrollPayments.filter((payment) => payment.status === "Paid" && payment.paidAt && payment.paidAt >= reportStart && payment.paidAt <= reportEnd), reportOutstanding = reportBills.reduce((sum, bill) => sum + billBalance(bill), 0) + reportOtherBills.reduce((sum, bill) => sum + otherBillBalance(bill), 0), reportTotalExpenses = reportExpenses.reduce((sum, item) => sum + item.amount, 0) + reportEmployeeExpenses.reduce((sum, item) => sum + item.amount, 0) + reportPayroll.reduce((sum, item) => sum + item.net, 0);
   const reportRevenue = reportBills.reduce((sum, item) => sum + item.total, 0) + reportOtherBills.reduce((sum, item) => sum + item.total, 0);
   const reportSalaryExpenses: FleetStore["businessExpenses"] = reportPayroll.map((payment) => ({ id: payment.id, date: payment.paidAt ?? payment.payoutDate, category: "Self stay", description: store.employees.find((employee) => employee.id === payment.employeeId)?.name ?? "Employee salary", purpose: `${fmt(payment.periodStart)} to ${fmt(payment.periodEnd)}`, paidTo: "Employee salary", reference: "", amount: payment.net, clientBillingAmount: 0, paidAmount: payment.net }));
   const reportCategoryExpenses = reportProfitCategory === "Self stay" ? reportSalaryExpenses : reportExpenses.filter((expense) => matchesReportCategory(expense, reportProfitCategory));
@@ -245,7 +262,7 @@ export default function OperationsApp() {
   const recordViewShell = (content: React.ReactNode) => <OperationsShell menu={menu} setMenu={setMenu} openNavSections={openNavSections} setOpenNavSections={setOpenNavSections} view={view} go={go} pendingPayrollCount={pendingPayrollCount} dialogContent={dialog && <EntryForm dialog={dialog} store={store} employeeId={editingEmployeeId} clientId={editingClientId} vehicleId={editingVehicleId} close={() => setDialog(null)} commit={commit}/>}>{content}</OperationsShell>;
   if (view === "otherBilling") return recordViewShell(<OtherBillsView store={store} setStore={setStore} notify={notify}/>);
   if (view === "otherBillLedgers") return recordViewShell(<OtherBillLedgersView store={store}/>);
-  if (view === "maintenanceLedger") return recordViewShell(<MaintenanceLedgerView store={store} setStore={setStore} notify={notify} remove={remove}/>);
+  if (view === "maintenanceLedger") return recordViewShell(<MaintenanceManager store={store} setStore={setStore} notify={notify} remove={remove}/>);
   if (view === "supplierProfiles") return recordViewShell(<SupplierCardsView store={store} setStore={setStore} notify={notify} remove={remove}/>);
   if (view === "selfExpenses") return recordViewShell(<EditableSelfExpensesView store={store} setStore={setStore} notify={notify}/>);
   if (view === "maintenance") {
@@ -302,7 +319,7 @@ export default function OperationsApp() {
     </div>
   </>);
 
-  if (composeBill) return <BillingComposer store={store} initialClientId={billingClientId} bill={editingBill} cancel={() => { setComposeBill(false); setEditingBill(null); }} save={(bill) => { setStore((current) => ({ ...current, bills: editingBill ? current.bills.map((item) => item.id === bill.id ? bill : item) : [...current.bills, bill], nextBillNumber: editingBill ? current.nextBillNumber : bill.number + 1 })); setComposeBill(false); setEditingBill(null); setInvoice(bill); }}/>
+  if (composeBill) return <BillingComposer store={store} initialClientId={billingClientId} bill={editingBill} cancel={() => { setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); }} save={(bill) => { const isExisting = store.bills.some((item) => item.id === bill.id); setStore((current) => ({ ...current, bills: isExisting ? current.bills.map((item) => item.id === bill.id ? bill : item) : [...current.bills, bill], nextBillNumber: isExisting ? current.nextBillNumber : bill.number + 1, campaignBookings: draftCampaignBooking ? current.campaignBookings.map((item) => item.id === draftCampaignBooking.id ? { ...item, generatedBillId: bill.id } : item) : current.campaignBookings })); setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); setInvoice(bill); notify("Bill saved and receipt ready"); }}/>
   if (composeQuotation) return <QuotationComposer store={store} cancel={() => setComposeQuotation(false)} preview={(quotation) => { setComposeQuotation(false); setQuotationDraft(quotation); }}/>;
   if (quotationDraft) return <Invoice bill={quotationDraft} store={store} quotation close={() => setQuotationDraft(null)}/>;
   if (campaignBillBooking) return <CampaignBillModeModal booking={campaignBillBooking} close={() => setCampaignBillBooking(null)} generate={(paymentMode) => generateCampaignBill(campaignBillBooking, paymentMode)}/>;
@@ -316,13 +333,15 @@ export default function OperationsApp() {
   </>;
   return <OperationsShell menu={menu} setMenu={setMenu} openNavSections={openNavSections} setOpenNavSections={setOpenNavSections} view={view} go={go} pendingPayrollCount={pendingPayrollCount} dialogContent={finalDialogContent}>
     {view === "overview" && <OverviewView store={store} totalBusiness={totalBusiness} outstanding={outstanding} totalExpenses={totalExpenses} activeEmployees={activeEmployees} currentWeek={currentWeek} activeCampaigns={activeCampaigns}/>}
-    {view === "attendance" && <AttendanceView store={store} attendanceDate={attendanceDate} attendanceDirty={attendanceDirty} attendanceRows={attendanceRows} activeEmployeeIds={activeEmployeeIds} selectAttendanceDate={selectAttendanceDate} markAllPresent={markAllEmployeesPresent} setEmployeeAttendance={setEmployeeAttendance} saveAttendance={saveAttendance}/>}
+    {view === "attendance" && <AttendanceView store={store} attendanceDate={attendanceDate} attendanceDirty={attendanceDirty} attendanceRows={attendanceRows} activeEmployeeIds={activeEmployeeIds} selectAttendanceDate={selectAttendanceDate} markAllPresent={markAllEmployeesPresent} setEmployeeAttendance={setEmployeeAttendance} saveAttendance={saveAttendance} attendanceReportFrom={attendanceReportFrom} attendanceReportTo={attendanceReportTo} setAttendanceReportFrom={setAttendanceReportFrom} setAttendanceReportTo={setAttendanceReportTo}/>}
+    {view === "attendance" && <div className="op-toolbar"><Button secondary onClick={markAllEmployeesAbsent}>Mark all absent</Button></div>}
     {view === "employees" && <EmployeesView store={store} search={search} employeeRows={employeeRows} employeeRateHistory={employeeRateHistory} setSearch={setSearch} addEmployee={() => { setEditingEmployeeId(null); setDialog("employee"); }} addRate={() => setDialog("rate")} openEmployeeRecord={setEmployeeRecordId} editEmployee={(employeeId) => { setEditingEmployeeId(employeeId); setDialog("employee"); }} removeEmployee={(employeeId) => remove("employees", employeeId)}/>}
     {view === "vehicles" && <><PageHead title="Vehicles" detail="Vehicle attendance is independent and drives campaign billing" action="Add vehicle" onAction={() => { setEditingVehicleId(null); setDialog("vehicle"); }}/><Table headers={["Vehicle", "Type", "Current campaign", "Today", "Vehicle status", ""]}>{store.vehicles.map((vehicle) => { const campaign = campaignForVehicleOnDate(vehicle.id, isoToday()); return <Row key={vehicle.id}><b>{vehicle.number}</b><span>{vehicle.type}</span><span>{campaign?.booking.client.firmName ?? "No campaign"}{campaign && <small>{fmt(campaign.period.startDate)} to {fmt(campaign.period.endDate)}</small>}</span><Status>{store.vehicleAttendance[isoToday()]?.[vehicle.id] === true ? "Present" : store.vehicleAttendance[isoToday()]?.[vehicle.id] === false ? "Absent" : "Not marked"}</Status><Status>{vehicle.status}</Status><Actions edit={() => { setEditingVehicleId(vehicle.id); setDialog("vehicle"); }} remove={() => remove("vehicles", vehicle.id)}/></Row>; })}</Table><h2 className="op-list-title">Vehicle attendance</h2><div className="op-attendance-layout"><AttendanceCalendar key={`vehicle-${vehicleAttendanceDate.slice(0, 7)}`} selected={vehicleAttendanceDate} attendance={store.vehicleAttendance} employeeIds={attendanceVehicleIds} onSelect={selectVehicleAttendanceDate}/><section className="op-attendance-sheet"><div className="op-toolbar"><label className="op-field"><span>Attendance date</span><input type="date" value={vehicleAttendanceDate} onChange={(event) => selectVehicleAttendanceDate(event.target.value)}/></label><Button secondary onClick={() => { setVehicleAttendanceDraft((current) => ({ ...current, ...Object.fromEntries(attendanceVehicles.map((vehicle) => [vehicle.id, true])) })); setVehicleAttendanceDirty(true); }}>Mark all present</Button><span className="op-attendance-save-top"><Button onClick={saveVehicleAttendance}><Check size={17}/>Save vehicle attendance</Button></span></div>{vehicleAttendanceDirty && <p className="op-unsaved">Unsaved changes</p>}<Table headers={["Vehicle", "Campaign on this date", "Present", "Absent"]}>{attendanceVehicles.map((vehicle) => { const campaign = campaignForVehicleOnDate(vehicle.id, vehicleAttendanceDate), present = vehicleAttendanceDraft[vehicle.id]; return <Row key={vehicle.id}><b>{vehicle.number}<small>{vehicle.type}</small></b><span>{campaign?.booking.client.firmName ?? "No campaign"}{campaign && <small>{money(campaign.period.dailyRate)}/present day</small>}</span><button className={`op-attendance ${present ? "active" : ""}`} onClick={() => { setVehicleAttendanceDraft((current) => ({ ...current, [vehicle.id]: true })); setVehicleAttendanceDirty(true); }}><Check/>Present</button><button className={`op-attendance ${present === false ? "absent" : ""}`} onClick={() => { setVehicleAttendanceDraft((current) => ({ ...current, [vehicle.id]: false })); setVehicleAttendanceDirty(true); }}><X/>Absent</button></Row>; })}</Table><div className="op-attendance-save-bottom"><Button onClick={saveVehicleAttendance}><Check size={17}/>Save vehicle attendance</Button></div></section></div></>}
     {view === "clients" && <ClientsView store={store} clientCampaignFilter={clientCampaignFilter} clientCategoryFilter={clientCategoryFilter} clientSearch={clientSearch} normalizedClientSearch={normalizedClientSearch} matchingClients={matchingClients} visibleClients={visibleClients} ledgerClientId={ledgerClientId} setClientCampaignFilter={setClientCampaignFilter} setClientCategoryFilter={setClientCategoryFilter} setClientSearch={setClientSearch} addClient={() => { setEditingClientId(null); setDialog("client"); }} openLedger={setLedgerClientId} closeLedger={() => setLedgerClientId(null)} viewBill={(bill) => { setLedgerClientId(null); setInvoice(bill); }} createBill={(clientId) => { setBillingClientId(clientId); setEditingBill(null); setComposeBill(true); }} editClient={(clientId) => { setEditingClientId(clientId); setDialog("client"); }} removeClient={(clientId) => remove("clients", clientId)}/>}
     {view === "ledgers" && <ClientLedgersView store={store} ledgerSearch={ledgerSearch} normalizedLedgerSearch={normalizedLedgerSearch} ledgerClients={ledgerClients} visibleLedgerClients={visibleLedgerClients} ledgerClientId={ledgerClientId} setLedgerSearch={setLedgerSearch} openLedger={setLedgerClientId} closeLedger={() => setLedgerClientId(null)} viewBill={(bill) => { setLedgerClientId(null); setInvoice(bill); }}/>}
-    {view === "campaigns" && <CampaignsView store={store} campaignSearch={campaignSearch} normalizedCampaignSearch={normalizedCampaignSearch} filteredCampaignBookings={filteredCampaignBookings} setCampaignSearch={setCampaignSearch} newBooking={() => { setEditingCampaign(null); setCampaignFormOpen(true); }} editBooking={(booking) => { setEditingCampaign(booking); setCampaignFormOpen(true); }} stopBooking={(booking) => { if (!window.confirm("Stop this campaign immediately?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.map((item) => item.id === booking.id ? { ...item, stoppedAt: isoToday() } : item) })); notify("Campaign stopped"); }} generateBill={generateCampaignBill}/>}
-    {view === "payroll" && <PayrollView store={store} payrollWeek={payrollWeek} payrollPeriodEnd={payrollPeriodEnd} payrollPayoutDate={payrollPayoutDate} payrollRows={payrollRows} payrollGrossTotal={payrollGrossTotal} payrollAdvanceRecoveryTotal={payrollAdvanceRecoveryTotal} payrollRemainingAdvanceTotal={payrollRemainingAdvanceTotal} payrollNetTotal={payrollNetTotal} setPayrollWeek={selectPayrollWeek} releasePayroll={releasePayroll} setPayrollStatus={setPayrollStatus}/>}
+    {view === "campaigns" && <CampaignsView store={store} campaignSearch={campaignSearch} normalizedCampaignSearch={normalizedCampaignSearch} filteredCampaignBookings={filteredCampaignBookings} setCampaignSearch={setCampaignSearch} newBooking={() => { setEditingCampaign(null); setRenewingCampaign(false); setCampaignFormOpen(true); }} editBooking={(booking) => { setEditingCampaign(booking); setRenewingCampaign(false); setCampaignFormOpen(true); }} renewBooking={(booking) => { const month = isoToday().slice(0, 7), endDate = `${month}-${new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()}`; const renewed = { ...booking, id: nextId(store.campaignBookings), month, startDate: `${month}-01`, endDate, stoppedAt: undefined, generatedBillId: undefined, vehiclePeriods: booking.vehiclePeriods.map((period) => ({ ...period, startDate: `${month}-01`, endDate })) }; setEditingCampaign(renewed); setRenewingCampaign(true); setCampaignFormOpen(true); }} deleteBooking={(booking) => { if (!window.confirm("Delete this campaign and its attendance link?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.filter((item) => item.id !== booking.id) })); notify("Campaign deleted"); }} stopBooking={(booking) => { if (!window.confirm("Stop this campaign immediately?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.map((item) => item.id === booking.id ? { ...item, stoppedAt: isoToday() } : item) })); notify("Campaign stopped"); }} generateBill={generateCampaignBill}/>}
+    {view === "payroll" && <div className="op-toolbar salary-range-toolbar"><label className="op-field"><span>Salary from</span><input type="date" value={payrollWeek} onChange={(event) => setPayrollWeek(event.target.value)} /></label><label className="op-field"><span>Salary to</span><input type="date" value={payrollPeriodEnd} onChange={(event) => setPayrollPeriodEnd(event.target.value)} /></label><span className="op-form-note">The salary table recalculates attendance, rates, expenses, advances, and forwarded unpaid amounts for this range.</span></div>}
+    {view === "payroll" && <PayrollView store={store} payrollWeek={payrollWeek} payrollPeriodEnd={payrollPeriodEnd} payrollPayoutDate={payrollPayoutDate} payrollRows={payrollRows} payrollGrossTotal={payrollGrossTotal} payrollAdvanceRecoveryTotal={payrollAdvanceRecoveryTotal} payrollRemainingAdvanceTotal={payrollRemainingAdvanceTotal} payrollNetTotal={payrollNetTotal} setPayrollWeek={selectPayrollWeek} releasePayroll={releasePayroll} setPayrollStatus={setPayrollStatus} exportPayroll={exportPayroll}/>} 
     {view === "billing" && <BillingView store={store} billingSearch={billingSearch} filteredBills={filteredBills} totalBusiness={totalBusiness} outstanding={outstanding} setBillingSearch={setBillingSearch} generateBill={() => { setEditingBill(null); setComposeBill(true); }} openCompanyDetails={() => setDialog("company")} combineClientBills={() => setConsolidateOpen(true)} editBill={(bill) => { setEditingBill(bill); setBillingClientId(bill.clientId); setComposeBill(true); }} recordPayment={setPaymentBill} viewBill={setInvoice}/>}
     {view === "expenses" && <ExpensesView
       store={store}

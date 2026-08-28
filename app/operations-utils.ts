@@ -33,7 +33,7 @@ export type ReportProfitCategory = (typeof reportProfitCategories)[number]["valu
 export const matchesReportCategory = (expense: FleetStore["businessExpenses"][number], category: ReportProfitCategory) => category === "All" || category === "Self travel" ? category === "All" || expense.category === "Self travel" || expense.category === "Self stay" : expense.category === category;
 
 export const clientCategories: ClientCategory[] = ["Rickshaw", "E-rickshaw", "Paper", "Social media", "Calendar", "Other"];
-export const campaignChargeCategories: BillChargeCategory[] = ["Banner / printing", "Pasting", "Recording", "Municipal tax", "Tea", "Breakfast", "Lunch", "Dinner", "Miscellaneous", "Discount"];
+export const campaignChargeCategories: BillChargeCategory[] = ["Banner / printing", "Pasting", "Recording", "Municipal tax", "Design", "Tea", "Breakfast", "Lunch", "Dinner", "Miscellaneous", "Discount"];
 export const bookingEnd = (booking: CampaignBooking) => booking.stoppedAt && booking.stoppedAt < booking.endDate ? booking.stoppedAt : booking.endDate;
 export const campaignMonthOptions = (bookings: CampaignBooking[]) => Array.from(new Set(bookings.flatMap((booking) => {
   const months: string[] = [];
