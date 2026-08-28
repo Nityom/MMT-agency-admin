@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, FileText, Gauge, Plus, Printer, Trash2, X } from "lucide-react";
+import { Check, FileText, Gauge, Plus, Printer, ReceiptText, Trash2, X } from "lucide-react";
 import Image from "next/image";
 import { FormEvent, useState } from "react";
 import {
@@ -1358,12 +1358,14 @@ export function Invoice({
   close,
   edit,
   quotation = false,
+  generateReceipt,
 }: {
   bill: Bill;
   store: FleetStore;
   close: () => void;
   edit?: () => void;
   quotation?: boolean;
+  generateReceipt?: () => void;
 }) {
   const balance = billBalance(bill);
   return (
@@ -1378,6 +1380,12 @@ export function Invoice({
             <Button secondary onClick={edit}>
               <FileText size={17} />
               Edit bill
+            </Button>
+          )}
+          {!quotation && generateReceipt && bill.payments.length > 0 && (
+            <Button secondary onClick={generateReceipt}>
+              <ReceiptText size={17} />
+              Generate Receipt
             </Button>
           )}
           <Button onClick={() => window.print()}>
@@ -1760,3 +1768,123 @@ export function CampaignQuotation({
   );
 }
 
+
+export function BillReceipt({
+  bill,
+  store,
+  close,
+}: {
+  bill: Bill;
+  store: FleetStore;
+  close: () => void;
+}) {
+  const paid = billPaid(bill);
+  const balance = billBalance(bill);
+  const lastPayment = bill.payments.length > 0 ? bill.payments[bill.payments.length - 1] : null;
+  
+  return (
+    <div className="invoice-backdrop">
+      <div className="invoice-dialog">
+        <div className="invoice-toolbar">
+          <Button secondary onClick={close}>
+            <X size={17} />
+            Close
+          </Button>
+          <Button onClick={() => window.print()}>
+            <Printer size={17} />
+            Print receipt
+          </Button>
+        </div>
+        <article className="invoice-sheet op-invoice">
+          <header className="invoice-brand">
+            <Gauge size={30} />
+            <h2>{store.company.name}</h2>
+          </header>
+          <h1>PAYMENT RECEIPT</h1>
+          <section className="invoice-company">
+            <p>{store.company.address}</p>
+            <p>
+              Mobile: {store.company.mobile} | Email: {store.company.email}
+            </p>
+          </section>
+          <section className="invoice-meta">
+            <p>
+              <b>Receipt Date:</b> {fmt(lastPayment?.date ?? bill.billDate)}
+            </p>
+            <p>
+              <b>Invoice No:</b> INV-{String(bill.number).padStart(4, "0")}
+            </p>
+            <p>
+              <b>Invoice Date:</b> {fmt(bill.billDate)}
+            </p>
+            <p className="invoice-bill-to">
+              <b>Received From:</b> {bill.client.firmName}
+              <br />
+              <span>
+                {bill.client.ownerName}
+                <br />
+                {bill.client.address}
+                <br />
+                {bill.client.mobile} · {bill.client.email}
+              </span>
+            </p>
+          </section>
+          <table className="invoice-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Payment Mode</th>
+                <th>Reference</th>
+                <th>Note</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bill.payments.map((payment) => (
+                <tr key={payment.id}>
+                  <td>{fmt(payment.date)}</td>
+                  <td>{payment.mode}</td>
+                  <td>{payment.reference || "—"}</td>
+                  <td>{payment.note || "—"}</td>
+                  <td>{money(payment.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <section className="op-invoice-total">
+            <p>
+              <span>Total invoice amount</span>
+              <b>{money(bill.total)}</b>
+            </p>
+            <p>
+              <span>Total received</span>
+              <b>{money(paid)}</b>
+            </p>
+            <p>
+              <span>Remaining balance</span>
+              <strong>{money(balance)}</strong>
+            </p>
+          </section>
+          <footer className="invoice-footer">
+            <div>
+              <p>
+                <b>Payment Status:</b> {balance > 0 ? "Partial Payment" : "Fully Paid"}
+              </p>
+            </div>
+            <div className="invoice-signature">
+              <p>For {store.company.name}</p>
+              <Image
+                className="invoice-signature-mark"
+                src="/sign.png"
+                alt="Mrunal Multi Task Agency proprietor signature"
+                width={700}
+                height={278}
+              />
+              <b>Authorized Signatory</b>
+            </div>
+          </footer>
+        </article>
+      </div>
+    </div>
+  );
+}

@@ -651,11 +651,15 @@ export function OtherBillsView({
   setStore: React.Dispatch<React.SetStateAction<FleetStore>>;
   notify: (message: string) => void;
 }) {
-  const [editingBill, setEditingBill] = useState<OtherBill | null | undefined>(
-      undefined,
-    ),
+  const [editingBill, setEditingBill] = useState<
+      OtherBill | null | undefined
+    >(undefined),
     [paymentBill, setPaymentBill] = useState<OtherBill | null>(null),
-    [printBill, setPrintBill] = useState<OtherBill | null>(null);
+    [printBill, setPrintBill] = useState<OtherBill | null>(null),
+    [search, setSearch] = useState(""),
+    [categoryFilter, setCategoryFilter] = useState<"All" | "Paper" | "Calendar" | "Other">("All"),
+    [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "Paid">("All");
+
   const billed = store.otherBills.reduce((sum, bill) => sum + bill.total, 0),
     received = store.otherBills.reduce(
       (sum, bill) => sum + otherBillPaid(bill),
@@ -665,6 +669,7 @@ export function OtherBillsView({
       (sum, bill) => sum + otherBillBalance(bill),
       0,
     );
+
   const saveBill = (saved: OtherBill) => {
     setStore((current) => ({
       ...current,
@@ -683,6 +688,37 @@ export function OtherBillsView({
     setPrintBill(saved);
     notify("Other bill saved");
   };
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredBills = [...store.otherBills]
+    .sort((left, right) => right.billDate.localeCompare(left.billDate))
+    .filter((bill) => {
+      const billNoStr = `oth-${String(bill.number).padStart(4, "0")} ${bill.number}`.toLowerCase();
+      const clientStr = `${bill.client.firmName} ${bill.client.ownerName ?? ""} ${bill.client.mobile}`.toLowerCase();
+      const itemsStr = bill.items
+        .map((it) => `${it.description}`)
+        .join(" ")
+        .toLowerCase();
+      const categoryStr = bill.category.toLowerCase();
+
+      const matchesSearch =
+        !normalizedSearch ||
+        billNoStr.includes(normalizedSearch) ||
+        clientStr.includes(normalizedSearch) ||
+        itemsStr.includes(normalizedSearch) ||
+        categoryStr.includes(normalizedSearch);
+
+      if (!matchesSearch) return false;
+      if (categoryFilter !== "All" && bill.category !== categoryFilter) return false;
+      if (statusFilter === "Pending" && otherBillBalance(bill) === 0) return false;
+      if (statusFilter === "Paid" && otherBillBalance(bill) > 0) return false;
+
+      return true;
+    });
+
+  const pendingCount = store.otherBills.filter((bill) => otherBillBalance(bill) > 0).length;
+  const paidCount = store.otherBills.filter((bill) => otherBillBalance(bill) === 0).length;
+
   return (
     <>
       <PageHead
@@ -707,20 +743,84 @@ export function OtherBillsView({
         <Metric
           label="Outstanding"
           value={money(balance)}
-          detail={`${store.otherBills.filter((bill) => otherBillBalance(bill) > 0).length} unpaid bills`}
+          detail={`${pendingCount} unpaid bills`}
           icon={WalletCards}
         />
         <Metric
           label="Paid bills"
-          value={String(
-            store.otherBills.filter((bill) => otherBillBalance(bill) === 0)
-              .length,
-          )}
+          value={String(paidCount)}
           detail="Fully settled records"
           icon={ReceiptText}
         />
       </section>
-      {store.otherBills.length ? (
+
+      <div className="op-toolbar" style={{ flexWrap: "wrap", gap: "10px" }}>
+        <label className="op-search" style={{ flex: "1 1 260px" }}>
+          <Search size={16} />
+          <input
+            placeholder="Search by client, mobile, bill no. (OTH-...), or item..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
+
+        <div className="op-salary-tabs">
+          <button
+            type="button"
+            className={categoryFilter === "All" ? "active" : ""}
+            onClick={() => setCategoryFilter("All")}
+          >
+            All Categories
+          </button>
+          <button
+            type="button"
+            className={categoryFilter === "Paper" ? "active" : ""}
+            onClick={() => setCategoryFilter("Paper")}
+          >
+            Paper
+          </button>
+          <button
+            type="button"
+            className={categoryFilter === "Calendar" ? "active" : ""}
+            onClick={() => setCategoryFilter("Calendar")}
+          >
+            Calendar
+          </button>
+          <button
+            type="button"
+            className={categoryFilter === "Other" ? "active" : ""}
+            onClick={() => setCategoryFilter("Other")}
+          >
+            Other
+          </button>
+        </div>
+
+        <div className="op-salary-tabs">
+          <button
+            type="button"
+            className={statusFilter === "All" ? "active" : ""}
+            onClick={() => setStatusFilter("All")}
+          >
+            All ({store.otherBills.length})
+          </button>
+          <button
+            type="button"
+            className={statusFilter === "Pending" ? "active" : ""}
+            onClick={() => setStatusFilter("Pending")}
+          >
+            Pending ({pendingCount})
+          </button>
+          <button
+            type="button"
+            className={statusFilter === "Paid" ? "active" : ""}
+            onClick={() => setStatusFilter("Paid")}
+          >
+            Paid ({paidCount})
+          </button>
+        </div>
+      </div>
+
+      {filteredBills.length ? (
         <Table
           headers={[
             "Bill",
@@ -734,69 +834,73 @@ export function OtherBillsView({
             "Actions",
           ]}
         >
-          {[...store.otherBills]
-            .sort((left, right) => right.billDate.localeCompare(left.billDate))
-            .map((bill) => (
-              <Row key={bill.id}>
-                <b>OTH-{String(bill.number).padStart(4, "0")}</b>
-                <span>{fmt(bill.billDate)}</span>
-                <b>
-                  {bill.client.firmName}
-                  <small>{bill.client.mobile}</small>
-                </b>
-                <Status>{bill.category}</Status>
-                <span>{bill.items.length} items</span>
-                <strong>{money(bill.total)}</strong>
-                <span>{money(otherBillPaid(bill))}</span>
-                <strong>{money(otherBillBalance(bill))}</strong>
-                <span className="op-actions">
-                  {otherBillBalance(bill) > 0 && (
-                    <button
-                      title="Receive payment"
-                      onClick={() => setPaymentBill(bill)}
-                    >
-                      <Banknote size={16} />
-                    </button>
-                  )}
-                  <button title="Print bill" onClick={() => setPrintBill(bill)}>
-                    <Printer size={16} />
-                  </button>
+          {filteredBills.map((bill) => (
+            <Row key={bill.id}>
+              <b>OTH-{String(bill.number).padStart(4, "0")}</b>
+              <span>{fmt(bill.billDate)}</span>
+              <b>
+                {bill.client.firmName}
+                <small>{bill.client.mobile}</small>
+              </b>
+              <Status>{bill.category}</Status>
+              <span>{bill.items.length} items</span>
+              <strong>{money(bill.total)}</strong>
+              <span>{money(otherBillPaid(bill))}</span>
+              <strong>{money(otherBillBalance(bill))}</strong>
+              <span className="op-actions">
+                {otherBillBalance(bill) > 0 && (
                   <button
-                    title="Edit bill"
-                    onClick={() => setEditingBill(bill)}
+                    title="Receive payment"
+                    onClick={() => setPaymentBill(bill)}
                   >
-                    <FileText size={16} />
+                    <Banknote size={16} />
                   </button>
-                  <button
-                    className="delete"
-                    title="Delete bill"
-                    onClick={() => {
-                      if (
-                        !window.confirm(
-                          "Delete this other bill and its payments?",
-                        )
+                )}
+                <button title="Print bill" onClick={() => setPrintBill(bill)}>
+                  <Printer size={16} />
+                </button>
+                <button
+                  title="Edit bill"
+                  onClick={() => setEditingBill(bill)}
+                >
+                  <FileText size={16} />
+                </button>
+                <button
+                  className="delete"
+                  title="Delete bill"
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        "Delete this other bill and its payments?",
                       )
-                        return;
-                      setStore((current) => ({
-                        ...current,
-                        otherBills: current.otherBills.filter(
-                          (item) => item.id !== bill.id,
-                        ),
-                      }));
-                    }}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </span>
-              </Row>
-            ))}
+                    )
+                      return;
+                    setStore((current) => ({
+                      ...current,
+                      otherBills: current.otherBills.filter(
+                        (item) => item.id !== bill.id,
+                      ),
+                    }));
+                  }}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </span>
+            </Row>
+          ))}
         </Table>
       ) : (
         <div className="op-empty-state">
           <FileText />
-          <h2>No paper or calendar bills</h2>
+          <h2>
+            {store.otherBills.length
+              ? "No matching bills found"
+              : "No paper or calendar bills"}
+          </h2>
           <p>
-            Create a bill from a client profile to begin this separate ledger.
+            {store.otherBills.length
+              ? "Try adjusting your search terms or filters."
+              : "Create a bill from a client profile to begin this separate ledger."}
           </p>
         </div>
       )}

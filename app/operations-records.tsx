@@ -1,8 +1,8 @@
 "use client";
 
-import { Banknote, Printer, ReceiptText, WalletCards } from "lucide-react";
+import { Banknote, CalendarDays, Printer, ReceiptText, WalletCards } from "lucide-react";
 import {
-  addDays, Bill, BillCharge, calculateBillTotal, FleetStore, inclusiveDays, rateOnDate,
+  addDays, Bill, BillCharge, calculateBillTotal, calculateEmployeeLedger, FleetStore, groupAttendanceRanges, inclusiveDays, rateOnDate,
 } from "./fleet-domain";
 import { Button, Modal, Status } from "./operations-components";
 import {
@@ -46,24 +46,25 @@ export function ClientLedgerModal({ store, clientId, close, viewBill }: { store:
 export function EmployeeRecordModal({ store, employeeId, close }: { store: FleetStore; employeeId: number; close: () => void }) {
   const employee = store.employees.find((item) => item.id === employeeId);
   if (!employee) return null;
+  
+  const ledger = calculateEmployeeLedger(store, employeeId);
   const payroll = store.payrollPayments.filter((item) => item.employeeId === employeeId);
   const advances = store.advances.filter((item) => item.employeeId === employeeId);
+  const payments = (store.employeePayments ?? []).filter((item) => item.employeeId === employeeId);
   const expenses = store.employeeExpenses.filter((item) => item.employeeId === employeeId);
   const rates = store.employeeRates.filter((item) => item.employeeId === employeeId).sort((left, right) => right.effectiveFrom.localeCompare(left.effectiveFrom));
   const currentRate = rateOnDate(store.employeeRates, employeeId, isoToday());
-  const paidPayroll = payroll.filter((item) => item.status === "Paid");
-  const totalPaid = paidPayroll.reduce((sum, item) => sum + item.net, 0);
-  const advanceTotal = advances.reduce((sum, item) => sum + item.amount, 0);
-  const advanceRecovered = advances.reduce((sum, item) => sum + item.recovered, 0);
-  const advanceOutstanding = advances.reduce((sum, item) => sum + Math.max(0, item.amount - item.recovered), 0);
-  const attendance = Object.entries(store.attendance).filter(([, day]) => day[employeeId] !== undefined);
-  const presentDays = attendance.filter(([, day]) => day[employeeId] === true).length;
-  const absentDays = attendance.filter(([, day]) => day[employeeId] === false).length;
+  
+  const attendanceRanges = groupAttendanceRanges(store.attendance, employeeId);
+  const presentDays = attendanceRanges.filter((r) => r.status === "Present").reduce((sum, r) => sum + r.days, 0);
+  const absentDays = attendanceRanges.filter((r) => r.status === "Absent").reduce((sum, r) => sum + r.days, 0);
+  
   const records = [
     ...payroll.map((item) => ({ key: `payroll-${item.id}`, date: item.paidAt ?? item.payoutDate, type: item.status === "Paid" ? "Salary paid" : "Salary pending", detail: `${fmt(item.periodStart)} to ${fmt(item.periodEnd)} · Gross ${money(item.gross)} · Extras ${money(item.reimbursements)} · Deductions ${money(item.deductions)} · Advance recovery ${money(item.advanceRecovery)}`, status: item.status, amount: item.net as number | null })),
     ...advances.map((item) => ({ key: `advance-${item.id}`, date: item.date, type: "Employee advance", detail: `${item.note || "No note"} · Recovered ${money(item.recovered)} · Outstanding ${money(Math.max(0, item.amount - item.recovered))}`, status: item.amount <= item.recovered ? "Recovered" : "Outstanding", amount: item.amount as number | null })),
+    ...payments.map((item) => ({ key: `payment-${item.id}`, date: item.date, type: `Payment: ${item.paymentType}`, detail: `${item.note || item.reference || "No note"}`, status: "Paid", amount: item.amount as number | null })),
     ...expenses.map((item) => ({ key: `expense-${item.id}`, date: item.date, type: item.category, detail: `${item.description} · ${item.treatment}`, status: item.treatment, amount: item.amount as number | null })),
-    ...attendance.map(([date, day]) => ({ key: `attendance-${date}`, date, type: "Daily attendance", detail: `${rateOnDate(store.employeeRates, employeeId, date)?.location ?? "No location saved"} · Employee attendance record`, status: day[employeeId] ? "Present" : "Absent", amount: null as number | null })),
   ].sort((left, right) => right.date.localeCompare(left.date));
-  return <Modal title={`${employee.name} · complete record`} close={close}><div className="op-client-ledger op-employee-record"><section className="op-ledger-profile"><div><b>{employee.name}</b><span>{currentRate?.location ?? "No current location"} · {money(currentRate?.dailyRate ?? 0)}/day</span><small>{employee.status} · {presentDays} present · {absentDays} absent</small></div><Status>{employee.status}</Status></section><section className="op-ledger-totals"><p><span>Paid salary</span><b>{money(totalPaid)}</b></p><p><span>Total advances</span><b>{money(advanceTotal)}</b></p><p><span>Advance recovered</span><b>{money(advanceRecovered)}</b></p><p><span>Advance outstanding</span><strong>{money(advanceOutstanding)}</strong></p></section><div className="op-section-title"><h2>Complete activity history</h2></div>{records.length ? <section className="op-ledger-list">{records.map((record) => <article key={record.key}><time>{fmt(record.date)}</time><div><b>{record.type}</b><small>{record.detail}</small></div><Status>{record.status}</Status><strong>{record.amount === null ? "—" : money(record.amount)}</strong></article>)}</section> : <div className="op-empty-state"><ReceiptText/><h2>No activity records</h2><p>Salary, advances, expenses, and attendance will appear here.</p></div>}<div className="op-section-title"><h2>Rate and location history</h2></div>{rates.length ? <section className="op-history op-employee-rate-history">{rates.map((rate) => <p key={rate.id}><b>{rate.location}</b><span>{money(rate.dailyRate)}/day</span><small>{fmt(rate.effectiveFrom)} to {rate.effectiveTo ? fmt(rate.effectiveTo) : "Current"}</small></p>)}</section> : <div className="op-empty-state"><WalletCards/><h2>No rate history</h2><p>Add a rate or transfer record for this employee.</p></div>}<footer><Button secondary onClick={close}>Close</Button></footer></div></Modal>;
+  
+  return <Modal title={`${employee.name} · complete record`} close={close}><div className="op-client-ledger op-employee-record"><section className="op-ledger-profile"><div><b>{employee.name}</b><span>{currentRate?.location ?? "No current location"} · {money(currentRate?.dailyRate ?? 0)}/day · Monthly: {money(employee.monthlySalary)}</span><small>{employee.status} · {presentDays} present · {absentDays} absent</small></div><Status>{employee.status}</Status></section><section className="op-ledger-totals"><p><span>Total payable</span><b>{money(ledger.totalSalaryPayable)}</b></p><p><span>Total paid</span><b>{money(ledger.totalPaid)}</b></p><p><span>Remaining balance</span><strong>{money(ledger.remainingBalance)}</strong></p><p><span>Total advance</span><b>{money(ledger.totalAdvance)}</b></p><p><span>Advance outstanding</span><strong>{money(ledger.advanceOutstanding)}</strong></p></section><div className="op-section-title"><h2>Attendance summary</h2></div>{attendanceRanges.length ? <section className="op-history">{attendanceRanges.map((range, idx) => <p key={idx}><b>{range.startDate === range.endDate ? fmt(range.startDate) : `${fmt(range.startDate)} – ${fmt(range.endDate)}`}</b><span>{range.status}</span><small>{range.days} {range.days === 1 ? "day" : "days"}</small></p>)}</section> : <div className="op-empty-state"><CalendarDays/><h2>No attendance records</h2></div>}<div className="op-section-title"><h2>Payment & expense history</h2></div>{records.length ? <section className="op-ledger-list">{records.map((record) => <article key={record.key}><time>{fmt(record.date)}</time><div><b>{record.type}</b><small>{record.detail}</small></div><Status>{record.status}</Status><strong>{record.amount === null ? "—" : money(record.amount)}</strong></article>)}</section> : <div className="op-empty-state"><ReceiptText/><h2>No payment records</h2><p>Salary, advances, expenses, and payments will appear here.</p></div>}<div className="op-section-title"><h2>Rate and location history</h2></div>{rates.length ? <section className="op-history op-employee-rate-history">{rates.map((rate) => <p key={rate.id}><b>{rate.location}</b><span>{money(rate.dailyRate)}/day</span><small>{fmt(rate.effectiveFrom)} to {rate.effectiveTo ? fmt(rate.effectiveTo) : "Current"}</small></p>)}</section> : <div className="op-empty-state"><WalletCards/><h2>No rate history</h2><p>Add a rate or transfer record for this employee.</p></div>}<footer><Button secondary onClick={close}>Close</Button></footer></div></Modal>;
 }

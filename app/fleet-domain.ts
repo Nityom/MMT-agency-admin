@@ -12,6 +12,7 @@ export type Employee = {
   id: number;
   name: string;
   status: EmployeeStatus;
+  monthlySalary: number;
 };
 
 export type EmployeeRate = {
@@ -117,6 +118,17 @@ export type Advance = {
   amount: number;
   recovered: number;
   note: string;
+};
+
+export type EmployeePayment = {
+  id: number;
+  employeeId: number;
+  date: ISODate;
+  amount: number;
+  paymentType: "Salary" | "Advance" | "Bonus" | "Other";
+  reference: string;
+  note: string;
+  linkedPayrollId?: number;
 };
 
 export type PayrollPayment = {
@@ -317,6 +329,7 @@ export type FleetStore = {
   nextBillNumber: number;
   employees: Employee[];
   employeeRates: EmployeeRate[];
+  employeePayments: EmployeePayment[];
   vehicles: Vehicle[];
   clients: Client[];
   campaignBookings: CampaignBooking[];
@@ -362,7 +375,10 @@ export function rateOnDate(rates: EmployeeRate[], employeeId: number, date: ISOD
 }
 
 export type PayrollPreview = Omit<PayrollPayment, "id" | "status" | "paidAt"> & {
+  totalDays: number;
   presentDays: number;
+  absentDays: number;
+  unmarkedDays: number;
   carryForward: number;
   rateBreakdown: { location: string; dailyRate: number; days: number; amount: number }[];
 };
@@ -370,19 +386,30 @@ export type PayrollPreview = Omit<PayrollPayment, "id" | "status" | "paidAt"> & 
 export function calculatePayrollRange(store: FleetStore, employeeId: number, periodStart: ISODate, periodEnd: ISODate): PayrollPreview {
   const payoutDate = addDays(periodEnd, 1);
   const breakdown = new Map<string, PayrollPreview["rateBreakdown"][number]>();
+  const totalDays = inclusiveDays(periodStart, periodEnd);
   let presentDays = 0;
+  let absentDays = 0;
+  let unmarkedDays = 0;
+  const emp = store.employees.find((e) => e.id === employeeId);
 
-  for (let offset = 0; offset < inclusiveDays(periodStart, periodEnd); offset += 1) {
+  for (let offset = 0; offset < totalDays; offset += 1) {
     const date = addDays(periodStart, offset);
-    if (!store.attendance[date]?.[employeeId]) continue;
-    presentDays += 1;
-    const rate = rateOnDate(store.employeeRates, employeeId, date);
-    if (!rate) continue;
-    const key = `${rate.location}:${rate.dailyRate}`;
-    const current = breakdown.get(key) ?? { location: rate.location, dailyRate: rate.dailyRate, days: 0, amount: 0 };
-    current.days += 1;
-    current.amount += rate.dailyRate;
-    breakdown.set(key, current);
+    const attendanceState = store.attendance[date]?.[employeeId];
+    if (attendanceState === true) {
+      presentDays += 1;
+      const rate = rateOnDate(store.employeeRates, employeeId, date);
+      const location = rate?.location ?? "Standard";
+      const dailyRate = rate?.dailyRate ?? (emp?.monthlySalary ? Math.round(emp.monthlySalary / 30) : 0);
+      const key = `${location}:${dailyRate}`;
+      const current = breakdown.get(key) ?? { location, dailyRate, days: 0, amount: 0 };
+      current.days += 1;
+      current.amount += dailyRate;
+      breakdown.set(key, current);
+    } else if (attendanceState === false) {
+      absentDays += 1;
+    } else {
+      unmarkedDays += 1;
+    }
   }
 
   const relevantExpenses = store.employeeExpenses.filter((expense) => expense.employeeId === employeeId && expense.date >= periodStart && expense.date <= periodEnd);
@@ -397,21 +424,25 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
     }, 0);
   const paidPayment = store.payrollPayments.find((payment) => payment.employeeId === employeeId && payment.periodStart === periodStart && payment.status === "Paid");
   const outstandingAdvance = store.advances.filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
-  const advanceRecovery = paidPayment?.advanceRecovery ?? outstandingAdvance;
+  const maxRecoverable = Math.max(0, gross + reimbursements - deductions + carryForward);
+  const advanceRecovery = paidPayment?.advanceRecovery ?? Math.min(outstandingAdvance, maxRecoverable);
 
   return {
     employeeId,
     periodStart,
     periodEnd,
     payoutDate,
+    totalDays,
     presentDays,
+    absentDays,
+    unmarkedDays,
     rateBreakdown: [...breakdown.values()],
     gross,
     reimbursements,
     deductions,
     advanceRecovery,
     carryForward,
-    net: gross + reimbursements - deductions - advanceRecovery + carryForward,
+    net: Math.max(0, gross + reimbursements - deductions - advanceRecovery + carryForward),
   };
 }
 
@@ -468,6 +499,90 @@ export function nextBillNumber(bills: Bill[], configuredNext: number): number {
   return Math.max(configuredNext, ...bills.map((bill) => bill.number + 1));
 }
 
+export type EmployeeLedger = {
+  totalSalaryPayable: number;
+  totalPaid: number;
+  remainingBalance: number;
+  totalAdvance: number;
+  advanceOutstanding: number;
+};
+
+export function calculateEmployeeLedger(store: FleetStore, employeeId: number): EmployeeLedger {
+  const employee = store.employees.find((e) => e.id === employeeId);
+  const monthlySalary = employee?.monthlySalary ?? 0;
+  
+  const payments = store.employeePayments.filter((p) => p.employeeId === employeeId);
+  const advances = store.advances.filter((a) => a.employeeId === employeeId);
+  const payroll = store.payrollPayments.filter((p) => p.employeeId === employeeId);
+  
+  const totalSalaryPayments = payments.filter((p) => p.paymentType === "Salary").reduce((sum, p) => sum + p.amount, 0);
+  const totalOtherPayments = payments.filter((p) => p.paymentType !== "Salary").reduce((sum, p) => sum + p.amount, 0);
+  const totalPayrollPaid = payroll.filter((p) => p.status === "Paid").reduce((sum, p) => sum + (p.paidAmount ?? p.net), 0);
+  const totalPayrollNet = payroll.reduce((sum, p) => sum + p.net, 0);
+  
+  const totalAdvance = advances.reduce((sum, a) => sum + a.amount, 0);
+  const advanceRecovered = advances.reduce((sum, a) => sum + a.recovered, 0);
+  const advanceOutstanding = totalAdvance - advanceRecovered;
+  
+  const totalPaid = totalSalaryPayments + totalOtherPayments + totalPayrollPaid;
+  const totalSalaryPayable = monthlySalary + totalPayrollNet;
+  const remainingBalance = totalSalaryPayable - totalPaid + advanceOutstanding;
+  
+  return {
+    totalSalaryPayable,
+    totalPaid,
+    remainingBalance,
+    totalAdvance,
+    advanceOutstanding,
+  };
+}
+
+export type AttendanceRange = {
+  startDate: ISODate;
+  endDate: ISODate;
+  status: "Present" | "Absent";
+  days: number;
+};
+
+export function groupAttendanceRanges(attendance: Record<ISODate, Record<number, boolean>>, employeeId: number): AttendanceRange[] {
+  const dates = Object.keys(attendance)
+    .filter((date) => attendance[date][employeeId] !== undefined)
+    .sort();
+  
+  if (dates.length === 0) return [];
+  
+  const ranges: AttendanceRange[] = [];
+  let currentStart = dates[0];
+  let currentStatus = attendance[dates[0]][employeeId] ? "Present" : "Absent";
+  
+  for (let i = 1; i < dates.length; i++) {
+    const date = dates[i];
+    const status = attendance[date][employeeId] ? "Present" : "Absent";
+    const prevDate = dates[i - 1];
+    const isConsecutive = addDays(prevDate, 1) === date;
+    
+    if (status !== currentStatus || !isConsecutive) {
+      ranges.push({
+        startDate: currentStart,
+        endDate: prevDate,
+        status: currentStatus as "Present" | "Absent",
+        days: inclusiveDays(currentStart, prevDate),
+      });
+      currentStart = date;
+      currentStatus = status;
+    }
+  }
+  
+  ranges.push({
+    startDate: currentStart,
+    endDate: dates[dates.length - 1],
+    status: currentStatus as "Present" | "Absent",
+    days: inclusiveDays(currentStart, dates[dates.length - 1]),
+  });
+  
+  return ranges;
+}
+
 const defaultCompany: CompanyProfile = {
   name: "Mrunal Multi Task Agency",
   address: "Near Namdev Math, Malgujaripura, Wardha 442 001",
@@ -515,6 +630,8 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
     return {
       ...migrated,
       company,
+      employees: migrated.employees.map((employee) => ({ ...employee, monthlySalary: employee.monthlySalary ?? 0 })),
+      employeePayments: Array.isArray(migrated.employeePayments) ? migrated.employeePayments : [],
       clients: migrated.clients.map((client) => ({ ...client, categories: Array.isArray(client.categories) ? client.categories : [] })),
       campaignBookings: Array.isArray(migrated.campaignBookings) ? migrated.campaignBookings.map((booking) => ({
         ...booking,
@@ -558,6 +675,7 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
     id: number(driver.id),
     name: text(driver.name),
     status: text(driver.status) === "Inactive" ? "Inactive" : "Active",
+    monthlySalary: number(driver.salary, 0),
   }));
   const employeeRates: EmployeeRate[] = legacyDrivers.map((driver, index) => ({
     id: index + 1,
@@ -628,6 +746,7 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
     ...fallback,
     employees,
     employeeRates,
+    employeePayments: [],
     vehicles,
     clients,
     assignments,
@@ -646,6 +765,7 @@ export const emptyStore: FleetStore = {
   nextBillNumber: 45,
   employees: [],
   employeeRates: [],
+  employeePayments: [],
   vehicles: [],
   clients: [],
   campaignBookings: [],

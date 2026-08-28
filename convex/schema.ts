@@ -22,6 +22,7 @@ export default defineSchema({
   }).index("by_store", ["storeKey"]),
   employees: entityTable(),
   employeeRates: entityTable(),
+  employeePayments: entityTable(),
   vehicles: entityTable(),
   clients: entityTable(),
   campaignBookings: entityTable(),

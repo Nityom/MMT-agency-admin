@@ -138,6 +138,7 @@ export function FormSelect({ label, name, options, defaultValue, required = fals
 }
 
 export function Modal({ title, close, children }: { title: string; close: () => void; children: React.ReactNode }) {
-  const printable = title.endsWith("· client ledger") || title.endsWith("· complete record");
-  return <div className={`op-modal-backdrop${printable ? " op-print-ledger-modal" : ""}`} onMouseDown={(event) => event.target === event.currentTarget && close()}><section className="op-modal"><header><h2>{title}</h2><span className="op-modal-actions">{printable && <button className="op-modal-print" onClick={() => window.print()}><Printer size={17}/>Print all records</button>}<button title="Close" onClick={close}><X/></button></span></header>{children}</section></div>;
+  const isSalarySlip = title.includes("Salary Slip");
+  const printable = title.endsWith("· client ledger") || title.endsWith("· complete record") || isSalarySlip;
+  return <div className={`op-modal-backdrop${printable ? " op-print-ledger-modal" : ""}`} onMouseDown={(event) => event.target === event.currentTarget && close()}><section className="op-modal"><header><h2>{title}</h2><span className="op-modal-actions">{printable && <button className="op-modal-print" onClick={() => window.print()}><Printer size={17}/>Print {isSalarySlip ? "salary slip" : "all records"}</button>}<button title="Close" onClick={close}><X/></button></span></header>{children}</section></div>;
 }

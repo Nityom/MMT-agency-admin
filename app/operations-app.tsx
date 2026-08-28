@@ -10,11 +10,11 @@ import {
   addDays, Bill, BillCharge, BusinessExpenseCategory, CampaignBooking,
   calculateBillTotal, calculatePayrollRange,
   ClientCategory, FleetStore, inclusiveDays, PaymentMode,
-  nextBillNumber, rateOnDate, weekFor,
+  nextBillNumber, PayrollPayment, rateOnDate, weekFor,
 } from "./fleet-domain";
 import { Actions, AttendanceCalendar, Button, Row, Status, Table } from "./operations-components";
 import {
-  BillPaymentModal, BillingComposer, CampaignBillModeModal, CampaignQuotation,
+  BillPaymentModal, BillReceipt, BillingComposer, CampaignBillModeModal, CampaignQuotation,
   ConsolidateBillsModal, ConsolidatedInvoice, Invoice, QuotationComposer,
 } from "./operations-billing";
 import { CampaignAttendanceView, CampaignBookingForm } from "./operations-campaigns";
@@ -80,7 +80,7 @@ export default function OperationsApp() {
   const [paymentBill, setPaymentBill] = useState<Bill | null>(null);
   const [consolidateOpen, setConsolidateOpen] = useState(false);
   const [consolidatedBills, setConsolidatedBills] = useState<Bill[]>([]);
-  const [attendanceDate, setAttendanceDate] = useState(isoToday()), [attendanceReportFrom, setAttendanceReportFrom] = useState(`${isoToday().slice(0, 7)}-01`), [attendanceReportTo, setAttendanceReportTo] = useState(isoToday()), [payrollWeek, setPayrollWeek] = useState(weekFor(isoToday()).start), [payrollPeriodEnd, setPayrollPeriodEnd] = useState(weekFor(isoToday()).end), [composeBill, setComposeBill] = useState(false), [billingClientId, setBillingClientId] = useState(0), [invoice, setInvoice] = useState<Bill | null>(null), [reportPeriod, setReportPeriod] = useState<"Month" | "Quarter" | "Year" | "Date range">("Month");
+  const [attendanceDate, setAttendanceDate] = useState(isoToday()), [attendanceReportFrom, setAttendanceReportFrom] = useState(`${isoToday().slice(0, 7)}-01`), [attendanceReportTo, setAttendanceReportTo] = useState(isoToday()), [payrollWeek, setPayrollWeek] = useState(weekFor(isoToday()).start), [payrollPeriodEnd, setPayrollPeriodEnd] = useState(weekFor(isoToday()).end), [composeBill, setComposeBill] = useState(false), [billingClientId, setBillingClientId] = useState(0), [invoice, setInvoice] = useState<Bill | null>(null), [receipt, setReceipt] = useState<Bill | null>(null), [reportPeriod, setReportPeriod] = useState<"Month" | "Quarter" | "Year" | "Date range">("Month");
   const [reportFrom, setReportFrom] = useState(`${isoToday().slice(0, 7)}-01`), [reportTo, setReportTo] = useState(isoToday());
   const [reportProfitCategory, setSelectedReportProfitCategory] = useState<ReportProfitCategory>("All");
   const [reportCategoryDetail, setReportCategoryDetail] = useState<ReportProfitCategory | null>(null);
@@ -171,14 +171,34 @@ export default function OperationsApp() {
   });
   const currentWeek = weekFor(isoToday());
   const payrollPreviews = store.employees.map((employee) => calculatePayrollRange(store, employee.id, payrollWeek, payrollPeriodEnd));
-  const payrollGrossTotal = payrollPreviews.reduce((sum, preview) => sum + preview.gross + preview.reimbursements - preview.deductions, 0);
+  const payrollGrossTotal = payrollPreviews.reduce((sum, preview) => sum + preview.gross, 0);
   const payrollAdvanceRecoveryTotal = payrollPreviews.reduce((sum, preview) => sum + preview.advanceRecovery, 0);
   const payrollOutstandingAdvanceTotal = store.advances.filter((advance) => advance.date <= addDays(payrollPeriodEnd, 1)).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
   const payrollNetTotal = payrollPreviews.reduce((sum, preview) => sum + preview.net, 0);
   const payrollPayoutDate = addDays(payrollPeriodEnd, 1);
   const payrollRemainingAdvanceTotal = Math.max(0, payrollOutstandingAdvanceTotal - payrollAdvanceRecoveryTotal);
-  const payrollRows = payrollPreviews.map((preview) => ({ preview, employee: store.employees.find((item) => item.id === preview.employeeId), saved: store.payrollPayments.find((item) => item.employeeId === preview.employeeId && item.periodStart === payrollWeek) }));
+  const payrollRows = payrollPreviews.map((preview) => {
+    const saved = store.payrollPayments.find(
+      (item) => item.employeeId === preview.employeeId &&
+        ((item.periodStart === payrollWeek && item.periodEnd === payrollPeriodEnd) || item.periodStart === payrollWeek)
+    );
+    const paid = saved?.paidAmount ?? (saved?.status === "Paid" ? preview.net : 0);
+    const balance = Math.max(0, preview.net - paid);
+    return {
+      preview,
+      employee: store.employees.find((item) => item.id === preview.employeeId),
+      saved,
+      paid,
+      balance,
+    };
+  });
+  const payrollPaidTotal = payrollRows.reduce((sum, row) => sum + row.paid, 0);
+  const payrollRemainingBalanceTotal = payrollRows.reduce((sum, row) => sum + row.balance, 0);
   const selectPayrollWeek = (date: string) => setPayrollWeek(date);
+  const setPayrollRange = (start: string, end: string) => {
+    setPayrollWeek(start);
+    setPayrollPeriodEnd(end);
+  };
   const outstanding = store.bills.reduce((sum, bill) => sum + billBalance(bill), 0) + store.otherBills.reduce((sum, bill) => sum + otherBillBalance(bill), 0);
   const totalBusiness = store.bills.reduce((sum, bill) => sum + bill.total, 0) + store.otherBills.reduce((sum, bill) => sum + bill.total, 0);
   const totalExpenses = store.businessExpenses.reduce((sum, expense) => sum + expense.amount, 0) + store.employeeExpenses.filter((expense) => expense.treatment !== "Employee deduction").reduce((sum, expense) => sum + expense.amount, 0) + store.otherBills.reduce((sum, bill) => sum + otherBillCost(bill), 0);
@@ -201,41 +221,58 @@ export default function OperationsApp() {
   };
   const setPayrollStatus = (preview: (typeof payrollPreviews)[number], status: "Pending" | "Paid", paidAmount?: number) => {
     setStore((current) => {
-      const existing = current.payrollPayments.find((payment) => payment.employeeId === preview.employeeId && payment.periodStart === preview.periodStart);
-      const payment = { ...preview, id: existing?.id ?? nextId(current.payrollPayments), status, ...(paidAmount !== undefined ? { paidAmount } : existing?.paidAmount !== undefined ? { paidAmount: existing.paidAmount } : {}), ...(status === "Paid" ? { paidAt: isoToday() } : {}) };
-      const payrollPayments = [...current.payrollPayments.filter((item) => item.id !== payment.id && (item.employeeId !== preview.employeeId || item.periodStart !== preview.periodStart)), payment];
-      const paidRecoveries = new Map(current.employees.map((employee) => [employee.id, payrollPayments.filter((item) => item.employeeId === employee.id && item.status === "Paid").reduce((sum, item) => sum + item.advanceRecovery, 0)]));
+      const existing = current.payrollPayments.find((payment) => payment.employeeId === preview.employeeId && ((payment.periodStart === preview.periodStart && payment.periodEnd === preview.periodEnd) || payment.periodStart === preview.periodStart));
+      const actualPaid = paidAmount !== undefined ? paidAmount : status === "Paid" ? preview.net : (existing?.paidAmount ?? 0);
+      const isFullPaid = actualPaid >= preview.net && preview.net > 0;
+      const payment: PayrollPayment = {
+        ...preview,
+        id: existing?.id ?? nextId(current.payrollPayments),
+        status: isFullPaid ? "Paid" : "Pending",
+        paidAmount: actualPaid,
+        ...(actualPaid > 0 ? { paidAt: existing?.paidAt ?? isoToday() } : {}),
+      };
+      const payrollPayments = [...current.payrollPayments.filter((item) => item.id !== payment.id && !(item.employeeId === preview.employeeId && item.periodStart === preview.periodStart)), payment];
+      const paidRecoveries = new Map(current.employees.map((employee) => [employee.id, payrollPayments.filter((item) => item.employeeId === employee.id && (item.status === "Paid" || (item.paidAmount ?? 0) > 0)).reduce((sum, item) => sum + item.advanceRecovery, 0)]));
       const advances = current.advances.map((advanceItem) => {
-        const earlierAmount = current.advances.filter((item) => item.employeeId === advanceItem.employeeId && (item.date < advanceItem.date || item.date === advanceItem.date && item.id < advanceItem.id)).reduce((sum, item) => sum + item.amount, 0);
+        const earlierAmount = current.advances.filter((item) => item.employeeId === advanceItem.employeeId && (item.date < advanceItem.date || (item.date === advanceItem.date && item.id < advanceItem.id))).reduce((sum, item) => sum + item.amount, 0);
         return { ...advanceItem, recovered: Math.min(advanceItem.amount, Math.max(0, (paidRecoveries.get(advanceItem.employeeId) ?? 0) - earlierAmount)) };
       });
       return { ...current, payrollPayments, advances };
     });
-    notify(`Salary marked ${status.toLowerCase()}`);
+    notify(`Salary ${paidAmount !== undefined ? `payment of ${money(paidAmount)} saved` : `marked ${status.toLowerCase()}`}`);
   };
   const exportPayroll = () => {
-    const rows = [["Employee", "Period from", "Period to", "Present days", "Salary", "Paid", "Balance", "Status"], ...payrollRows.map(({ preview, employee, saved }) => [employee?.name ?? "", preview.periodStart, preview.periodEnd, String(preview.presentDays), String(preview.net), String(saved?.paidAmount ?? 0), String(preview.net - (saved?.paidAmount ?? 0)), saved?.status ?? "Pending"])];
+    const rows = [["Employee", "Period from", "Period to", "Days in Period", "Present days", "Absent days", "Gross Earned", "Extras / Reimb", "Deductions", "Advance Recovery", "Net Salary", "Paid Amount", "Remaining Balance", "Status"], ...payrollRows.map(({ preview, employee, saved, paid, balance }) => [employee?.name ?? "", preview.periodStart, preview.periodEnd, String(preview.totalDays), String(preview.presentDays), String(preview.absentDays), String(preview.gross), String(preview.reimbursements), String(preview.deductions), String(preview.advanceRecovery), String(preview.net), String(paid), String(balance), preview.net === 0 ? "No dues" : balance === 0 && paid > 0 ? "Paid" : paid > 0 ? "Partial" : "Pending"])];
     const csv = rows.map((row) => row.map((value) => `"${value.replaceAll('"', '""')}"`).join(",")).join("\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    link.download = `salary-${payrollWeek}.csv`;
+    link.download = `salary-${payrollWeek}-to-${payrollPeriodEnd}.csv`;
     link.click();
     URL.revokeObjectURL(link.href);
   };
   const releasePayroll = () => {
     const firstPaymentId = nextId(store.payrollPayments);
-    const payments = payrollPreviews.map((preview, index) => ({ ...preview, id: store.payrollPayments.find((item) => item.employeeId === preview.employeeId && item.periodStart === payrollWeek)?.id ?? firstPaymentId + index, status: "Paid" as const, paidAt: preview.payoutDate }));
-    const previousRecoveries = new Map(store.payrollPayments.filter((payment) => payment.periodStart === payrollWeek && payment.status === "Paid").map((payment) => [payment.employeeId, payment.advanceRecovery]));
+    const payments: PayrollPayment[] = payrollPreviews.map((preview, index) => {
+      const existing = store.payrollPayments.find((item) => item.employeeId === preview.employeeId && item.periodStart === payrollWeek);
+      return {
+        ...preview,
+        id: existing?.id ?? firstPaymentId + index,
+        status: "Paid" as const,
+        paidAmount: preview.net,
+        paidAt: existing?.paidAt ?? isoToday(),
+      };
+    });
     setStore((current) => ({
       ...current,
       payrollPayments: [...current.payrollPayments.filter((item) => item.periodStart !== payrollWeek), ...payments],
       advances: current.advances.map((advanceItem) => {
-        let recoveryLeft = (payments.find((payment) => payment.employeeId === advanceItem.employeeId)?.advanceRecovery ?? 0) - (previousRecoveries.get(advanceItem.employeeId) ?? 0);
-        for (const earlier of current.advances.filter((item) => item.employeeId === advanceItem.employeeId && item.id < advanceItem.id)) recoveryLeft -= Math.max(0, earlier.amount - earlier.recovered);
-        return { ...advanceItem, recovered: Math.min(advanceItem.amount, advanceItem.recovered + Math.max(0, recoveryLeft)) };
+        const empPayments = payments.filter((p) => p.employeeId === advanceItem.employeeId);
+        const totalRecovery = empPayments.reduce((sum, p) => sum + p.advanceRecovery, 0);
+        const earlier = current.advances.filter((item) => item.employeeId === advanceItem.employeeId && (item.date < advanceItem.date || (item.date === advanceItem.date && item.id < advanceItem.id))).reduce((sum, item) => sum + item.amount, 0);
+        return { ...advanceItem, recovered: Math.min(advanceItem.amount, Math.max(0, totalRecovery - earlier)) };
       }),
     }));
-    notify(`Salary released for ${fmt(addDays(payrollWeek, 7))}`);
+    notify(`All salaries marked paid for period ${fmt(payrollWeek)} – ${fmt(payrollPeriodEnd)}`);
   };
   const presetReportEnd = isoToday();
   const customReportStart = reportFrom <= reportTo ? reportFrom : reportTo, customReportEnd = reportFrom <= reportTo ? reportTo : reportFrom;
@@ -331,7 +368,7 @@ export default function OperationsApp() {
   if (reportDetail) return <ReportDetailModal kind={reportDetail} store={store} reportStart={reportStart} reportEnd={reportEnd} reportBills={reportBills} reportOtherBills={reportOtherBills} reportExpenses={reportExpenses} reportEmployeeExpenses={reportEmployeeExpenses} reportPayroll={reportPayroll} close={() => setReportDetail(null)}/>;
   if (employeeRecordId) return <EmployeeRecordModal store={store} employeeId={employeeRecordId} close={() => setEmployeeRecordId(null)}/>;
   const finalDialogContent = <>
-    {dialog && <EntryForm dialog={dialog} store={store} employeeId={editingEmployeeId} clientId={editingClientId} vehicleId={editingVehicleId} close={() => { setDialog(null); setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); }} commit={(updated, message) => { setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); commit(updated, message); }}/>} {campaignFormOpen && <CampaignBookingForm store={store} booking={editingCampaign} close={() => { setCampaignFormOpen(false); setEditingCampaign(null); }} save={(booking) => { setStore((current) => ({ ...current, campaignBookings: editingCampaign ? current.campaignBookings.map((item) => item.id === booking.id ? booking : item) : [...current.campaignBookings, booking] })); setCampaignFormOpen(false); setEditingCampaign(null); notify("Campaign booking saved"); }}/>} {paymentBill && <BillPaymentModal bill={paymentBill} close={() => setPaymentBill(null)} save={(date, receivedAmount, mode, reference, note) => { setStore((current) => ({ ...current, bills: current.bills.map((bill) => { if (bill.id !== paymentBill.id) return bill; const payments = [...(bill.payments ?? []), { id: nextId(bill.payments ?? []), date, amount: receivedAmount, mode, reference, note }]; return { ...bill, payments, status: bill.advanceReceived + payments.reduce((sum, payment) => sum + payment.amount, 0) >= bill.total ? "Paid" : "Pending" }; }) })); setPaymentBill(null); notify(`${mode} installment recorded`); }}/>} {consolidateOpen && <ConsolidateBillsModal store={store} close={() => setConsolidateOpen(false)} preview={(bills) => { setConsolidateOpen(false); setConsolidatedBills(bills); }}/>} {invoice && <Invoice bill={invoice} store={store} close={() => setInvoice(null)} edit={() => { setEditingBill(invoice); setBillingClientId(invoice.clientId); setInvoice(null); setComposeBill(true); }}/>} {consolidatedBills.length > 0 && <ConsolidatedInvoice bills={consolidatedBills.map((selected) => store.bills.find((bill) => bill.id === selected.id) ?? selected)} store={store} close={() => setConsolidatedBills([])}/>} {toast && <div className="op-toast"><Check/>{toast}</div>}
+    {dialog && <EntryForm dialog={dialog} store={store} employeeId={editingEmployeeId} clientId={editingClientId} vehicleId={editingVehicleId} close={() => { setDialog(null); setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); }} commit={(updated, message) => { setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); commit(updated, message); }}/>} {campaignFormOpen && <CampaignBookingForm store={store} booking={editingCampaign} close={() => { setCampaignFormOpen(false); setEditingCampaign(null); }} save={(booking) => { setStore((current) => ({ ...current, campaignBookings: editingCampaign ? current.campaignBookings.map((item) => item.id === booking.id ? booking : item) : [...current.campaignBookings, booking] })); setCampaignFormOpen(false); setEditingCampaign(null); notify("Campaign booking saved"); }}/>} {paymentBill && <BillPaymentModal bill={paymentBill} close={() => setPaymentBill(null)} save={(date, receivedAmount, mode, reference, note) => { setStore((current) => ({ ...current, bills: current.bills.map((bill) => { if (bill.id !== paymentBill.id) return bill; const payments = [...(bill.payments ?? []), { id: nextId(bill.payments ?? []), date, amount: receivedAmount, mode, reference, note }]; return { ...bill, payments, status: bill.advanceReceived + payments.reduce((sum, payment) => sum + payment.amount, 0) >= bill.total ? "Paid" : "Pending" }; }) })); setPaymentBill(null); notify(`${mode} installment recorded`); }}/>} {consolidateOpen && <ConsolidateBillsModal store={store} close={() => setConsolidateOpen(false)} preview={(bills) => { setConsolidateOpen(false); setConsolidatedBills(bills); }}/>} {invoice && <Invoice bill={invoice} store={store} close={() => setInvoice(null)} edit={() => { setEditingBill(invoice); setBillingClientId(invoice.clientId); setInvoice(null); setComposeBill(true); }} generateReceipt={() => { setReceipt(invoice); setInvoice(null); }}/>} {receipt && <BillReceipt bill={receipt} store={store} close={() => setReceipt(null)}/>} {consolidatedBills.length > 0 && <ConsolidatedInvoice bills={consolidatedBills.map((selected) => store.bills.find((bill) => bill.id === selected.id) ?? selected)} store={store} close={() => setConsolidatedBills([])}/>} {toast && <div className="op-toast"><Check/>{toast}</div>}
   </>;
   return <OperationsShell menu={menu} setMenu={setMenu} openNavSections={openNavSections} setOpenNavSections={setOpenNavSections} view={view} go={go} pendingPayrollCount={pendingPayrollCount} dialogContent={finalDialogContent}>
     {view === "overview" && <OverviewView store={store} totalBusiness={totalBusiness} outstanding={outstanding} totalExpenses={totalExpenses} activeEmployees={activeEmployees} currentWeek={currentWeek} activeCampaigns={activeCampaigns}/>}
@@ -341,8 +378,28 @@ export default function OperationsApp() {
     {view === "clients" && <ClientsView store={store} clientCampaignFilter={clientCampaignFilter} clientCategoryFilter={clientCategoryFilter} clientSearch={clientSearch} normalizedClientSearch={normalizedClientSearch} matchingClients={matchingClients} visibleClients={visibleClients} ledgerClientId={ledgerClientId} setClientCampaignFilter={setClientCampaignFilter} setClientCategoryFilter={setClientCategoryFilter} setClientSearch={setClientSearch} addClient={() => { setEditingClientId(null); setDialog("client"); }} openLedger={setLedgerClientId} closeLedger={() => setLedgerClientId(null)} viewBill={(bill) => { setLedgerClientId(null); setInvoice(bill); }} createBill={(clientId) => { setBillingClientId(clientId); setEditingBill(null); setComposeBill(true); }} editClient={(clientId) => { setEditingClientId(clientId); setDialog("client"); }} removeClient={(clientId) => remove("clients", clientId)}/>}
     {view === "ledgers" && <ClientLedgersView store={store} ledgerSearch={ledgerSearch} normalizedLedgerSearch={normalizedLedgerSearch} ledgerClients={ledgerClients} visibleLedgerClients={visibleLedgerClients} ledgerClientId={ledgerClientId} setLedgerSearch={setLedgerSearch} openLedger={setLedgerClientId} closeLedger={() => setLedgerClientId(null)} viewBill={(bill) => { setLedgerClientId(null); setInvoice(bill); }}/>}
     {view === "campaigns" && <CampaignsView store={store} campaignSearch={campaignSearch} normalizedCampaignSearch={normalizedCampaignSearch} filteredCampaignBookings={filteredCampaignBookings} setCampaignSearch={setCampaignSearch} newBooking={() => { setEditingCampaign(null); setRenewingCampaign(false); setCampaignFormOpen(true); }} editBooking={(booking) => { setEditingCampaign(booking); setRenewingCampaign(false); setCampaignFormOpen(true); }} renewBooking={(booking) => { const month = isoToday().slice(0, 7), endDate = `${month}-${new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()}`; const renewed = { ...booking, id: nextId(store.campaignBookings), month, startDate: `${month}-01`, endDate, stoppedAt: undefined, generatedBillId: undefined, vehiclePeriods: booking.vehiclePeriods.map((period) => ({ ...period, startDate: `${month}-01`, endDate })) }; setEditingCampaign(renewed); setRenewingCampaign(true); setCampaignFormOpen(true); }} deleteBooking={(booking) => { if (!window.confirm("Delete this campaign and its attendance link?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.filter((item) => item.id !== booking.id) })); notify("Campaign deleted"); }} stopBooking={(booking) => { if (!window.confirm("Stop this campaign immediately?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.map((item) => item.id === booking.id ? { ...item, stoppedAt: isoToday() } : item) })); notify("Campaign stopped"); }} generateBill={generateCampaignBill}/>}
-    {view === "payroll" && <div className="op-toolbar salary-range-toolbar"><label className="op-field"><span>Salary from</span><input type="date" value={payrollWeek} onChange={(event) => setPayrollWeek(event.target.value)} /></label><label className="op-field"><span>Salary to</span><input type="date" value={payrollPeriodEnd} onChange={(event) => setPayrollPeriodEnd(event.target.value)} /></label><span className="op-form-note">The salary table recalculates attendance, rates, expenses, advances, and forwarded unpaid amounts for this range.</span></div>}
-    {view === "payroll" && <PayrollView store={store} payrollWeek={payrollWeek} payrollPeriodEnd={payrollPeriodEnd} payrollPayoutDate={payrollPayoutDate} payrollRows={payrollRows} payrollGrossTotal={payrollGrossTotal} payrollAdvanceRecoveryTotal={payrollAdvanceRecoveryTotal} payrollRemainingAdvanceTotal={payrollRemainingAdvanceTotal} payrollNetTotal={payrollNetTotal} setPayrollWeek={selectPayrollWeek} releasePayroll={releasePayroll} setPayrollStatus={setPayrollStatus} exportPayroll={exportPayroll}/>} 
+    {view === "payroll" && (
+      <PayrollView
+        store={store}
+        payrollWeek={payrollWeek}
+        payrollPeriodEnd={payrollPeriodEnd}
+        payrollPayoutDate={payrollPayoutDate}
+        payrollRows={payrollRows}
+        payrollGrossTotal={payrollGrossTotal}
+        payrollAdvanceRecoveryTotal={payrollAdvanceRecoveryTotal}
+        payrollRemainingAdvanceTotal={payrollRemainingAdvanceTotal}
+        payrollNetTotal={payrollNetTotal}
+        payrollPaidTotal={payrollPaidTotal}
+        payrollRemainingBalanceTotal={payrollRemainingBalanceTotal}
+        setPayrollWeek={selectPayrollWeek}
+        setPayrollPeriodEnd={setPayrollPeriodEnd}
+        setPayrollRange={setPayrollRange}
+        releasePayroll={releasePayroll}
+        setPayrollStatus={setPayrollStatus}
+        exportPayroll={exportPayroll}
+        openEmployeeRecord={setEmployeeRecordId}
+      />
+    )} 
     {view === "billing" && <BillingView store={store} billingSearch={billingSearch} filteredBills={filteredBills} totalBusiness={totalBusiness} outstanding={outstanding} setBillingSearch={setBillingSearch} generateBill={() => { setEditingBill(null); setComposeBill(true); }} openCompanyDetails={() => setDialog("company")} combineClientBills={() => setConsolidateOpen(true)} editBill={(bill) => { setEditingBill(bill); setBillingClientId(bill.clientId); setComposeBill(true); }} recordPayment={setPaymentBill} viewBill={setInvoice}/>}
     {view === "expenses" && <ExpensesView
       store={store}

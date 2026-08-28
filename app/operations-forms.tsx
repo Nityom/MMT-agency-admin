@@ -194,6 +194,7 @@ export function EntryForm({
                     ...employee,
                     name: input(data, "name"),
                     status: input(data, "status") as "Active" | "Inactive",
+                    monthlySalary: amount(data, "monthlySalary"),
                   }
                 : employee,
             )
@@ -203,6 +204,7 @@ export function EntryForm({
                 id: savedEmployeeId,
                 name: input(data, "name"),
                 status: "Active",
+                monthlySalary: amount(data, "monthlySalary"),
               },
             ],
         employeeRates,
@@ -394,19 +396,26 @@ export function EntryForm({
                 defaultValue={editingEmployee?.name}
                 required
               />
-              {editingEmployee && (
-                <FormSelect
-                  label="Status"
-                  name="status"
-                  defaultValue={editingEmployee.status}
-                  options={[
-                    { value: "Active", label: "Active" },
-                    { value: "Inactive", label: "Inactive" },
-                  ]}
-                  required
-                />
-              )}
+              <FormField
+                label="Monthly salary (₹)"
+                name="monthlySalary"
+                type="number"
+                defaultValue={editingEmployee?.monthlySalary ?? 0}
+                required
+              />
             </div>
+            {editingEmployee && (
+              <FormSelect
+                label="Status"
+                name="status"
+                defaultValue={editingEmployee.status}
+                options={[
+                  { value: "Active", label: "Active" },
+                  { value: "Inactive", label: "Inactive" },
+                ]}
+                required
+              />
+            )}
             <div className="op-form-grid">
               <FormField
                 label={editingEmployee ? "Location" : "Starting location"}
