@@ -385,21 +385,141 @@ export default function OperationsApp() {
     reportEnd = reportFrom <= reportTo ? reportTo : reportFrom;
   }
 
-  const reportBills = store.bills.filter((bill) => bill.billDate >= reportStart && bill.billDate <= reportEnd), reportOtherBills = store.otherBills.filter((bill) => bill.billDate >= reportStart && bill.billDate <= reportEnd), reportOtherBillExpenses: FleetStore["businessExpenses"] = reportOtherBills.map((bill) => ({ id: -bill.id, date: bill.billDate, category: bill.category === "Other" ? "Miscellaneous" : bill.category, description: bill.items.map((item) => item.description).filter(Boolean).join(", ") || `${bill.category} bill`, purpose: `${bill.category} bill #${String(bill.number).padStart(4, "0")}`, paidTo: "Paper / calendar supplier", reference: "", amount: otherBillCost(bill), clientId: bill.clientId, clientName: bill.client.firmName, clientBillingAmount: bill.total, paidAmount: otherBillCost(bill) })), reportExpenses = [...store.businessExpenses.filter((expense) => expense.date >= reportStart && expense.date <= reportEnd), ...reportOtherBillExpenses], reportEmployeeExpenses = store.employeeExpenses.filter((expense) => expense.date >= reportStart && expense.date <= reportEnd && expense.treatment !== "Employee deduction"), reportPayroll = store.payrollPayments.filter((payment) => payment.status === "Paid" && payment.paidAt && payment.paidAt >= reportStart && payment.paidAt <= reportEnd), reportOutstanding = reportBills.reduce((sum, bill) => sum + billBalance(bill), 0) + reportOtherBills.reduce((sum, bill) => sum + otherBillBalance(bill), 0), reportTotalExpenses = reportExpenses.reduce((sum, item) => sum + item.amount, 0) + reportEmployeeExpenses.reduce((sum, item) => sum + item.amount, 0) + reportPayroll.reduce((sum, item) => sum + item.net, 0);
+  const isBillInPeriod = (bill: Bill) => {
+    if (bill.billDate >= reportStart && bill.billDate <= reportEnd) return true;
+    if (bill.vehicleLines && bill.vehicleLines.length > 0) {
+      if (bill.vehicleLines.some((line) => line.startDate <= reportEnd && line.endDate >= reportStart)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const reportBills = store.bills.filter(isBillInPeriod);
+  const reportOtherBills = store.otherBills.filter((bill) => bill.billDate >= reportStart && bill.billDate <= reportEnd);
+  const reportOtherBillExpenses: FleetStore["businessExpenses"] = reportOtherBills.map((bill) => ({
+    id: -bill.id,
+    date: bill.billDate,
+    category: bill.category === "Other" ? "Miscellaneous" : bill.category,
+    description: bill.items.map((item) => item.description).filter(Boolean).join(", ") || `${bill.category} bill`,
+    purpose: `${bill.category} bill #${String(bill.number).padStart(4, "0")}`,
+    paidTo: "Paper / calendar supplier",
+    reference: "",
+    amount: otherBillCost(bill),
+    clientId: bill.clientId,
+    clientName: bill.client.firmName,
+    clientBillingAmount: bill.total,
+    paidAmount: otherBillCost(bill),
+  }));
+
+  const reportExpenses = [
+    ...store.businessExpenses.filter((expense) => expense.date >= reportStart && expense.date <= reportEnd),
+    ...reportOtherBillExpenses,
+  ];
+  const reportEmployeeExpenses = store.employeeExpenses.filter(
+    (expense) => expense.date >= reportStart && expense.date <= reportEnd && expense.treatment !== "Employee deduction",
+  );
+  const reportPayroll = store.payrollPayments.filter(
+    (payment) => payment.status === "Paid" && payment.paidAt && payment.paidAt >= reportStart && payment.paidAt <= reportEnd,
+  );
+
   const reportRevenue = reportBills.reduce((sum, item) => sum + item.total, 0) + reportOtherBills.reduce((sum, item) => sum + item.total, 0);
-  const reportSalaryExpenses: FleetStore["businessExpenses"] = reportPayroll.map((payment) => ({ id: payment.id, date: payment.paidAt ?? payment.payoutDate, category: "Self stay", description: store.employees.find((employee) => employee.id === payment.employeeId)?.name ?? "Employee salary", purpose: `${fmt(payment.periodStart)} to ${fmt(payment.periodEnd)}`, paidTo: "Employee salary", reference: "", amount: payment.net, clientBillingAmount: 0, paidAmount: payment.net }));
-  const reportCategoryExpenses = reportProfitCategory === "Self stay" ? reportSalaryExpenses : reportExpenses.filter((expense) => matchesReportCategory(expense, reportProfitCategory));
-  const reportCategorySupplierCost = reportCategoryExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const reportCategoryClientBilling = reportCategoryExpenses.reduce((sum, expense) => sum + expenseClientBilling(expense), 0);
-  const reportCategoryProfit = reportCategoryExpenses.reduce((sum, expense) => sum + expenseProfit(expense), 0);
-  const reportProfitBreakdown = reportProfitCategories.map((category) => { const records = category.value === "Self stay" ? reportSalaryExpenses : reportExpenses.filter((expense) => matchesReportCategory(expense, category.value)); return { ...category, records, profit: records.reduce((sum, expense) => sum + expenseProfit(expense), 0) }; });
-  const reportClientChart = store.clients.map((client) => ({ label: client.firmName, value: reportBills.filter((bill) => bill.clientId === client.id).reduce((sum, bill) => sum + bill.total, 0) + reportOtherBills.filter((bill) => bill.clientId === client.id).reduce((sum, bill) => sum + bill.total, 0) })).filter((item) => item.value > 0);
+  const reportOutstanding = reportBills.reduce((sum, bill) => sum + billBalance(bill), 0) + reportOtherBills.reduce((sum, bill) => sum + otherBillBalance(bill), 0);
+  const reportTotalExpenses = reportExpenses.reduce((sum, item) => sum + item.amount, 0) + reportEmployeeExpenses.reduce((sum, item) => sum + item.amount, 0) + reportPayroll.reduce((sum, item) => sum + item.net, 0);
+
+  const reportSalaryExpenses: FleetStore["businessExpenses"] = reportPayroll.map((payment) => ({
+    id: payment.id,
+    date: payment.paidAt ?? payment.payoutDate,
+    category: "Self stay",
+    description: store.employees.find((employee) => employee.id === payment.employeeId)?.name ?? "Employee salary",
+    purpose: `${fmt(payment.periodStart)} to ${fmt(payment.periodEnd)}`,
+    paidTo: "Employee salary",
+    reference: "",
+    amount: payment.net,
+    clientBillingAmount: 0,
+    paidAmount: payment.net,
+  }));
+
+  const getCategoryClientBilling = (cat: ReportProfitCategory) => {
+    if (cat === "All") {
+      return reportRevenue;
+    }
+    if (cat === "Printing") {
+      const billCharges = reportBills.reduce((sum, b) => sum + b.charges.filter((c) => c.category === "Banner / printing").reduce((s, c) => s + c.amount, 0), 0);
+      const expenseBilling = reportExpenses.filter((e) => e.category === "Printing").reduce((sum, e) => sum + expenseClientBilling(e), 0);
+      return billCharges + expenseBilling;
+    }
+    if (cat === "Pasting") {
+      const billCharges = reportBills.reduce((sum, b) => sum + b.charges.filter((c) => c.category === "Pasting").reduce((s, c) => s + c.amount, 0), 0);
+      const expenseBilling = reportExpenses.filter((e) => e.category === "Pasting").reduce((sum, e) => sum + expenseClientBilling(e), 0);
+      return billCharges + expenseBilling;
+    }
+    if (cat === "Recording") {
+      const billCharges = reportBills.reduce((sum, b) => sum + b.charges.filter((c) => c.category === "Recording").reduce((s, c) => s + c.amount, 0), 0);
+      const expenseBilling = reportExpenses.filter((e) => e.category === "Recording").reduce((sum, e) => sum + expenseClientBilling(e), 0);
+      return billCharges + expenseBilling;
+    }
+    if (cat === "Paper") {
+      return reportOtherBills.filter((b) => b.category === "Paper").reduce((sum, b) => sum + b.total, 0);
+    }
+    if (cat === "Calendar") {
+      return reportOtherBills.filter((b) => b.category === "Calendar").reduce((sum, b) => sum + b.total, 0);
+    }
+    if (cat === "Self travel" || cat === "Self stay") {
+      return 0;
+    }
+    return reportExpenses.filter((e) => e.category === cat).reduce((sum, e) => sum + expenseClientBilling(e), 0);
+  };
+
+  const getCategorySupplierCost = (cat: ReportProfitCategory) => {
+    if (cat === "All") {
+      return reportTotalExpenses;
+    }
+    if (cat === "Self stay") {
+      return reportPayroll.reduce((sum, item) => sum + item.net, 0);
+    }
+    if (cat === "Paper") {
+      return reportOtherBills.filter((b) => b.category === "Paper").reduce((sum, b) => sum + otherBillCost(b), 0) + reportExpenses.filter((e) => e.category === "Paper").reduce((sum, e) => sum + e.amount, 0);
+    }
+    if (cat === "Calendar") {
+      return reportOtherBills.filter((b) => b.category === "Calendar").reduce((sum, b) => sum + otherBillCost(b), 0) + reportExpenses.filter((e) => e.category === "Calendar").reduce((sum, e) => sum + e.amount, 0);
+    }
+    return reportExpenses.filter((e) => matchesReportCategory(e, cat)).reduce((sum, e) => sum + e.amount, 0);
+  };
+
+  const reportCategoryClientBilling = getCategoryClientBilling(reportProfitCategory);
+  const reportCategorySupplierCost = getCategorySupplierCost(reportProfitCategory);
+  const reportCategoryProfit = reportCategoryClientBilling - reportCategorySupplierCost;
+
+  const reportCategoryExpenses = reportProfitCategory === "Self stay"
+    ? reportSalaryExpenses
+    : reportExpenses.filter((expense) => matchesReportCategory(expense, reportProfitCategory));
+
+  const reportCategoryRecordCount = reportProfitCategory === "All"
+    ? reportBills.length + reportOtherBills.length + reportExpenses.length + reportPayroll.length
+    : reportCategoryExpenses.length;
+
+  const reportProfitBreakdown = reportProfitCategories.map((category) => {
+    const billing = getCategoryClientBilling(category.value);
+    const cost = getCategorySupplierCost(category.value);
+    const profit = billing - cost;
+    const records = category.value === "Self stay"
+      ? reportSalaryExpenses
+      : reportExpenses.filter((expense) => matchesReportCategory(expense, category.value));
+    return { ...category, records, profit };
+  });
+
+  const reportClientChart = store.clients.map((client) => ({
+    label: client.firmName,
+    value: reportBills.filter((bill) => bill.clientId === client.id).reduce((sum, bill) => sum + bill.total, 0) + reportOtherBills.filter((bill) => bill.clientId === client.id).reduce((sum, bill) => sum + bill.total, 0),
+  })).filter((item) => item.value > 0);
+
   const graphTotalDays = inclusiveDays(reportStart, reportEnd);
   const graphBucketCount = reportPeriod === "Month" ? 4 : reportPeriod === "Quarter" ? 6 : reportPeriod === "Year" ? 12 : graphTotalDays <= 31 ? Math.min(7, graphTotalDays) : graphTotalDays <= 120 ? 8 : 12;
   const reportTrend = Array.from({ length: graphBucketCount }, (_, index) => {
     const start = addDays(reportStart, Math.floor(index * graphTotalDays / graphBucketCount));
     const end = index === graphBucketCount - 1 ? reportEnd : addDays(reportStart, Math.floor((index + 1) * graphTotalDays / graphBucketCount) - 1);
-    const revenue = reportBills.filter((item) => item.billDate >= start && item.billDate <= end).reduce((sum, item) => sum + item.total, 0) + reportOtherBills.filter((item) => item.billDate >= start && item.billDate <= end).reduce((sum, item) => sum + item.total, 0);
+    const revenue = reportBills.filter((item) => (item.billDate >= start && item.billDate <= end) || item.vehicleLines?.some((l) => l.startDate <= end && l.endDate >= start)).reduce((sum, item) => sum + item.total, 0) + reportOtherBills.filter((item) => item.billDate >= start && item.billDate <= end).reduce((sum, item) => sum + item.total, 0);
     const expenses = reportExpenses.filter((item) => item.date >= start && item.date <= end).reduce((sum, item) => sum + item.amount, 0) + reportEmployeeExpenses.filter((item) => item.date >= start && item.date <= end).reduce((sum, item) => sum + item.amount, 0) + reportPayroll.filter((item) => item.paidAt && item.paidAt >= start && item.paidAt <= end).reduce((sum, item) => sum + item.net, 0);
     return { label: reportPeriod === "Year" ? new Date(`${start}T00:00:00`).toLocaleDateString("en-IN", { month: "short" }) : `${fmt(start).split(" ")[0]} ${fmt(start).split(" ")[1]}`, revenue, expenses };
   });

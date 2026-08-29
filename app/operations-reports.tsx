@@ -503,6 +503,7 @@ export function ClientDonut({
   items: { label: string; value: number }[];
 }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const sortedItems = [...items].sort((a, b) => b.value - a.value);
   const colors = [
     "#28735e",
     "#c98d2c",
@@ -510,11 +511,15 @@ export function ClientDonut({
     "#9a5c78",
     "#6f8051",
     "#b65e4e",
+    "#2d8b74",
+    "#d89e3a",
+    "#5a8ebc",
+    "#ad6f8b",
   ];
-  const total = items.reduce((sum, item) => sum + item.value, 0),
+  const total = sortedItems.reduce((sum, item) => sum + item.value, 0),
     radius = 64,
     circumference = 2 * Math.PI * radius;
-  const selected = hoveredIndex === null ? null : items[hoveredIndex];
+  const selected = hoveredIndex === null ? null : sortedItems[hoveredIndex];
   return (
     <article className="op-graph op-donut">
       <header>
@@ -531,9 +536,9 @@ export function ClientDonut({
             aria-label="Client revenue distribution graph"
           >
             <circle cx="90" cy="90" r={radius} className="donut-base" />
-            {items.map((item, index) => {
+            {sortedItems.map((item, index) => {
               const length = (item.value / total) * circumference;
-              const offset = items
+              const offset = sortedItems
                 .slice(0, index)
                 .reduce(
                   (sum, previous) =>
@@ -573,7 +578,7 @@ export function ClientDonut({
             )}
           </svg>
           <section>
-            {items.map((item, index) => (
+            {sortedItems.map((item, index) => (
               <p
                 key={item.label}
                 tabIndex={0}
@@ -592,7 +597,9 @@ export function ClientDonut({
           </section>
         </div>
       ) : (
-        <div className="op-graph-empty">No billed revenue in this period</div>
+        <div className="op-graph-empty">
+          <p>No client revenue in this period</p>
+        </div>
       )}
     </article>
   );
