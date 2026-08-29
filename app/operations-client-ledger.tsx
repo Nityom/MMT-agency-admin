@@ -1,4 +1,5 @@
 import { Banknote, CalendarDays, Check, FileText, Printer, ReceiptText, WalletCards, X } from "lucide-react";
+import Image from "next/image";
 import { useState } from "react";
 import { addDays, Bill, BillCharge, calculateBillTotal, FleetStore, inclusiveDays } from "./fleet-domain";
 import { Button, Modal, Status } from "./operations-components";
@@ -16,6 +17,175 @@ import {
   money,
 } from "./operations-utils";
 
+export function ClientLedgerPrintModal({
+  store,
+  client,
+  from,
+  to,
+  overall,
+  overallTotalPresentDays,
+  timeline,
+  close,
+}: {
+  store: FleetStore;
+  client: FleetStore["clients"][number];
+  from: string;
+  to: string;
+  overall: ReturnType<typeof clientOverallBalance>;
+  overallTotalPresentDays: number;
+  timeline: {
+    key: string;
+    date: string;
+    type: string;
+    detail: string;
+    status: string;
+    amount: number | null;
+    isCredit: boolean;
+  }[];
+  close: () => void;
+}) {
+  return (
+    <div className="invoice-backdrop">
+      <div className="invoice-dialog op-plain-ledger-dialog">
+        <div className="invoice-toolbar">
+          <Button secondary onClick={close}>
+            <X size={17} />
+            Close
+          </Button>
+          <Button onClick={() => window.print()}>
+            <Printer size={17} />
+            Print Ledger / PDF
+          </Button>
+        </div>
+        <article className="invoice-sheet op-client-statement-sheet">
+          <header className="invoice-brand">
+            <ReceiptText size={30} />
+            <h2>{store.company.name}</h2>
+          </header>
+          <h1>CLIENT STATEMENT OF ACCOUNT & LEDGER</h1>
+          <section className="invoice-company">
+            <p>{store.company.address}</p>
+            <p>
+              Mobile: {store.company.mobile} | Email: {store.company.email}
+            </p>
+          </section>
+          <section className="invoice-meta">
+            <p>
+              <b>Statement Period</b>
+              <br />
+              {from && to ? `${fmt(from)} to ${fmt(to)}` : "All Time"}
+            </p>
+            <p>
+              <b>Statement Date</b>
+              <br />
+              {fmt(isoToday())}
+            </p>
+            <p className="invoice-bill-to">
+              <b>Client / Firm</b>
+              <br />
+              <strong>{client.firmName}</strong>
+              <br />
+              <span>
+                {client.ownerName ? `${client.ownerName} · ` : ""}{client.mobile || "No mobile"}
+                <br />
+                {client.address || "No address saved"}
+              </span>
+            </p>
+          </section>
+
+          {/* Financial Summary */}
+          <section className="op-supplier-print-summary" style={{ gridTemplateColumns: "repeat(4, 1fr)", margin: "14px 0" }}>
+            <p>
+              <span>Total Billed</span>
+              <strong>{money(overall.billed)}</strong>
+            </p>
+            <p>
+              <span>Total Received</span>
+              <strong>{money(overall.received)}</strong>
+            </p>
+            <p>
+              <span>Outstanding Balance</span>
+              <strong style={{ color: overall.outstanding > 0 ? "#9a493d" : "#1f6a53" }}>
+                {money(overall.balance)}
+              </strong>
+            </p>
+            <p>
+              <span>Present Attendance</span>
+              <strong>{overallTotalPresentDays} days</strong>
+            </p>
+          </section>
+
+          <h2 className="op-print-section-title">Ledger Transactions & Activity</h2>
+          <table className="invoice-expenses op-supplier-print-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Transaction / Activity</th>
+                <th>Details</th>
+                <th>Status</th>
+                <th>Debit (+)</th>
+                <th>Credit (−)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {timeline.length ? (
+                timeline.map((item) => (
+                  <tr key={item.key}>
+                    <td>{fmt(item.date)}</td>
+                    <td><b>{item.type}</b></td>
+                    <td>{item.detail}</td>
+                    <td>{item.status}</td>
+                    <td>
+                      {item.amount !== null && !item.isCredit ? money(Math.abs(item.amount)) : "—"}
+                    </td>
+                    <td>
+                      {item.amount !== null && item.isCredit ? money(Math.abs(item.amount)) : "—"}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>No transactions in selected period</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+
+          <section className="op-invoice-total">
+            <p>
+              <span>Final Outstanding Balance</span>
+              <strong style={{ color: overall.outstanding > 0 ? "#9a493d" : "#1f6a53" }}>
+                {money(overall.balance)}
+              </strong>
+            </p>
+          </section>
+
+          <footer className="invoice-footer">
+            <div>
+              <h3>Bank details for RTGS / NEFT</h3>
+              <p><b>Account:</b> {store.company.accountName}</p>
+              <p><b>Bank:</b> {store.company.bankName} · {store.company.branch}</p>
+              <p><b>A/C No:</b> {store.company.accountNumber || "Update in company settings"}</p>
+              <p><b>IFSC:</b> {store.company.ifsc || "Update in company settings"}</p>
+            </div>
+            <div className="invoice-signature">
+              <p>For {store.company.name}</p>
+              <Image
+                className="invoice-signature-mark"
+                src="/sign.png"
+                alt="Authorized Signatory"
+                width={700}
+                height={278}
+              />
+              <b>Authorized Signatory</b>
+            </div>
+          </footer>
+        </article>
+      </div>
+    </div>
+  );
+}
+
 export function ClientLedgerModal({
   store,
   clientId,
@@ -31,6 +201,7 @@ export function ClientLedgerModal({
   const [from, setFrom] = useState(`${isoToday().slice(0, 7)}-01`);
   const [to, setTo] = useState(isoToday());
   const [activeReceipt, setActiveReceipt] = useState<{ bill: Bill; payment?: Bill["payments"][number] | null } | null>(null);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
 
   if (!client) return null;
 
@@ -227,7 +398,7 @@ export function ClientLedgerModal({
           </section>
 
           {/* Date Filter Toolbar for Chronological Activity */}
-          <div className="op-toolbar" style={{ background: "#f3f7f4", padding: "10px 14px", borderRadius: "7px" }}>
+          <div className="op-toolbar" style={{ background: "#f3f7f4", padding: "10px 14px", borderRadius: "7px", flexWrap: "wrap", gap: "8px" }}>
             <label className="op-field" style={{ margin: 0 }}>
               <span>From Date</span>
               <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -253,6 +424,13 @@ export function ClientLedgerModal({
               }}
             >
               All Time
+            </Button>
+            <Button
+              secondary
+              onClick={() => setPrintModalOpen(true)}
+            >
+              <Printer size={16} />
+              Print ledger
             </Button>
           </div>
 
@@ -312,12 +490,29 @@ export function ClientLedgerModal({
           )}
 
           <footer>
+            <Button secondary onClick={() => setPrintModalOpen(true)}>
+              <Printer size={16} />
+              Print ledger
+            </Button>
             <Button secondary onClick={close}>
               Close
             </Button>
           </footer>
         </div>
       </Modal>
+
+      {printModalOpen && (
+        <ClientLedgerPrintModal
+          store={store}
+          client={client}
+          from={from}
+          to={to}
+          overall={overall}
+          overallTotalPresentDays={overallTotalPresentDays}
+          timeline={timeline}
+          close={() => setPrintModalOpen(false)}
+        />
+      )}
 
       {activeReceipt && (
         <BillReceipt
@@ -330,3 +525,4 @@ export function ClientLedgerModal({
     </>
   );
 }
+
