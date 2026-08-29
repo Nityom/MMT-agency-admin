@@ -1,13 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { ReceiptText, Search } from "lucide-react";
+import { FileText, Phone, Printer, ReceiptText, Search } from "lucide-react";
 import type { Bill, CampaignBooking, Client, ClientCategory, FleetStore } from "./fleet-domain";
 import { Actions, Button, Row, Status, Table } from "./operations-components";
 import { CampaignSlotCard } from "./operations-campaigns";
 import { ClientLedgerModal } from "./operations-client-ledger";
 import { PageHead } from "./operations-reports";
-import { billBalance, billPaid, bookingStatus, clientCategories, clientOverallBalance, fmt, money } from "./operations-utils";
+import {
+  billBalance,
+  billPaid,
+  bookingEnd,
+  bookingStatus,
+  clientCategories,
+  clientOverallBalance,
+  fmt,
+  money,
+} from "./operations-utils";
 
 type ClientCampaignFilter = "Search" | "Ongoing" | "Completed";
 
@@ -166,20 +175,33 @@ export function CampaignsView({
       </div>
 
       {displayedBookings.length ? (
-        <section className="op-campaign-list">
-          {displayedBookings.map((booking) => (
-            <CampaignSlotCard
-              key={booking.id}
-              store={store}
-              booking={booking}
-              edit={() => editBooking(booking)}
-              renew={() => renewBooking(booking)}
-              deleteBooking={() => deleteBooking(booking)}
-              stop={() => stopBooking(booking)}
-              generateBill={() => generateBill(booking)}
-            />
-          ))}
-        </section>
+        selectedMonth !== "All" ? (
+          <section className="op-campaign-list">
+            {displayedBookings.map((booking) => (
+              <article key={booking.id} className="op-campaign-contact-card">
+                <b>{booking.client.firmName}</b>
+                <a href={`tel:${booking.client.mobile}`}>
+                  {booking.client.mobile || "No phone"}
+                </a>
+              </article>
+            ))}
+          </section>
+        ) : (
+          <section className="op-campaign-list">
+            {displayedBookings.map((booking) => (
+              <CampaignSlotCard
+                key={booking.id}
+                store={store}
+                booking={booking}
+                edit={() => editBooking(booking)}
+                renew={() => renewBooking(booking)}
+                deleteBooking={() => deleteBooking(booking)}
+                stop={() => stopBooking(booking)}
+                generateBill={() => generateBill(booking)}
+              />
+            ))}
+          </section>
+        )
       ) : (
         <div className="op-empty-state">
           <Search />

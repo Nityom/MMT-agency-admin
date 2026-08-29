@@ -164,9 +164,10 @@ export default function OperationsApp() {
   const filteredCampaignBookings = campaignMonth ? Array.from(new Map(matchingCampaignBookings.map((booking) => [booking.clientId, booking])).values()).sort((left, right) => left.client.firmName.localeCompare(right.client.firmName)) : matchingCampaignBookings;
   const normalizedLedgerSearch = ledgerSearch.trim().toLowerCase();
   const ledgerClients = store.clients.filter((client) => {
-    const hasActivity = store.bills.some((bill) => bill.clientId === client.id) || store.campaignBookings.some((booking) => booking.clientId === client.id);
-    const matchesSearch = `${client.firmName} ${client.ownerName} ${client.mobile} ${client.alternatePhone ?? ""}`.toLowerCase().includes(normalizedLedgerSearch);
-    return normalizedLedgerSearch ? matchesSearch : hasActivity;
+    const hasCampaign = store.campaignBookings.some((booking) => booking.clientId === client.id);
+    if (!hasCampaign) return false;
+    if (!normalizedLedgerSearch) return true;
+    return `${client.firmName} ${client.ownerName} ${client.mobile} ${client.alternatePhone ?? ""}`.toLowerCase().includes(normalizedLedgerSearch);
   });
   const visibleLedgerClients = ledgerClients.slice(0, 100);
   const normalizedBillingSearch = billingSearch.trim().toLowerCase();

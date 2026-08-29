@@ -705,6 +705,8 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
           payments: legacyPayments.map((payment) => ({ ...payment, mode: payment.mode ?? paymentMode })),
         };
       }),
+      quotations: Array.isArray(migrated.quotations) ? migrated.quotations : [],
+      nextQuotationNumber: migrated.nextQuotationNumber || 1,
     };
   }
 

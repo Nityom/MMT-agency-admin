@@ -420,6 +420,19 @@ button, input, select { font: inherit; letter-spacing: 0; }
 .op-campaign-contact-card > b { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .op-campaign-contact-card > a { width: max-content; max-width: 100%; color: #536a62; font-size: 14px; text-decoration: none; white-space: nowrap; }
 .op-campaign-contact-card > a:hover { color: #195f4b; text-decoration: underline; }
+
+.op-campaign-compact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.op-campaign-compact-card { padding: 14px 16px; border: 1px solid #dce4df; border-radius: 8px; background: white; display: flex; flex-direction: column; gap: 9px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); transition: border-color .15s ease, box-shadow .15s ease; }
+.op-campaign-compact-card:hover { border-color: #b3cdc3; box-shadow: 0 4px 12px rgba(25,95,75,0.06); }
+.op-campaign-compact-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.op-campaign-compact-header h3 { margin: 0; font-size: 16px; font-weight: 700; color: #1b2a25; line-height: 1.3; }
+.op-campaign-compact-phone { margin: 3px 0 0; display: flex; align-items: center; gap: 6px; font-size: 13px; color: #556660; }
+.op-campaign-compact-phone a { color: #195f4b; font-weight: 700; text-decoration: none; }
+.op-campaign-compact-phone a:hover { text-decoration: underline; }
+.op-campaign-compact-meta { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; border-radius: 6px; background: #f4f8f6; font-size: 12px; color: #4b6058; }
+.op-campaign-compact-meta b { color: #1c362d; }
+.op-campaign-compact-footer { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-top: 8px; border-top: 1px solid #edf2ef; }
+.op-campaign-compact-actions { display: flex; align-items: center; gap: 6px; }
 .op-campaign-with-quotation { border: 1px solid #dce4df; border-radius: 8px; overflow: hidden; background: white; }
 .op-campaign-with-quotation > article { padding: 20px; }
 .op-campaign-with-quotation > article > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }

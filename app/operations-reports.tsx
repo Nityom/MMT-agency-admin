@@ -55,7 +55,6 @@ export function PageHead({
 }) {
   const printableSupplierLedger = title === "Maintenance payment ledger";
   const printablePayroll = title === "Weekly payroll";
-  const campaignQuotations = title === "Monthly campaign bookings";
   const printablePage = printableSupplierLedger || printablePayroll;
   const visibleTitle = title.replace(/payroll/gi, "salary");
   const visibleDetail = detail.replace(/payroll/gi, "salary");
@@ -78,18 +77,6 @@ export function PageHead({
           <Button secondary onClick={() => window.print()}>
             <Printer size={17} />
             Print salary
-          </Button>
-        )}
-        {campaignQuotations && <CampaignHistoryFilter />}
-        {campaignQuotations && (
-          <Button
-            secondary
-            onClick={() =>
-              window.dispatchEvent(new Event("fleetflow:quotation-picker"))
-            }
-          >
-            <Printer size={17} />
-            Print quotation
           </Button>
         )}
         {action && (

@@ -202,6 +202,7 @@ export function useFleetStore() {
             company: nextStore.company,
             nextBillNumber: nextStore.nextBillNumber,
             nextOtherBillNumber: nextStore.nextOtherBillNumber,
+            nextQuotationNumber: nextStore.nextQuotationNumber ?? 1,
             updatedAt,
           });
           wroteData = true;
