@@ -76,6 +76,18 @@ export function AttendanceView({
     .filter((date) => date >= attendanceReportFrom && date <= attendanceReportTo)
     .sort();
 
+  const sortedAllEmployees = [...allEmployees].sort((a, b) => {
+    if (a.status === "Active" && b.status !== "Active") return -1;
+    if (a.status !== "Active" && b.status === "Active") return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  const sortedAttendanceRows = [...attendanceRows].sort((a, b) => {
+    if (a.employee.status === "Active" && b.employee.status !== "Active") return -1;
+    if (a.employee.status !== "Active" && b.employee.status === "Active") return 1;
+    return a.employee.name.localeCompare(b.employee.name);
+  });
+
   return (
     <>
       <PageHead
@@ -114,9 +126,9 @@ export function AttendanceView({
             </span>
           </div>
           {attendanceDirty && <p className="op-unsaved">Unsaved changes</p>}
-          {attendanceRows.length ? (
+          {sortedAttendanceRows.length ? (
             <Table headers={["Employee", "Location and rate", "Present", "Absent"]}>
-              {attendanceRows.map(({ employee, rate, present }) => (
+              {sortedAttendanceRows.map(({ employee, rate, present }) => (
                 <Row key={employee.id}>
                   <b>{employee.name}</b>
                   <span>
@@ -176,16 +188,20 @@ export function AttendanceView({
           />
         </label>
       </div>
-      <Table headers={["Employee", "Status", "Present days", "Total days"]}>
-        {allEmployees.map((employee) => {
+      <Table headers={["Employee", "Status", "Present days", "Absent days", "Total days"]}>
+        {sortedAllEmployees.map((employee) => {
           const present = reportDates.filter(
             (date) => store.attendance[date]?.[employee.id] === true
           ).length;
+          const absent = reportDates.length - present;
           return (
             <Row key={`report-${employee.id}`}>
               <b>{employee.name}</b>
               <Status>{employee.status}</Status>
               <strong style={{ color: "#1f6a53" }}>{present} days</strong>
+              <strong style={{ color: absent > 0 ? "#a13e34" : "#687670" }}>
+                {absent} days
+              </strong>
               <span>{reportDates.length} days</span>
             </Row>
           );

@@ -1,9 +1,10 @@
 "use client";
 
-import { CalendarDays, Check, FileText, Plus, Printer, Trash2, X } from "lucide-react";
+import { CalendarDays, Check, FileText, Plus, Printer, Search, Trash2, X } from "lucide-react";
 import type React from "react";
 import { type FormEvent, useEffect, useState } from "react";
 import {
+  addDays,
   BillCharge,
   BillChargeCategory,
   CampaignBooking,
@@ -18,7 +19,9 @@ import {
   Button,
   FormField,
   Modal,
+  Row,
   Status,
+  Table,
 } from "./operations-components";
 import { PageHead } from "./operations-reports";
 import {
@@ -854,6 +857,153 @@ export function CampaignSlotCard({
   );
 }
 
+export function CampaignAttendanceReportModal({
+  store,
+  close,
+}: {
+  store: FleetStore;
+  close: () => void;
+}) {
+  const [reportFrom, setReportFrom] = useState(`${isoToday().slice(0, 7)}-01`);
+  const [reportTo, setReportTo] = useState(isoToday());
+  const [reportSearch, setReportSearch] = useState("");
+
+  const reportCampaigns = store.campaignBookings
+    .filter((b) => {
+      const end = bookingEnd(b);
+      const overlaps = b.startDate <= reportTo && end >= reportFrom;
+      if (!overlaps) return false;
+      const q = reportSearch.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        b.client.firmName.toLowerCase().includes(q) ||
+        (b.client.ownerName || "").toLowerCase().includes(q) ||
+        b.client.mobile.includes(q) ||
+        bookingStatus(b).toLowerCase().includes(q)
+      );
+    })
+    .sort((a, b) => {
+      const statusA = bookingStatus(a);
+      const statusB = bookingStatus(b);
+      if (statusA === "Active" && statusB !== "Active") return -1;
+      if (statusA !== "Active" && statusB === "Active") return 1;
+      return b.startDate.localeCompare(a.startDate);
+    });
+
+  return (
+    <Modal title="Campaign Attendance Report" close={close}>
+      <div className="op-campaign-report-dialog" style={{ padding: "20px", display: "grid", gap: "14px" }}>
+        <div className="op-toolbar" style={{ margin: 0, padding: 0, flexWrap: "wrap", gap: "10px" }}>
+          <label className="op-field" style={{ margin: 0 }}>
+            <span>From</span>
+            <input
+              type="date"
+              value={reportFrom}
+              onChange={(e) => setReportFrom(e.target.value)}
+            />
+          </label>
+          <label className="op-field" style={{ margin: 0 }}>
+            <span>To</span>
+            <input
+              type="date"
+              value={reportTo}
+              onChange={(e) => setReportTo(e.target.value)}
+            />
+          </label>
+          <label className="op-search" style={{ minWidth: "220px", margin: 0 }}>
+            <Search />
+            <input
+              placeholder="Search client or campaign"
+              value={reportSearch}
+              onChange={(e) => setReportSearch(e.target.value)}
+            />
+          </label>
+        </div>
+
+        {reportCampaigns.length ? (
+          <Table
+            headers={[
+              "Client / Campaign",
+              "Vehicles / Slots",
+              "Status",
+              "Present days",
+              "Absent days",
+              "Total days",
+            ]}
+          >
+            {reportCampaigns.map((booking) => {
+              const status = bookingStatus(booking);
+              const start = booking.startDate > reportFrom ? booking.startDate : reportFrom;
+              const end = bookingEnd(booking) < reportTo ? bookingEnd(booking) : reportTo;
+              let presentSlots = 0;
+              let totalSlots = 0;
+
+              if (end >= start) {
+                const days = Array.from(
+                  { length: inclusiveDays(start, end) },
+                  (_, offset) => addDays(start, offset),
+                );
+                days.forEach((d) => {
+                  const periods = booking.vehiclePeriods.filter(
+                    (p) => p.startDate <= d && p.endDate >= d,
+                  );
+                  periods.forEach((period) => {
+                    for (let slotIndex = 0; slotIndex < period.quantity; slotIndex++) {
+                      const key = campaignSlotKey(booking.id, period.id, slotIndex);
+                      const val =
+                        store.campaignAttendance[d]?.[key] ??
+                        (period.vehicleIds[slotIndex]
+                          ? store.vehicleAttendance[d]?.[period.vehicleIds[slotIndex]]
+                          : undefined);
+                      totalSlots += 1;
+                      if (val === true) presentSlots += 1;
+                    }
+                  });
+                });
+              }
+
+              const absentSlots = totalSlots - presentSlots;
+
+              return (
+                <Row key={`modal-campaign-report-${booking.id}`}>
+                  <b>
+                    {booking.client.firmName}
+                    <small>
+                      {fmt(booking.startDate)} to {fmt(bookingEnd(booking))}
+                      {booking.client.ownerName ? ` · ${booking.client.ownerName}` : ""}
+                    </small>
+                  </b>
+                  <span>
+                    {booking.vehiclePeriods.map((p) => `${p.quantity} ${p.type}`).join(", ")}
+                  </span>
+                  <Status>{status}</Status>
+                  <strong style={{ color: "#1f6a53" }}>{presentSlots} days</strong>
+                  <strong style={{ color: absentSlots > 0 ? "#a13e34" : "#687670" }}>
+                    {absentSlots} days
+                  </strong>
+                  <span>{totalSlots} days</span>
+                </Row>
+              );
+            })}
+          </Table>
+        ) : (
+          <div className="op-empty-state">
+            <CalendarDays />
+            <h2>No campaign attendance records found</h2>
+            <p>Try adjusting your date range or search query.</p>
+          </div>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "6px" }}>
+          <Button secondary onClick={close}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function CampaignAttendanceView({
   store,
   setStore,
@@ -868,7 +1018,9 @@ export function CampaignAttendanceView({
     ...(store.campaignAttendance[isoToday()] ?? {}),
   }));
   const [dirty, setDirty] = useState(false);
-  const bookings = store.campaignBookings
+  const [showReportModal, setShowReportModal] = useState(false);
+
+  const rawBookings = store.campaignBookings
     .filter(
       (booking) => booking.startDate <= date && bookingEnd(booking) >= date,
     )
@@ -879,6 +1031,15 @@ export function CampaignAttendanceView({
       ),
     }))
     .filter(({ periods }) => periods.length > 0);
+
+  const bookings = [...rawBookings].sort((a, b) => {
+    const statusA = bookingStatus(a.booking);
+    const statusB = bookingStatus(b.booking);
+    if (statusA === "Active" && statusB !== "Active") return -1;
+    if (statusA !== "Active" && statusB === "Active") return 1;
+    return a.booking.client.firmName.localeCompare(b.booking.client.firmName);
+  });
+
   const slots = bookings.flatMap(({ booking, periods }) =>
     periods.flatMap((period) =>
       Array.from({ length: period.quantity }, (_, slotIndex) =>
@@ -909,6 +1070,7 @@ export function CampaignAttendanceView({
     notify(`Campaign attendance saved for ${fmt(date)}`);
   };
   const calendarAttendance = { ...store.campaignAttendance, [date]: draft };
+
   return (
     <>
       <PageHead
@@ -956,6 +1118,13 @@ export function CampaignAttendanceView({
               }}
             >
               Mark all absent
+            </Button>
+            <Button
+              secondary
+              onClick={() => setShowReportModal(true)}
+            >
+              <FileText size={17} />
+              Attendance report
             </Button>
             <Button onClick={save}>
               <Check size={17} />
@@ -1043,7 +1212,13 @@ export function CampaignAttendanceView({
           )}
         </section>
       </div>
+
+      {showReportModal && (
+        <CampaignAttendanceReportModal
+          store={store}
+          close={() => setShowReportModal(false)}
+        />
+      )}
     </>
   );
 }
-
