@@ -17,6 +17,7 @@ import {
 } from "./operations-reports";
 import {
   billBalance,
+  clientOverallBalance,
   fmt,
   isoToday,
   money,
@@ -404,9 +405,7 @@ export function ReportsView({
         <article className="op-panel">
           <h2>Outstanding by client</h2>
           {store.clients.map((client) => {
-            const value = store.bills
-              .filter((bill) => bill.clientId === client.id)
-              .reduce((sum, bill) => sum + billBalance(bill), 0);
+            const value = clientOverallBalance(store, client.id).outstanding;
             return value > 0 ? (
               <p key={client.id}>
                 <b>{client.firmName}</b>

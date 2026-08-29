@@ -3,7 +3,7 @@ import { useState } from "react";
 import { FleetStore, PaymentMode } from "./fleet-domain";
 import { fmt, money } from "./operations-utils";
 
-export function MaintenancePaymentReceiptModal({
+export function PaymentReceiptModal({
   store,
   paidTo,
   description,
@@ -47,7 +47,7 @@ export function MaintenancePaymentReceiptModal({
             </div>
           </header>
           <h1 style={{ fontSize: "22px", margin: "16px 0", borderBottom: "2px solid #222", paddingBottom: "8px" }}>
-            MAINTENANCE PAYMENT RECEIPT
+            PAYMENT RECEIPT
           </h1>
           <table className="op-supplier-ledger-table" style={{ width: "100%", fontSize: "14px", marginBottom: "20px" }}>
             <tbody>
@@ -142,3 +142,5 @@ export function Modal({ title, close, children }: { title: string; close: () => 
   const printable = title.endsWith("· client ledger") || title.endsWith("· complete record") || isSalarySlip;
   return <div className={`op-modal-backdrop${printable ? " op-print-ledger-modal" : ""}`} onMouseDown={(event) => event.target === event.currentTarget && close()}><section className="op-modal"><header><h2>{title}</h2><span className="op-modal-actions">{printable && <button className="op-modal-print" onClick={() => window.print()}><Printer size={17}/>Print {isSalarySlip ? "salary slip" : "all records"}</button>}<button title="Close" onClick={close}><X/></button></span></header>{children}</section></div>;
 }
+
+export const MaintenancePaymentReceiptModal = PaymentReceiptModal;

@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import {
   addDays,
+  calculateEmployeeLedger,
   inclusiveDays,
   weekFor,
   type Employee,
@@ -175,21 +176,17 @@ export function AttendanceView({
           />
         </label>
       </div>
-      <Table headers={["Employee", "Status", "Present days", "Absent days", "Total days"]}>
+      <Table headers={["Employee", "Status", "Present days", "Total days"]}>
         {allEmployees.map((employee) => {
           const present = reportDates.filter(
             (date) => store.attendance[date]?.[employee.id] === true
-          ).length;
-          const absent = reportDates.filter(
-            (date) => store.attendance[date]?.[employee.id] === false
           ).length;
           return (
             <Row key={`report-${employee.id}`}>
               <b>{employee.name}</b>
               <Status>{employee.status}</Status>
-              <strong>{present}</strong>
-              <strong>{absent}</strong>
-              <span>{present + absent}</span>
+              <strong style={{ color: "#1f6a53" }}>{present} days</strong>
+              <span>{reportDates.length} days</span>
             </Row>
           );
         })}
@@ -252,29 +249,36 @@ export function EmployeesView({
           "Employee",
           "Current location",
           "Daily rate",
+          "Overall balance",
           "Effective from",
           "Status",
           "",
         ]}
       >
-        {employeeRows.map(({ employee, rate }) => (
-          <Row key={employee.id}>
-            <button
-              className="op-name-button"
-              onClick={() => openEmployeeRecord(employee.id)}
-            >
-              {employee.name}
-            </button>
-            <span>{rate?.location ?? "No location"}</span>
-            <strong>{money(rate?.dailyRate ?? 0)}/day</strong>
-            <span>{fmt(rate?.effectiveFrom ?? "")}</span>
-            <Status>{employee.status}</Status>
-            <Actions
-              edit={() => editEmployee(employee.id)}
-              remove={() => removeEmployee(employee.id)}
-            />
-          </Row>
-        ))}
+        {employeeRows.map(({ employee, rate }) => {
+          const overallBalance = calculateEmployeeLedger(store, employee.id).remainingBalance;
+          return (
+            <Row key={employee.id}>
+              <button
+                className="op-name-button"
+                onClick={() => openEmployeeRecord(employee.id)}
+              >
+                {employee.name}
+              </button>
+              <span>{rate?.location ?? "No location"}</span>
+              <strong>{money(rate?.dailyRate ?? 0)}/day</strong>
+              <strong style={{ color: overallBalance > 0 ? "#9a493d" : "#1f6a53" }}>
+                {money(overallBalance)}
+              </strong>
+              <span>{fmt(rate?.effectiveFrom ?? "")}</span>
+              <Status>{employee.status}</Status>
+              <Actions
+                edit={() => editEmployee(employee.id)}
+                remove={() => removeEmployee(employee.id)}
+              />
+            </Row>
+          );
+        })}
       </Table>
       <section className="op-history">
         <h2>Rate and location history</h2>
@@ -396,19 +400,19 @@ export function PayrollView({
     const paid =
       row.saved?.paidAmount ??
       (row.saved?.status === "Paid" ? row.preview.net : 0);
-    const balance = Math.max(0, row.preview.net - paid);
+    const periodBalance = Math.max(0, row.preview.net - paid);
+    const overallBalance = calculateEmployeeLedger(store, row.preview.employeeId).remainingBalance;
     const status =
-      row.preview.net === 0
-        ? "No dues"
-        : balance === 0 && paid > 0
+      overallBalance === 0 && (paid > 0 || row.preview.net === 0)
         ? "Paid"
-        : paid > 0
-        ? "Partial"
-        : "Pending";
+        : overallBalance > 0
+        ? "Pending"
+        : "No dues";
     return {
       ...row,
       paid,
-      balance,
+      balance: overallBalance,
+      periodBalance,
       status,
     };
   });
@@ -426,9 +430,10 @@ export function PayrollView({
   const totalNet = payrollNetTotal;
   const totalPaid =
     payrollPaidTotal ?? calculatedRows.reduce((sum, r) => sum + r.paid, 0);
-  const totalRemaining =
-    payrollRemainingBalanceTotal ??
-    calculatedRows.reduce((sum, r) => sum + r.balance, 0);
+  const totalRemaining = store.employees.reduce(
+    (sum, e) => sum + calculateEmployeeLedger(store, e.id).remainingBalance,
+    0
+  );
 
   // Filter rows
   const normalizedSearch = search.trim().toLowerCase();
@@ -658,13 +663,8 @@ export function PayrollView({
                       preview.presentDays > 0 ? "present" : "none"
                     }`}
                   >
-                    <b>{preview.presentDays}</b> / {preview.totalDays} days
+                    <b>{preview.presentDays}</b> / {preview.totalDays} Present days
                   </span>
-                  {preview.absentDays > 0 && (
-                    <small className="op-absent-text">
-                      {preview.absentDays} absent
-                    </small>
-                  )}
                 </div>
 
                 <div>
@@ -751,19 +751,17 @@ export function PayrollView({
                   {balance > 0 ? (
                     <>
                       <span className="op-balance-badge due">
-                        {money(balance)} Due
+                        {money(balance)} Overall Due
                       </span>
-                      <small className="op-subtext">{paid > 0 ? "Partial payment" : "Pending"}</small>
+                      <small className="op-subtext">{paid > 0 ? `Paid ${money(paid)} in period` : "Pending"}</small>
                     </>
-                  ) : paid > 0 ? (
+                  ) : (
                     <>
                       <span className="op-balance-badge settled">
                         ✓ {money(0)} Settled
                       </span>
-                      <small className="op-subtext">Paid in full</small>
+                      <small className="op-subtext">All dues paid</small>
                     </>
-                  ) : (
-                    <span className="op-text-muted">No dues</span>
                   )}
                 </div>
 
@@ -922,9 +920,9 @@ export function SalarySlipModal({
             <thead>
               <tr>
                 <th style={{ width: "45%" }}>Attendance Breakdown & Working Rates</th>
-                <th style={{ width: "15%" }}>Present</th>
-                <th style={{ width: "15%" }}>Absent</th>
-                <th style={{ width: "25%" }}>Earned Amount</th>
+                <th style={{ width: "20%" }}>Present Days</th>
+                <th style={{ width: "15%" }}>Daily Rate</th>
+                <th style={{ width: "20%" }}>Earned Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -934,11 +932,11 @@ export function SalarySlipModal({
                     <b>{item.location || "Standard"} Rate</b>
                     <br />
                     <small>
-                      {item.days} working days @ {money(item.dailyRate)}/day
+                      {item.days} present days @ {money(item.dailyRate)}/day
                     </small>
                   </td>
-                  <td>{item.days}</td>
-                  <td>{idx === 0 ? preview.absentDays : 0}</td>
+                  <td><b>{item.days} days</b></td>
+                  <td>{money(item.dailyRate)}</td>
                   <td>
                     <b>{money(item.amount)}</b>
                   </td>
@@ -1040,7 +1038,7 @@ export function SalarySlipModal({
               </tr>
 
               <tr className="invoice-grand" style={{ background: balance > 0 ? "#ffe6d5" : "#e6f9ed" }}>
-                <th>Remaining Balance Due:</th>
+                <th>Period Balance Due:</th>
                 <td
                   style={{
                     textAlign: "center",
@@ -1050,6 +1048,20 @@ export function SalarySlipModal({
                   }}
                 >
                   {balance > 0 ? `${money(balance)} (Pending)` : `✓ ${money(0)} (Settled)`}
+                </td>
+              </tr>
+
+              <tr className="invoice-grand" style={{ background: "#f1f5f9" }}>
+                <th>Employee Overall Remaining Balance:</th>
+                <td
+                  style={{
+                    textAlign: "center",
+                    fontWeight: "800",
+                    fontSize: "17px",
+                    color: calculateEmployeeLedger(store, preview.employeeId).remainingBalance > 0 ? "#9a493d" : "#1f6a53",
+                  }}
+                >
+                  {money(calculateEmployeeLedger(store, preview.employeeId).remainingBalance)}
                 </td>
               </tr>
             </tbody>

@@ -30,6 +30,27 @@ export const billBalance = (bill: Bill | OtherBill) => Math.max(0, bill.total - 
 export const otherBillPaid = (bill: OtherBill) => bill.payments.reduce((sum, payment) => sum + payment.amount, 0);
 export const otherBillBalance = (bill: OtherBill) => Math.max(0, bill.total - otherBillPaid(bill));
 export const otherBillCost = (bill: OtherBill) => bill.items.reduce((sum, item) => sum + (item.costAmount ?? item.quantity * (item.costRate ?? 0)), 0);
+
+export const clientOverallBalance = (store: FleetStore, clientId: number) => {
+  const clientBills = store.bills.filter((bill) => bill.clientId === clientId);
+  const clientOtherBills = store.otherBills.filter((bill) => bill.clientId === clientId);
+  const billed =
+    clientBills.reduce((sum, bill) => sum + bill.total, 0) +
+    clientOtherBills.reduce((sum, bill) => sum + bill.total, 0);
+  const received =
+    clientBills.reduce((sum, bill) => sum + billPaid(bill), 0) +
+    clientOtherBills.reduce((sum, bill) => sum + otherBillPaid(bill), 0);
+  const balance = billed - received;
+  return {
+    billed,
+    received,
+    balance,
+    outstanding: Math.max(0, balance),
+    billCount: clientBills.length,
+    otherBillCount: clientOtherBills.length,
+  };
+};
+
 export const supplierPaid = (expense: FleetStore["businessExpenses"][number]) => Math.min(expense.amount, (expense.paidAmount ?? expense.amount) + (expense.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0));
 export const supplierBalance = (expense: FleetStore["businessExpenses"][number]) => Math.max(0, expense.amount - supplierPaid(expense));
 export const expenseClientBilling = (expense: FleetStore["businessExpenses"][number]) => expense.category === "Self travel" || expense.category === "Self stay" ? 0 : expense.clientBillingAmount ?? expense.amount;
@@ -37,7 +58,11 @@ export const expenseProfit = (expense: FleetStore["businessExpenses"][number]) =
 
 export const reportProfitCategories = [{ value: "All", label: "All" }, { value: "Printing", label: "Banner" }, { value: "Pasting", label: "Pasting" }, { value: "Recording", label: "Recording" }, { value: "Purchase", label: "Purchase" }, { value: "Labour charges", label: "Labour" }, { value: "Paper", label: "Paper" }, { value: "Calendar", label: "Calendar" }, { value: "Self travel", label: "Self expense" }, { value: "Self stay", label: "Salary" }] as const satisfies readonly { value: BusinessExpenseCategory | "All"; label: string }[];
 export type ReportProfitCategory = (typeof reportProfitCategories)[number]["value"] | "Self stay";
-export const matchesReportCategory = (expense: FleetStore["businessExpenses"][number], category: ReportProfitCategory) => category === "All" || category === "Self travel" ? category === "All" || expense.category === "Self travel" || expense.category === "Self stay" : expense.category === category;
+export const matchesReportCategory = (expense: FleetStore["businessExpenses"][number], category: ReportProfitCategory) => {
+  if (category === "All") return true;
+  if (category === "Self travel") return expense.category === "Self travel" || expense.category === "Self stay";
+  return expense.category === category;
+};
 
 export const clientCategories: ClientCategory[] = ["Rickshaw", "E-rickshaw", "Paper", "Social media", "Calendar", "Other"];
 export const campaignChargeCategories: BillChargeCategory[] = ["Banner / printing", "Pasting", "Recording", "Municipal tax", "Design", "Tea", "Breakfast", "Lunch", "Dinner", "Miscellaneous", "Discount"];

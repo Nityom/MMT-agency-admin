@@ -15,7 +15,7 @@ function PaymentForm({ expense, close, save }: { expense: BusinessExpense; close
 }
 
 function PaymentReceipt({ expense, payment, close }: { expense: BusinessExpense; payment: NonNullable<BusinessExpense["payments"]>[number]; close: () => void }) {
-  return <div className="invoice-backdrop"><div className="invoice-dialog"><div className="invoice-toolbar"><Button secondary onClick={close}><X size={17}/>Close</Button><Button onClick={() => window.print()}><Printer size={17}/>Print receipt</Button></div><article className="invoice-sheet"><h1>MAINTENANCE PAYMENT RECEIPT</h1><p><b>Supplier:</b> {expense.paidTo}</p><p><b>Work:</b> {expense.description}</p><p><b>Date:</b> {fmt(payment.date)}</p><p><b>Mode:</b> {payment.mode}</p><p><b>Reference:</b> {payment.reference || "—"}</p><h2>{money(payment.amount)}</h2></article></div></div>;
+  return <div className="invoice-backdrop"><div className="invoice-dialog"><div className="invoice-toolbar"><Button secondary onClick={close}><X size={17}/>Close</Button><Button onClick={() => window.print()}><Printer size={17}/>Print receipt</Button></div><article className="invoice-sheet"><h1>PAYMENT RECEIPT</h1><p><b>Supplier:</b> {expense.paidTo}</p><p><b>Work:</b> {expense.description}</p><p><b>Date:</b> {fmt(payment.date)}</p><p><b>Mode:</b> {payment.mode}</p><p><b>Reference:</b> {payment.reference || "—"}</p><h2>{money(payment.amount)}</h2></article></div></div>;
 }
 
 export function MaintenanceManager({ store, setStore, notify, remove }: { store: FleetStore; setStore: React.Dispatch<React.SetStateAction<FleetStore>>; notify: (message: string) => void; remove: (collection: "employees" | "vehicles" | "clients" | "businessExpenses", id: number) => void }) {

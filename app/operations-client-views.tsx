@@ -1,12 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { ReceiptText, Search } from "lucide-react";
 import type { Bill, CampaignBooking, Client, ClientCategory, FleetStore } from "./fleet-domain";
 import { Actions, Button, Row, Status, Table } from "./operations-components";
 import { CampaignSlotCard } from "./operations-campaigns";
 import { ClientLedgerModal } from "./operations-client-ledger";
 import { PageHead } from "./operations-reports";
-import { billBalance, billPaid, clientCategories, fmt, money } from "./operations-utils";
+import { billBalance, billPaid, bookingStatus, clientCategories, clientOverallBalance, fmt, money } from "./operations-utils";
 
 type ClientCampaignFilter = "Search" | "Ongoing" | "Completed";
 
@@ -49,7 +50,7 @@ export type ClientLedgersViewProps = {
 };
 
 export function ClientLedgersView({ store, ledgerSearch, normalizedLedgerSearch, ledgerClients, visibleLedgerClients, ledgerClientId, setLedgerSearch, openLedger, closeLedger, viewBill }: ClientLedgersViewProps) {
-  return <><PageHead title="Client ledgers" detail="Campaigns, invoices, receipts, and outstanding balances by client"/><div className="op-toolbar"><label className="op-search"><Search/><input placeholder="Search client name or phone" value={ledgerSearch} onChange={(event) => setLedgerSearch(event.target.value)}/></label><p>{visibleLedgerClients.length} of {ledgerClients.length.toLocaleString("en-IN")} ledgers</p></div>{visibleLedgerClients.length ? <Table headers={["Client", "Contact", "Campaigns", "Invoices", "Total billed", "Received / balance", ""]}>{visibleLedgerClients.map((client) => { const bills = store.bills.filter((bill) => bill.clientId === client.id), campaigns = store.campaignBookings.filter((booking) => booking.clientId === client.id), billed = bills.reduce((sum, bill) => sum + bill.total, 0), received = bills.reduce((sum, bill) => sum + billPaid(bill), 0), balance = bills.reduce((sum, bill) => sum + billBalance(bill), 0); return <Row key={client.id}><b>{client.firmName}<small>{client.ownerName || "Imported contact"}</small></b><span>{client.mobile || "No phone"}<small>{client.email || "No email"}</small></span><span>{campaigns.length}</span><span>{bills.length}</span><strong>{money(billed)}</strong><span><b>{money(received)} received</b><small>{money(balance)} outstanding</small></span><Button secondary onClick={() => openLedger(client.id)}><ReceiptText size={16}/>Open ledger</Button></Row>; })}</Table> : <div className="op-empty-state"><ReceiptText/><h2>{normalizedLedgerSearch ? "No clients found" : "No active ledgers"}</h2><p>{normalizedLedgerSearch ? "Try a different client name or phone number." : "Clients appear here after a campaign or invoice is created."}</p></div>}{ledgerClients.length > visibleLedgerClients.length && <p className="op-result-limit">Refine your search to see the remaining {(ledgerClients.length - visibleLedgerClients.length).toLocaleString("en-IN")} ledgers.</p>}{ledgerClientId && <ClientLedgerModal store={store} clientId={ledgerClientId} close={closeLedger} viewBill={viewBill}/>}</>;
+  return <><PageHead title="Client ledgers" detail="Campaigns, invoices, receipts, and outstanding balances by client"/><div className="op-toolbar"><label className="op-search"><Search/><input placeholder="Search client name or phone" value={ledgerSearch} onChange={(event) => setLedgerSearch(event.target.value)}/></label><p>{visibleLedgerClients.length} of {ledgerClients.length.toLocaleString("en-IN")} ledgers</p></div>{visibleLedgerClients.length ? <Table headers={["Client", "Contact", "Campaigns", "Invoices", "Total billed", "Received / balance", ""]}>{visibleLedgerClients.map((client) => { const campaigns = store.campaignBookings.filter((booking) => booking.clientId === client.id), bills = store.bills.filter((bill) => bill.clientId === client.id), overall = clientOverallBalance(store, client.id); return <Row key={client.id}><b>{client.firmName}<small>{client.ownerName || "Imported contact"}</small></b><span>{client.mobile || "No phone"}<small>{client.email || "No email"}</small></span><span>{campaigns.length}</span><span>{bills.length}</span><strong>{money(overall.billed)}</strong><span><b>{money(overall.received)} received</b><small style={{ color: overall.outstanding > 0 ? "#9a493d" : "#1f6a53", fontWeight: 600 }}>{money(overall.balance)} outstanding</small></span><Button secondary onClick={() => openLedger(client.id)}><ReceiptText size={16}/>Open ledger</Button></Row>; })}</Table> : <div className="op-empty-state"><ReceiptText/><h2>{normalizedLedgerSearch ? "No clients found" : "No active ledgers"}</h2><p>{normalizedLedgerSearch ? "Try a different client name or phone number." : "Clients appear here after a campaign or invoice is created."}</p></div>}{ledgerClients.length > visibleLedgerClients.length && <p className="op-result-limit">Refine your search to see the remaining {(ledgerClients.length - visibleLedgerClients.length).toLocaleString("en-IN")} ledgers.</p>}{ledgerClientId && <ClientLedgerModal store={store} clientId={ledgerClientId} close={closeLedger} viewBill={viewBill}/>}</>;
 }
 
 export type CampaignsViewProps = {
@@ -66,6 +67,134 @@ export type CampaignsViewProps = {
   generateBill: (booking: CampaignBooking) => void;
 };
 
-export function CampaignsView({ store, campaignSearch, normalizedCampaignSearch, filteredCampaignBookings, setCampaignSearch, newBooking, editBooking, renewBooking, deleteBooking, stopBooking, generateBill }: CampaignsViewProps) {
-  return <><PageHead title="Monthly campaign bookings" detail="Set vehicle type and quantity; attendance is recorded by party slots" action="New booking" onAction={newBooking}/><div className="op-toolbar op-client-search"><label className="op-search"><Search/><input placeholder="Search campaign by client name or phone" value={campaignSearch} onChange={(event) => setCampaignSearch(event.target.value)}/></label><p>Showing <b>{filteredCampaignBookings.length}</b> of <b>{store.campaignBookings.length}</b> campaigns</p></div>{filteredCampaignBookings.length ? <section className="op-campaign-list">{filteredCampaignBookings.map((booking) => <CampaignSlotCard key={booking.id} store={store} booking={booking} edit={() => editBooking(booking)} renew={() => renewBooking(booking)} deleteBooking={() => deleteBooking(booking)} stop={() => stopBooking(booking)} generateBill={() => generateBill(booking)}/>)}</section> : <div className="op-empty-state"><Search/><h2>{normalizedCampaignSearch ? "No client campaigns found" : "No campaign bookings"}</h2><p>{normalizedCampaignSearch ? "Try another client name or phone number." : "Create a monthly booking, select a client, and enter the required count for each vehicle type."}</p></div>}</>;
+export function CampaignsView({
+  store,
+  campaignSearch,
+  normalizedCampaignSearch,
+  setCampaignSearch,
+  newBooking,
+  editBooking,
+  renewBooking,
+  deleteBooking,
+  stopBooking,
+  generateBill,
+}: CampaignsViewProps) {
+  const [selectedMonth, setSelectedMonth] = useState<string>("All");
+  const [selectedStatus, setSelectedStatus] = useState<string>("All");
+
+  const monthOptions = Array.from(
+    new Set(
+      store.campaignBookings.flatMap((b) => [
+        b.month,
+        b.startDate.slice(0, 7),
+        b.endDate.slice(0, 7),
+      ])
+    )
+  ).filter(Boolean).sort().reverse();
+
+  const displayedBookings = store.campaignBookings.filter((b) => {
+    if (
+      selectedMonth !== "All" &&
+      b.month !== selectedMonth &&
+      !b.startDate.startsWith(selectedMonth) &&
+      !b.endDate.startsWith(selectedMonth)
+    ) {
+      return false;
+    }
+    const status = bookingStatus(b);
+    if (selectedStatus !== "All" && status !== selectedStatus) {
+      return false;
+    }
+    const query = campaignSearch.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      b.client.firmName.toLowerCase().includes(query) ||
+      (b.client.ownerName || "").toLowerCase().includes(query) ||
+      b.client.mobile.includes(query) ||
+      status.toLowerCase().includes(query)
+    );
+  });
+
+  return (
+    <>
+      <PageHead
+        title="Monthly campaign bookings"
+        detail="Set vehicle type and quantity; attendance is recorded by party slots"
+        action="New booking"
+        onAction={newBooking}
+      />
+      <div className="op-toolbar op-client-search" style={{ flexWrap: "wrap", gap: "10px" }}>
+        <label className="op-search" style={{ minWidth: "240px" }}>
+          <Search />
+          <input
+            placeholder="Search campaign by client, phone, or status"
+            value={campaignSearch}
+            onChange={(event) => setCampaignSearch(event.target.value)}
+          />
+        </label>
+        <label className="op-field" style={{ margin: 0 }}>
+          <span>Filter by Month</span>
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+          >
+            <option value="All">All Months</option>
+            {monthOptions.map((m) => (
+              <option key={m} value={m}>
+                {new Date(`${m}-01T00:00:00`).toLocaleDateString("en-IN", {
+                  month: "long",
+                  year: "numeric",
+                })}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="op-period-tabs" style={{ display: "flex", gap: "6px" }}>
+          {["All", "Active", "Scheduled", "Stopped", "Billed"].map((st) => (
+            <Button
+              key={st}
+              secondary={selectedStatus !== st}
+              onClick={() => setSelectedStatus(st)}
+            >
+              {st}
+            </Button>
+          ))}
+        </div>
+        <p style={{ marginLeft: "auto" }}>
+          Showing <b>{displayedBookings.length}</b> of <b>{store.campaignBookings.length}</b> campaigns
+        </p>
+      </div>
+
+      {displayedBookings.length ? (
+        <section className="op-campaign-list">
+          {displayedBookings.map((booking) => (
+            <CampaignSlotCard
+              key={booking.id}
+              store={store}
+              booking={booking}
+              edit={() => editBooking(booking)}
+              renew={() => renewBooking(booking)}
+              deleteBooking={() => deleteBooking(booking)}
+              stop={() => stopBooking(booking)}
+              generateBill={() => generateBill(booking)}
+            />
+          ))}
+        </section>
+      ) : (
+        <div className="op-empty-state">
+          <Search />
+          <h2>
+            {campaignSearch || selectedMonth !== "All" || selectedStatus !== "All"
+              ? "No matching campaigns found"
+              : "No campaign bookings"}
+          </h2>
+          <p>
+            {campaignSearch || selectedMonth !== "All" || selectedStatus !== "All"
+              ? "Try selecting another month or adjusting your filters."
+              : "Create a monthly booking, select a client, and enter the required count for each vehicle type."}
+          </p>
+        </div>
+      )}
+    </>
+  );
 }

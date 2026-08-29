@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import {
   Banknote,
   CalendarDays,
   Check,
   CircleDollarSign,
   FileText,
+  Printer,
   ReceiptText,
   Search,
   UserRound,
@@ -183,7 +185,7 @@ export type BillingViewProps = {
 export function BillingView({
   store,
   billingSearch,
-  filteredBills,
+  filteredBills: initialFilteredBills,
   totalBusiness,
   outstanding,
   setBillingSearch,
@@ -194,6 +196,41 @@ export function BillingView({
   recordPayment,
   viewBill,
 }: BillingViewProps) {
+  const [periodMode, setPeriodMode] = useState<"all" | "month" | "range">("all");
+  const [selectedMonth, setSelectedMonth] = useState(isoToday().slice(0, 7));
+  const [fromDate, setFromDate] = useState(isoToday().slice(0, 8) + "01");
+  const [toDate, setToDate] = useState(isoToday());
+
+  const displayedBills = store.bills.filter((bill) => {
+    if (periodMode === "month" && !bill.billDate.startsWith(selectedMonth)) return false;
+    if (periodMode === "range" && (bill.billDate < fromDate || bill.billDate > toDate)) return false;
+    const query = billingSearch.trim().toLowerCase();
+    if (!query) return true;
+    const invoiceNum = `inv-${String(bill.number).padStart(4, "0")}`.toLowerCase();
+    return (
+      invoiceNum.includes(query) ||
+      bill.client.firmName.toLowerCase().includes(query) ||
+      (bill.client.ownerName || "").toLowerCase().includes(query) ||
+      bill.client.mobile.includes(query) ||
+      bill.status.toLowerCase().includes(query)
+    );
+  });
+
+  const periodBilled = displayedBills.reduce((sum, b) => sum + b.total, 0);
+  const periodCollected = displayedBills.reduce((sum, b) => sum + billPaid(b), 0);
+
+  const prevMonth = () => {
+    const [y, m] = selectedMonth.split("-").map(Number);
+    const d = new Date(Date.UTC(y, m - 2, 1));
+    setSelectedMonth(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+  };
+
+  const nextMonth = () => {
+    const [y, m] = selectedMonth.split("-").map(Number);
+    const d = new Date(Date.UTC(y, m, 1));
+    setSelectedMonth(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+  };
+
   return (
     <>
       <PageHead
@@ -202,6 +239,60 @@ export function BillingView({
         action="Generate bill"
         onAction={generateBill}
       />
+      <div className="op-period-tabs" style={{ marginBottom: "14px", display: "flex", gap: "8px" }}>
+        <Button secondary={periodMode !== "all"} onClick={() => setPeriodMode("all")}>
+          All Invoices
+        </Button>
+        <Button secondary={periodMode !== "month"} onClick={() => setPeriodMode("month")}>
+          <CalendarDays size={16} />
+          Monthly Billing
+        </Button>
+        <Button secondary={periodMode !== "range"} onClick={() => setPeriodMode("range")}>
+          <CalendarDays size={16} />
+          Date Range
+        </Button>
+      </div>
+
+      {periodMode === "month" && (
+        <div className="op-toolbar" style={{ background: "#f3f7f4", padding: "10px 14px", borderRadius: "7px", marginBottom: "14px" }}>
+          <Button secondary onClick={prevMonth}>← Prev Month</Button>
+          <label className="op-field" style={{ margin: 0 }}>
+            <span>Select Billing Month</span>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+            />
+          </label>
+          <Button secondary onClick={nextMonth}>Next Month →</Button>
+          <p style={{ margin: 0, fontWeight: 700 }}>
+            {new Date(`${selectedMonth}-01T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
+          </p>
+        </div>
+      )}
+
+      {periodMode === "range" && (
+        <div className="op-toolbar" style={{ background: "#f3f7f4", padding: "10px 14px", borderRadius: "7px", marginBottom: "14px", gap: "12px" }}>
+          <label className="op-field" style={{ margin: 0 }}>
+            <span>From Date</span>
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          </label>
+          <label className="op-field" style={{ margin: 0 }}>
+            <span>To Date</span>
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          </label>
+          <Button
+            secondary
+            onClick={() => {
+              setFromDate(isoToday().slice(0, 8) + "01");
+              setToDate(isoToday());
+            }}
+          >
+            This Month
+          </Button>
+        </div>
+      )}
+
       <div className="op-toolbar">
         <label className="op-search">
           <Search />
@@ -219,15 +310,19 @@ export function BillingView({
           <FileText />
           Combine client bills
         </Button>
+        <Button secondary onClick={() => window.print()}>
+          <Printer size={16} />
+          Print billing statement
+        </Button>
         <p>
-          {filteredBills.length} of {store.bills.length} invoices
+          {displayedBills.length} of {store.bills.length} invoices
         </p>
       </div>
       <section className="op-metrics three">
         <Metric
           label="Total business"
           value={money(totalBusiness)}
-          detail={`${store.bills.length} invoices`}
+          detail={`${store.bills.length} invoices (all-time)`}
           icon={FileText}
         />
         <Metric
@@ -242,13 +337,25 @@ export function BillingView({
           icon={Check}
         />
         <Metric
-          label="Outstanding"
+          label="Overall outstanding"
           value={money(outstanding)}
-          detail="After all receipts"
+          detail="Across all clients"
           icon={WalletCards}
         />
       </section>
-      {filteredBills.length ? (
+
+      {periodMode !== "all" && (
+        <div className="op-account-ledger-summary" style={{ margin: "12px 0" }}>
+          <span>
+            <b>Filtered Period:</b> {periodMode === "month" ? fmt(selectedMonth + "-01") : `${fmt(fromDate)} to ${fmt(toDate)}`}
+          </span>
+          <span>Billed: <b>{money(periodBilled)}</b></span>
+          <span>Collected: <b>{money(periodCollected)}</b></span>
+          <strong>Pending: {money(Math.max(0, periodBilled - periodCollected))}</strong>
+        </div>
+      )}
+
+      {displayedBills.length ? (
         <Table
           headers={[
             "Bill",
@@ -262,7 +369,7 @@ export function BillingView({
             "",
           ]}
         >
-          {filteredBills.map((bill) => {
+          {displayedBills.map((bill) => {
             const latestPayment = [...(bill.payments ?? [])].sort((left, right) =>
               right.date.localeCompare(left.date),
             )[0];
@@ -317,8 +424,7 @@ export function BillingView({
           <Search />
           <h2>No invoices found</h2>
           <p>
-            Try a different invoice number, client name, phone number, or
-            payment status.
+            Try a different invoice number, client name, phone number, or period filter.
           </p>
         </div>
       )}

@@ -335,8 +335,8 @@ export function EntryForm({
         date: input(data, "date"),
         clientId: selectedClient.id,
         clientName: selectedClient.firmName,
-        category: input(data, "category") as BusinessExpenseCategory,
-        description: input(data, "description"),
+        category: (input(data, "category") as BusinessExpenseCategory) || "Printing",
+        description: input(data, "description").trim() || "Maintenance work",
         purpose: input(data, "purpose"),
         paidTo: input(data, "paidTo"),
         reference: input(data, "reference"),
@@ -734,10 +734,9 @@ export function EntryForm({
               />
             </div>
             <FormField
-              label="Work / banner type"
+              label="Work / banner type (optional)"
               name="description"
               defaultValue={editingBusinessExpense?.description}
-              required
             />
             <div className="op-form-grid">
               <FormField
@@ -971,6 +970,8 @@ export function MaintenanceEntryForm({
   const [discount, setDiscount] = useState(expense?.discount ?? 0);
   const [clientBillingAmount, setClientBillingAmount] = useState(expense?.clientBillingAmount ?? 0);
   const [clientSearch, setClientSearch] = useState(expense?.clientName ?? "");
+  const [campaignSearch, setCampaignSearch] = useState("");
+  const [selectedCampaignId, setSelectedCampaignId] = useState(expense?.campaignId ?? 0);
   const [showReceipt, setShowReceipt] = useState(false);
   const grossAmount = quantity > 0 ? quantity * supplierRate : supplierRate;
   const calculatedAmount = Math.max(0, grossAmount - discount);
@@ -978,7 +979,7 @@ export function MaintenanceEntryForm({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    const campaignId = amount(data, "campaignId");
+    const campaignId = selectedCampaignId || amount(data, "campaignId");
     const campaign = store.campaignBookings.find(
       (item) => item.id === campaignId,
     );
@@ -999,8 +1000,8 @@ export function MaintenanceEntryForm({
             }
               : manualClientName ? { clientName: manualClientName } : {}),
       ...(campaign ? { campaignId: campaign.id } : {}),
-      category: (category ?? input(data, "category")) as BusinessExpenseCategory,
-      description: input(data, "description"),
+      category: (category ?? input(data, "category") ?? "Printing") as BusinessExpenseCategory,
+      description: input(data, "description").trim() || `${category || input(data, "category") || "Maintenance"} work`,
       purpose: input(data, "purpose"),
       paidTo: supplierName ?? input(data, "paidTo"),
       reference: input(data, "reference"),
@@ -1061,16 +1062,48 @@ export function MaintenanceEntryForm({
               {store.clients.filter((client) => `${client.firmName} ${client.mobile}`.toLowerCase().includes(clientSearch.trim().toLowerCase())).map((client) => <option value={client.id} key={client.id}>{client.firmName} · {client.mobile}</option>)}
             </select>
           </label>
-          <FormSelect
-            label="From campaign (optional)"
-            name="campaignId"
-            options={store.campaignBookings.map((campaign) => ({
-              value: campaign.id,
-              label: `${campaign.client.firmName} · ${fmt(campaign.startDate)} to ${fmt(campaign.endDate)}`,
-            }))}
-          />
+          <label className="op-field">
+            <span>From campaign (optional)</span>
+            <input
+              placeholder="Search campaign by client or date"
+              value={campaignSearch}
+              onChange={(event) => setCampaignSearch(event.target.value)}
+            />
+            <select
+              name="campaignId"
+              value={selectedCampaignId || ""}
+              onChange={(event) => {
+                const id = Number(event.target.value);
+                setSelectedCampaignId(id);
+                const camp = store.campaignBookings.find((c) => c.id === id);
+                if (camp) {
+                  setClientSearch(camp.client.firmName);
+                }
+              }}
+            >
+              <option value="">No linked campaign</option>
+              {store.campaignBookings
+                .filter((campaign) => {
+                  const query = campaignSearch.trim().toLowerCase();
+                  if (!query) return true;
+                  return (
+                    campaign.client.firmName.toLowerCase().includes(query) ||
+                    (campaign.client.ownerName || "").toLowerCase().includes(query) ||
+                    campaign.client.mobile.includes(query) ||
+                    campaign.startDate.includes(query) ||
+                    campaign.endDate.includes(query) ||
+                    String(campaign.id).includes(query)
+                  );
+                })
+                .map((campaign) => (
+                  <option value={campaign.id} key={campaign.id}>
+                    {campaign.client.firmName} · {fmt(campaign.startDate)} to {fmt(campaign.endDate)}
+                  </option>
+                ))}
+            </select>
+          </label>
         </div>
-        <FormField label="Work / item details" name="description" defaultValue={expense?.description} required />
+        <FormField label="Work / item details (optional)" name="description" defaultValue={expense?.description} />
         <div className="op-form-grid">
           {supplierName ? (
             <p className="op-form-note">

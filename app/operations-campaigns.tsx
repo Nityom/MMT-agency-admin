@@ -9,6 +9,7 @@ import {
   CampaignBooking,
   CampaignVehiclePeriod,
   calculateBillTotal,
+  campaignDurationMonths,
   FleetStore,
   inclusiveDays,
 } from "./fleet-domain";
@@ -826,34 +827,6 @@ export function CampaignSlotCard({
   stop: () => void;
   generateBill: () => void;
 }) {
-  const [filteredMonth, setFilteredMonth] = useState("");
-  useEffect(() => {
-    const receiveMonth = (event: Event) =>
-      setFilteredMonth((event as CustomEvent<string>).detail);
-    window.addEventListener("fleetflow:campaign-month", receiveMonth);
-    window.addEventListener("fleetflow:campaign-month-current", receiveMonth);
-    window.dispatchEvent(new Event("fleetflow:campaign-month-current-request"));
-    return () => {
-      window.removeEventListener("fleetflow:campaign-month", receiveMonth);
-      window.removeEventListener(
-        "fleetflow:campaign-month-current",
-        receiveMonth,
-      );
-    };
-  }, []);
-  if (filteredMonth)
-    return (
-      <article className="op-campaign-contact-card">
-        <b>{booking.client.firmName}</b>
-        <a
-          href={
-            booking.client.mobile ? `tel:${booking.client.mobile}` : undefined
-          }
-        >
-          {booking.client.mobile || "No contact number"}
-        </a>
-      </article>
-    );
   const printQuotation = () =>
     window.dispatchEvent(
       new CustomEvent<number>("fleetflow:campaign-quotation", {

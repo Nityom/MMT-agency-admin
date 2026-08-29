@@ -10,6 +10,7 @@ import {
   BillVehicleLine,
   CampaignBooking,
   calculateBillTotal,
+  campaignDurationMonths,
   FleetStore,
   inclusiveDays,
   PaymentMode,
@@ -360,6 +361,19 @@ export function BillingComposer({
               />
             </label>
             <label>
+              <span>Present days</span>
+              <input
+                type="number"
+                min="0"
+                value={line.advertisementDays}
+                onChange={(event) =>
+                  updateLine(index, {
+                    advertisementDays: Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+            <label>
               <span>Daily rent</span>
               <input
                 type="number"
@@ -370,6 +384,13 @@ export function BillingComposer({
                 }
               />
             </label>
+            <b style={{ display: "flex", alignItems: "center", fontSize: "15px" }}>
+              {money(
+                line.advertisementDays *
+                  line.dailyRate *
+                  (line.quantity ?? 1),
+              )}
+            </b>
             <button
               title="Remove line"
               onClick={() =>
@@ -382,7 +403,7 @@ export function BillingComposer({
             </button>
             <small>
               {inclusiveDays(line.startDate, line.endDate)} booked days ·{" "}
-              {line.advertisementDays} present days in selected range ·
+              {line.advertisementDays} present days (editable) ·{" "}
               {line.offDays} absent days
             </small>
           </div>
@@ -411,11 +432,23 @@ export function BillingComposer({
           <div className="op-charge-editor" key={index}>
             <select
               value={charge.category}
-              onChange={(event) =>
-                updateCharge(index, {
-                  category: event.target.value as BillChargeCategory,
-                })
-              }
+              onChange={(event) => {
+                const category = event.target.value as BillChargeCategory;
+                const startDate = charge.fromDate || lines[0]?.startDate || billDate;
+                const endDate = charge.toDate || lines[0]?.endDate || billDate;
+                const duration = campaignDurationMonths(startDate, endDate);
+                if (category === "Municipal tax") {
+                  updateCharge(index, {
+                    category,
+                    quantity: duration,
+                    description: charge.description || `Municipal tax (${duration} mo)`,
+                    fromDate: startDate,
+                    toDate: endDate,
+                  });
+                } else {
+                  updateCharge(index, { category });
+                }
+              }}
             >
               {[
                 "Banner / printing",
@@ -484,6 +517,12 @@ export function BillingComposer({
               onChange={(event) => setAdvance(Number(event.target.value))}
             />
           </label>
+          {bill && (
+            <div style={{ display: "grid", gap: "2px", textAlign: "right" }}>
+              <span style={{ fontSize: "12px", color: "#687670" }}>Previously collected</span>
+              <b>{money(advance + (bill.payments ?? []).reduce((sum, p) => sum + p.amount, 0))}</b>
+            </div>
+          )}
           {bill && remainingBalance > 0 && (
             <div className="op-full-payment">
               <label>
@@ -958,18 +997,153 @@ export function CampaignBillModeModal({
 }: {
   booking: CampaignBooking;
   close: () => void;
-  generate: (mode: PaymentMode) => void;
+  generate: (
+    mode: PaymentMode,
+    options?: {
+      billScope: "full" | "monthly" | "custom";
+      fromDate: string;
+      toDate: string;
+      billLabel?: string;
+    }
+  ) => void;
 }) {
+  const endDate = bookingEnd(booking);
+  
+  // Calculate monthly periods for the campaign
+  const monthlyPeriods: { label: string; from: string; to: string }[] = [];
+  let cur = new Date(booking.startDate);
+  const fin = new Date(endDate);
+  let cycle = 1;
+  while (cur <= fin) {
+    const next = new Date(cur);
+    next.setMonth(next.getMonth() + 1);
+    next.setDate(next.getDate() - 1);
+    const chunkEnd = next < fin ? next : fin;
+    const fromStr = cur.toISOString().slice(0, 10);
+    const toStr = chunkEnd.toISOString().slice(0, 10);
+    const mName = cur.toLocaleString("default", { month: "short", year: "numeric" });
+    monthlyPeriods.push({
+      label: `Month ${cycle} (${mName}: ${fmt(fromStr)} to ${fmt(toStr)})`,
+      from: fromStr,
+      to: toStr,
+    });
+    cur = new Date(chunkEnd);
+    cur.setDate(cur.getDate() + 1);
+    cycle++;
+  }
+
+  const [scope, setScope] = useState<"full" | "monthly" | "custom">(
+    monthlyPeriods.length > 1 ? "monthly" : "full"
+  );
+  const [selectedPeriodIdx, setSelectedPeriodIdx] = useState(0);
+  const [customFrom, setCustomFrom] = useState(booking.startDate);
+  const [customTo, setCustomTo] = useState(endDate);
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>("Cash");
+
+  const handleGenerate = () => {
+    if (scope === "monthly" && monthlyPeriods[selectedPeriodIdx]) {
+      const p = monthlyPeriods[selectedPeriodIdx];
+      generate(paymentMode, {
+        billScope: "monthly",
+        fromDate: p.from,
+        toDate: p.to,
+        billLabel: p.label,
+      });
+    } else if (scope === "custom") {
+      generate(paymentMode, {
+        billScope: "custom",
+        fromDate: customFrom,
+        toDate: customTo,
+        billLabel: `${fmt(customFrom)} to ${fmt(customTo)}`,
+      });
+    } else {
+      generate(paymentMode, {
+        billScope: "full",
+        fromDate: booking.startDate,
+        toDate: endDate,
+      });
+    }
+  };
+
   return (
-    <Modal title={`Generate bill · ${booking.client.firmName}`} close={close}>
+    <Modal title={`Generate Campaign Bill · ${booking.client.firmName}`} close={close}>
       <div className="op-form">
+        <p className="op-form-note">
+          Campaign booking: <b>{fmt(booking.startDate)}</b> to <b>{fmt(endDate)}</b>
+        </p>
+
+        <label className="op-field">
+          <span>Bill Scope</span>
+          <select
+            value={scope}
+            onChange={(e) => setScope(e.target.value as any)}
+          >
+            <option value="full">Full Campaign Bill ({fmt(booking.startDate)} to {fmt(endDate)})</option>
+            {monthlyPeriods.length > 0 && (
+              <option value="monthly">Monthly Bill (Select Specific Month)</option>
+            )}
+            <option value="custom">Custom Date Range</option>
+          </select>
+        </label>
+
+        {scope === "monthly" && (
+          <label className="op-field">
+            <span>Select Month to Bill</span>
+            <select
+              value={selectedPeriodIdx}
+              onChange={(e) => setSelectedPeriodIdx(Number(e.target.value))}
+            >
+              {monthlyPeriods.map((p, idx) => (
+                <option key={idx} value={idx}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {scope === "custom" && (
+          <div className="op-form-grid">
+            <label className="op-field">
+              <span>From Date</span>
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+              />
+            </label>
+            <label className="op-field">
+              <span>To Date</span>
+              <input
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
+
+        <label className="op-field">
+          <span>Payment Mode</span>
+          <select
+            value={paymentMode}
+            onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+          >
+            <option>Cash</option>
+            <option>UPI</option>
+            <option>Cheque</option>
+            <option>Bank transfer</option>
+            <option>Online</option>
+          </select>
+        </label>
+
         <footer>
           <Button secondary onClick={close}>
             Cancel
           </Button>
-          <Button onClick={() => generate("Cash")}>
+          <Button onClick={handleGenerate}>
             <FileText size={17} />
-            Generate bill
+            Generate Bill
           </Button>
         </footer>
       </div>
@@ -1365,7 +1539,7 @@ export function Invoice({
   close: () => void;
   edit?: () => void;
   quotation?: boolean;
-  generateReceipt?: () => void;
+  generateReceipt?: (payment?: Bill["payments"][number] | null) => void;
 }) {
   const balance = billBalance(bill);
   return (
@@ -1382,10 +1556,10 @@ export function Invoice({
               Edit bill
             </Button>
           )}
-          {!quotation && generateReceipt && bill.payments.length > 0 && (
-            <Button secondary onClick={generateReceipt}>
+          {!quotation && generateReceipt && (bill.advanceReceived > 0 || bill.payments.length > 0) && (
+            <Button secondary onClick={() => generateReceipt(null)}>
               <ReceiptText size={17} />
-              Generate Receipt
+              Print Receipt
             </Button>
           )}
           <Button onClick={() => window.print()}>
@@ -1430,9 +1604,9 @@ export function Invoice({
           <table className="invoice-table">
             <thead>
               <tr>
-                <th>Booking</th>
+                <th>Booking / Vehicle</th>
                 <th>Date range</th>
-                <th>Absent days</th>
+                <th>{quotation ? "Total Days" : "Present days"}</th>
                 <th>Rate / day</th>
                 <th>Amount</th>
               </tr>
@@ -1455,10 +1629,10 @@ export function Invoice({
                       <br />
                       {fmt(line.startDate)} to {fmt(line.endDate)}
                       <br />
-                      Campaign vehicle attendance
+                      {quotation ? "Proposed campaign vehicle service" : "Campaign vehicle attendance"}
                     </td>
                     <td>{fmt(line.startDate)} to {fmt(line.endDate)}</td>
-                    <td>{line.offDays}</td>
+                    <td><b>{line.advertisementDays} {quotation ? "days" : ""}</b></td>
                     <td>{money(line.dailyRate)}</td>
                     <td>
                       {money(
@@ -1512,7 +1686,7 @@ export function Invoice({
                       <td>{fmt(bill.billDate)}</td>
                       <td>{bill.paymentMode}</td>
                       <td>Advance received</td>
-                      <td>{money(bill.advanceReceived)}</td>
+                      <td><b>{money(bill.advanceReceived)}</b></td>
                     </tr>
                   )}
                   {bill.payments.map((payment) => (
@@ -1522,7 +1696,7 @@ export function Invoice({
                       <td>
                         {payment.reference || payment.note || "Installment"}
                       </td>
-                      <td>{money(payment.amount)}</td>
+                      <td><b>{money(payment.amount)}</b></td>
                     </tr>
                   ))}
                 </tbody>
@@ -1578,13 +1752,15 @@ export function Invoice({
               )}
             </div>
             <div className="invoice-signature">
+              <p>For {store.company.name}</p>
               <Image
                 className="invoice-signature-mark"
                 src="/sign.png"
-                alt="Mrunal Multi Task Agency proprietor signature"
+                alt="Authorized Signatory"
                 width={700}
                 height={278}
               />
+              <b>Authorized Signatory</b>
             </div>
           </footer>
         </article>
@@ -1631,8 +1807,11 @@ export function CampaignQuotation({
         </div>
         <article className="invoice-sheet op-invoice op-quotation">
           <header className="invoice-brand">
-            <Gauge size={30} />
-            <h2>{store.company.name}</h2>
+            <Gauge size={28} />
+            <div>
+              <h2>{store.company.name}</h2>
+              <p>{store.company.address} · Mobile: {store.company.mobile}</p>
+            </div>
           </header>
           <h1>QUOTATION</h1>
           <section className="invoice-company">
@@ -1652,22 +1831,19 @@ export function CampaignQuotation({
               <b>Quotation To:</b> {booking.client.firmName}
               <br />
               <span>
-                {booking.client.ownerName}
-                <br />
-                {booking.client.address}
-                <br />
-                {booking.client.mobile} · {booking.client.email}
+                {booking.client.ownerName ? `${booking.client.ownerName} · ` : ""}{booking.client.mobile}
+                {booking.client.address ? ` · ${booking.client.address}` : ""}
               </span>
             </p>
           </section>
           <table className="invoice-table">
             <thead>
               <tr>
-                <th>Booking</th>
-                <th>Date range</th>
-                <th>Quantity</th>
-                <th>Rate / day</th>
-                <th>Amount</th>
+                <th style={{ width: "35%" }}>Booking / Vehicle</th>
+                <th style={{ width: "22%" }}>Date range</th>
+                <th style={{ width: "15%" }}>Total Days</th>
+                <th style={{ width: "13%" }}>Rate / day</th>
+                <th style={{ width: "15%" }}>Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -1677,7 +1853,7 @@ export function CampaignQuotation({
                     <b>
                       {line.label ?? "Campaign vehicle"}
                       {line.quantity && line.quantity > 1
-                        ? ` × ${line.quantity}`
+                        ? ` × ${line.quantity} units`
                         : ""}
                     </b>
                     <br />
@@ -1686,12 +1862,14 @@ export function CampaignQuotation({
                     Proposed campaign booking
                   </td>
                   <td>{fmt(line.startDate)} to {fmt(line.endDate)}</td>
-                  <td>{line.quantity ?? 1}</td>
+                  <td><b>{line.bookedDays} days</b>{line.quantity && line.quantity > 1 ? ` (${line.quantity} units)` : ""}</td>
                   <td>{money(line.dailyRate)}</td>
                   <td>
-                    {money(
-                      line.bookedDays * line.dailyRate * (line.quantity ?? 1),
-                    )}
+                    <b>
+                      {money(
+                        line.bookedDays * line.dailyRate * (line.quantity ?? 1),
+                      )}
+                    </b>
                   </td>
                 </tr>
               ))}
@@ -1753,13 +1931,15 @@ export function CampaignQuotation({
               )}
             </div>
             <div className="invoice-signature">
+              <p>For {store.company.name}</p>
               <Image
                 className="invoice-signature-mark"
                 src="/sign.png"
-                alt="Mrunal Multi Task Agency proprietor signature"
+                alt="Authorized Signatory"
                 width={700}
                 height={278}
               />
+              <b>Authorized Signatory</b>
             </div>
           </footer>
         </article>
@@ -1768,28 +1948,82 @@ export function CampaignQuotation({
   );
 }
 
-
 export function BillReceipt({
   bill,
+  payment,
   store,
   close,
 }: {
   bill: Bill;
+  payment?: Bill["payments"][number] | null;
   store: FleetStore;
   close: () => void;
 }) {
-  const paid = billPaid(bill);
+  const initialPaymentId = payment
+    ? payment.id
+    : bill.payments.length > 0
+      ? bill.payments[bill.payments.length - 1].id
+      : "ADV";
+  const [selectedPaymentId, setSelectedPaymentId] = useState<number | "ADV">(initialPaymentId);
+
+  const activePayment =
+    selectedPaymentId === "ADV"
+      ? null
+      : (bill.payments.find((p) => p.id === selectedPaymentId) ??
+        (bill.payments.length > 0 ? bill.payments[bill.payments.length - 1] : null));
+
+  const paymentAmount = activePayment ? activePayment.amount : bill.advanceReceived;
+  const paymentDate = activePayment ? activePayment.date : bill.billDate;
+  const paymentMode = activePayment ? activePayment.mode : bill.paymentMode;
+  const paymentRef = activePayment ? activePayment.reference : "Advance payment";
+  const paymentNote = activePayment ? activePayment.note : "";
+  const totalPaid = billPaid(bill);
   const balance = billBalance(bill);
-  const lastPayment = bill.payments.length > 0 ? bill.payments[bill.payments.length - 1] : null;
-  
+  const receiptNo = activePayment
+    ? `REC-${String(bill.number).padStart(4, "0")}-${activePayment.id}`
+    : `REC-${String(bill.number).padStart(4, "0")}-ADV`;
+
+  const totalInstallmentOptions =
+    (bill.advanceReceived > 0 ? 1 : 0) + bill.payments.length;
+
   return (
     <div className="invoice-backdrop">
-      <div className="invoice-dialog">
-        <div className="invoice-toolbar">
+      <div className="invoice-dialog" style={{ width: "min(680px, 100%)" }}>
+        <div className="invoice-toolbar" style={{ flexWrap: "wrap", gap: "8px" }}>
           <Button secondary onClick={close}>
             <X size={17} />
             Close
           </Button>
+          {totalInstallmentOptions > 1 && (
+            <select
+              value={selectedPaymentId}
+              onChange={(e) =>
+                setSelectedPaymentId(
+                  e.target.value === "ADV" ? "ADV" : Number(e.target.value)
+                )
+              }
+              style={{
+                padding: "7px 12px",
+                borderRadius: "6px",
+                border: "1px solid #107050",
+                background: "#f0fdf4",
+                color: "#14493a",
+                fontWeight: "700",
+                fontSize: "13px",
+              }}
+            >
+              {bill.advanceReceived > 0 && (
+                <option value="ADV">
+                  Advance Receipt · {money(bill.advanceReceived)} ({fmt(bill.billDate)})
+                </option>
+              )}
+              {bill.payments.map((p, idx) => (
+                <option key={p.id} value={p.id}>
+                  Installment #{idx + 1} Receipt · {money(p.amount)} ({fmt(p.date)})
+                </option>
+              ))}
+            </select>
+          )}
           <Button onClick={() => window.print()}>
             <Printer size={17} />
             Print receipt
@@ -1797,19 +2031,19 @@ export function BillReceipt({
         </div>
         <article className="invoice-sheet op-invoice">
           <header className="invoice-brand">
-            <Gauge size={30} />
-            <h2>{store.company.name}</h2>
+            <Gauge size={28} />
+            <div>
+              <h2>{store.company.name}</h2>
+              <p>{store.company.address} · Mobile: {store.company.mobile}</p>
+            </div>
           </header>
           <h1>PAYMENT RECEIPT</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
           <section className="invoice-meta">
             <p>
-              <b>Receipt Date:</b> {fmt(lastPayment?.date ?? bill.billDate)}
+              <b>Receipt No:</b> {receiptNo}
+            </p>
+            <p>
+              <b>Receipt Date:</b> {fmt(paymentDate)}
             </p>
             <p>
               <b>Invoice No:</b> INV-{String(bill.number).padStart(4, "0")}
@@ -1821,62 +2055,64 @@ export function BillReceipt({
               <b>Received From:</b> {bill.client.firmName}
               <br />
               <span>
-                {bill.client.ownerName}
-                <br />
-                {bill.client.address}
-                <br />
-                {bill.client.mobile} · {bill.client.email}
+                {bill.client.ownerName ? `${bill.client.ownerName} · ` : ""}{bill.client.mobile}
+                {bill.client.address ? ` · ${bill.client.address}` : ""}
               </span>
             </p>
           </section>
-          <table className="invoice-table">
+          <table className="invoice-table" style={{ margin: "14px 0" }}>
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Payment Mode</th>
-                <th>Reference</th>
-                <th>Note</th>
-                <th>Amount</th>
+                <th style={{ width: "25%" }}>Payment Date</th>
+                <th style={{ width: "20%" }}>Mode</th>
+                <th style={{ width: "30%" }}>Reference / Note</th>
+                <th style={{ width: "25%" }}>Amount Paid</th>
               </tr>
             </thead>
             <tbody>
-              {bill.payments.map((payment) => (
-                <tr key={payment.id}>
-                  <td>{fmt(payment.date)}</td>
-                  <td>{payment.mode}</td>
-                  <td>{payment.reference || "—"}</td>
-                  <td>{payment.note || "—"}</td>
-                  <td>{money(payment.amount)}</td>
-                </tr>
-              ))}
+              <tr>
+                <td><b>{fmt(paymentDate)}</b></td>
+                <td><strong style={{ color: "#1f6a53" }}>{paymentMode}</strong></td>
+                <td>{paymentRef || paymentNote || "Payment received"}</td>
+                <td><b style={{ fontSize: "16px", color: "#1f6a53" }}>{money(paymentAmount)}</b></td>
+              </tr>
             </tbody>
           </table>
           <section className="op-invoice-total">
             <p>
-              <span>Total invoice amount</span>
+              <span>Invoice Total</span>
               <b>{money(bill.total)}</b>
             </p>
             <p>
-              <span>Total received</span>
-              <b>{money(paid)}</b>
+              <span>This Receipt Amount</span>
+              <strong style={{ color: "#1f6a53" }}>{money(paymentAmount)}</strong>
             </p>
             <p>
-              <span>Remaining balance</span>
+              <span>Total Received to Date</span>
+              <b>{money(totalPaid)}</b>
+            </p>
+            <p>
+              <span>Remaining Invoice Balance</span>
               <strong>{money(balance)}</strong>
             </p>
           </section>
           <footer className="invoice-footer">
             <div>
               <p>
-                <b>Payment Status:</b> {balance > 0 ? "Partial Payment" : "Fully Paid"}
+                <b>Payment Status:</b> {balance === 0 ? "Fully Paid" : "Partial Payment"}
               </p>
+              {paymentNote && (
+                <p style={{ marginTop: "4px" }}>
+                  <b>Note:</b> {paymentNote}
+                </p>
+              )}
             </div>
             <div className="invoice-signature">
               <p>For {store.company.name}</p>
               <Image
                 className="invoice-signature-mark"
                 src="/sign.png"
-                alt="Mrunal Multi Task Agency proprietor signature"
+                alt="Authorized Signatory"
                 width={700}
                 height={278}
               />

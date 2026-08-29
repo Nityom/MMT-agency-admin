@@ -1,31 +1,332 @@
-"use client";
-
-import { Printer, ReceiptText } from "lucide-react";
+import { Banknote, CalendarDays, Check, FileText, Printer, ReceiptText, WalletCards, X } from "lucide-react";
 import { useState } from "react";
-import { addDays, Bill, calculateBillTotal, FleetStore, inclusiveDays } from "./fleet-domain";
-import { Modal, Status } from "./operations-components";
-import { billBalance, billPaid, bookingEnd, bookingVehicleLines, campaignSlotKey, fmt, isoToday, money } from "./operations-utils";
+import { addDays, Bill, BillCharge, calculateBillTotal, FleetStore, inclusiveDays } from "./fleet-domain";
+import { Button, Modal, Status } from "./operations-components";
+import { BillReceipt } from "./operations-billing";
+import {
+  billBalance,
+  billPaid,
+  bookingEnd,
+  bookingStatus,
+  bookingVehicleLines,
+  campaignSlotKey,
+  clientOverallBalance,
+  fmt,
+  isoToday,
+  money,
+} from "./operations-utils";
 
-export function ClientLedgerModal({ store, clientId, close, viewBill }: { store: FleetStore; clientId: number; close: () => void; viewBill: (bill: Bill) => void }) {
+export function ClientLedgerModal({
+  store,
+  clientId,
+  close,
+  viewBill,
+}: {
+  store: FleetStore;
+  clientId: number;
+  close: () => void;
+  viewBill: (bill: Bill) => void;
+}) {
   const client = store.clients.find((item) => item.id === clientId);
   const [from, setFrom] = useState(`${isoToday().slice(0, 7)}-01`);
   const [to, setTo] = useState(isoToday());
+  const [activeReceipt, setActiveReceipt] = useState<{ bill: Bill; payment?: Bill["payments"][number] | null } | null>(null);
+
   if (!client) return null;
-  const bills = store.bills.filter((bill) => bill.clientId === clientId && bill.billDate >= from && bill.billDate <= to);
-  const bookings = store.campaignBookings.filter((booking) => booking.clientId === clientId && booking.startDate <= to && bookingEnd(booking) >= from);
-  const billed = bills.reduce((sum, bill) => sum + bill.total, 0);
-  const received = bills.reduce((sum, bill) => sum + billPaid(bill), 0);
-  const outstanding = bills.reduce((sum, bill) => sum + billBalance(bill), 0);
-  const preBill = bookings.reduce((sum, booking) => sum + (booking.generatedBillId ? 0 : calculateBillTotal(bookingVehicleLines(store, booking, bookingEnd(booking)), booking.facilities.map((facility) => ({ ...facility, amount: facility.quantity * facility.rate })))), 0);
-  const dates = [...new Set(bookings.flatMap((booking) => {
+
+  // Overall financial position across all-time (consistent across all screens)
+  const overall = clientOverallBalance(store, clientId);
+
+  const clientBills = store.bills.filter((bill) => bill.clientId === clientId);
+  const clientBookings = store.campaignBookings.filter((booking) => booking.clientId === clientId);
+
+  // Filtered dataset for chronological display in selected date range
+  const filteredBills = clientBills.filter((bill) => bill.billDate >= from && bill.billDate <= to);
+  const filteredBookings = clientBookings.filter((booking) => booking.startDate <= to && bookingEnd(booking) >= from);
+
+  // Present attendance slots for the client
+  const attendanceRecords = filteredBookings.flatMap((booking) => {
     const start = booking.startDate > from ? booking.startDate : from;
     const end = bookingEnd(booking) < to ? bookingEnd(booking) : to;
-    return end < start ? [] : Array.from({ length: inclusiveDays(start, end) }, (_, index) => addDays(start, index));
-  }))].sort();
-  const attendance = dates.map((date) => {
-    const slots = bookings.flatMap((booking) => booking.vehiclePeriods.flatMap((period) => Array.from({ length: period.quantity }, (_, index) => ({ key: campaignSlotKey(booking.id, period.id, index), vehicleId: period.vehicleIds[index] }))));
-    const present = slots.filter((slot) => store.campaignAttendance[date]?.[slot.key] ?? (slot.vehicleId ? store.vehicleAttendance[date]?.[slot.vehicleId] : false)).length;
-    return { date, present, total: slots.length };
+    if (end < start) return [];
+
+    return Array.from({ length: inclusiveDays(start, end) }, (_, offset) => addDays(start, offset)).flatMap((date) => {
+      const periods = booking.vehiclePeriods.filter((period) => period.startDate <= date && period.endDate >= date);
+      const slots = periods.flatMap((period) =>
+        Array.from({ length: period.quantity }, (_, slotIndex) => ({
+          key: campaignSlotKey(booking.id, period.id, slotIndex),
+          vehicleId: period.vehicleIds[slotIndex],
+          type: period.type,
+        }))
+      );
+      if (!slots.length) return [];
+      const presentSlots = slots.filter((slot) =>
+        store.campaignAttendance[date]?.[slot.key] ?? (slot.vehicleId ? store.vehicleAttendance[date]?.[slot.vehicleId] : false)
+      ).length;
+      if (presentSlots === 0) return [];
+      return [{
+        key: `attendance-${booking.id}-${date}`,
+        date,
+        type: "Present Attendance",
+        detail: `${presentSlots}/${slots.length} slots active · Campaign ${fmt(booking.startDate)} to ${fmt(bookingEnd(booking))}`,
+        status: "Present",
+        presentSlots,
+        totalSlots: slots.length,
+      }];
+    });
   });
-  return <Modal title={`${client.firmName} · client ledger`} close={close}><div className="op-client-ledger"><section className="op-ledger-profile"><div><b>{client.firmName}</b><span>{client.ownerName || "No concerned person"} · {client.mobile || "No phone"}</span><small>{client.address || "No address"}</small></div></section><div className="op-toolbar"><label className="op-field"><span>From</span><input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label><label className="op-field"><span>To</span><input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label></div><section className="op-ledger-totals"><p><span>Total billed</span><b>{money(billed)}</b></p><p><span>Total received</span><b>{money(received)}</b></p><p><span>Pending balance</span><strong>{money(outstanding)}</strong></p><p><span>Before bill</span><strong>{money(preBill)}</strong></p></section><div className="op-section-title"><h2>Attendance calendar</h2></div>{attendance.length ? <section className="op-ledger-list">{attendance.map((row) => <article key={row.date}><time>{fmt(row.date)}</time><div><b>{row.present}/{row.total} slots present</b><small>{row.total - row.present} absent</small></div><Status>{row.present === row.total ? "Present" : row.present ? "Partial" : "Absent"}</Status></article>)}</section> : <div className="op-empty-state"><ReceiptText/><h2>No attendance in range</h2></div>}<div className="op-section-title"><h2>Invoices in range</h2></div>{bills.length ? <section className="op-ledger-list">{bills.map((bill) => <article key={bill.id}><time>{fmt(bill.billDate)}</time><div><b>INV-{String(bill.number).padStart(4, "0")}</b><small>{money(bill.total)} billed · {money(billBalance(bill))} pending</small></div><Status>{billBalance(bill) ? "Pending" : "Paid"}</Status><button className="op-icon" title="View invoice" onClick={() => viewBill(bill)}><Printer size={16}/></button></article>)}</section> : <div className="op-empty-state"><ReceiptText/><h2>No invoices in range</h2></div>}</div></Modal>;
+
+  const totalPresentDays = attendanceRecords.reduce((sum, r) => sum + r.presentSlots, 0);
+
+  // Overall All-Time Present Attendance Count for Client across all campaigns
+  const overallAttendanceRecords = clientBookings.flatMap((booking) => {
+    const end = bookingEnd(booking);
+    if (end < booking.startDate) return [];
+    return Array.from({ length: inclusiveDays(booking.startDate, end) }, (_, offset) => addDays(booking.startDate, offset)).flatMap((date) => {
+      const periods = booking.vehiclePeriods.filter((period) => period.startDate <= date && period.endDate >= date);
+      const slots = periods.flatMap((period) =>
+        Array.from({ length: period.quantity }, (_, slotIndex) => ({
+          key: campaignSlotKey(booking.id, period.id, slotIndex),
+          vehicleId: period.vehicleIds[slotIndex],
+        }))
+      );
+      if (!slots.length) return [];
+      const presentSlots = slots.filter((slot) =>
+        store.campaignAttendance[date]?.[slot.key] ?? (slot.vehicleId ? store.vehicleAttendance[date]?.[slot.vehicleId] : false)
+      ).length;
+      return presentSlots > 0 ? [presentSlots] : [];
+    });
+  });
+  const overallTotalPresentDays = overallAttendanceRecords.reduce((sum, count) => sum + count, 0);
+
+  // Build Chronological Transactions
+  const billRows = filteredBills.map((bill) => ({
+    key: `bill-${bill.id}`,
+    date: bill.billDate,
+    type: `Invoice INV-${String(bill.number).padStart(4, "0")}`,
+    detail: `${bill.vehicleLines.length} vehicle lines · Billed ${money(bill.total)} · Balance ${money(billBalance(bill))}`,
+    status: billBalance(bill) === 0 ? "Paid" : "Pending",
+    amount: bill.total,
+    isCredit: false,
+    bill,
+    payment: null as Bill["payments"][number] | null,
+    isAdvance: false,
+  }));
+
+  const paymentRows = filteredBills.flatMap((bill) => [
+    ...(bill.advanceReceived > 0
+      ? [{
+          key: `adv-${bill.id}`,
+          date: bill.billDate,
+          type: `Advance received (INV-${String(bill.number).padStart(4, "0")})`,
+          detail: `${bill.paymentMode} · Advance on invoice generation`,
+          status: "Received",
+          amount: -bill.advanceReceived,
+          isCredit: true,
+          bill,
+          payment: null as Bill["payments"][number] | null,
+          isAdvance: true,
+        }]
+      : []),
+    ...bill.payments.map((payment) => ({
+      key: `pay-${bill.id}-${payment.id}`,
+      date: payment.date,
+      type: `Payment (INV-${String(bill.number).padStart(4, "0")})`,
+      detail: `${payment.mode} · Ref: ${payment.reference || payment.note || "Installment"}`,
+      status: "Received",
+      amount: -payment.amount,
+      isCredit: true,
+      bill,
+      payment,
+      isAdvance: false,
+    })),
+  ]);
+
+  const bookingRows = filteredBookings.map((booking) => {
+    const charges: BillCharge[] = booking.facilities.map((facility) => ({ ...facility, amount: facility.quantity * facility.rate }));
+    const estimate = calculateBillTotal(bookingVehicleLines(store, booking, isoToday() < bookingEnd(booking) ? isoToday() : bookingEnd(booking)), charges);
+    return {
+      key: `booking-${booking.id}`,
+      date: booking.startDate,
+      type: "Campaign booking",
+      detail: `${fmt(booking.startDate)} to ${fmt(bookingEnd(booking))} · ${booking.vehiclePeriods.length} vehicle intervals`,
+      status: bookingStatus(booking),
+      amount: estimate,
+      isCredit: false,
+      bill: undefined as Bill | undefined,
+      payment: null as Bill["payments"][number] | null,
+      isAdvance: false,
+    };
+  });
+
+  const timeline = [
+    ...billRows,
+    ...paymentRows,
+    ...attendanceRecords.map((a) => ({
+      key: a.key,
+      date: a.date,
+      type: a.type,
+      detail: a.detail,
+      status: a.status,
+      amount: null as number | null,
+      isCredit: false,
+      bill: undefined as Bill | undefined,
+      payment: null as Bill["payments"][number] | null,
+      isAdvance: false,
+    })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+
+  return (
+    <>
+      <Modal title={`${client.firmName} · Complete Client Ledger`} close={close}>
+        <div className="op-client-ledger">
+          <section className="op-ledger-profile">
+            <div>
+              <b>{client.firmName}</b>
+              <span>
+                {client.ownerName ? `${client.ownerName} · ` : ""}{client.mobile || "No mobile"}
+                {client.email ? ` · ${client.email}` : ""}
+              </span>
+              <small>{client.address || "No address"} · {clientBookings.length} campaigns · {clientBills.length} invoices</small>
+            </div>
+            {client.categories?.length > 0 && (
+              <div className="op-category-list">
+                {client.categories.map((c) => (
+                  <span key={c}>{c}</span>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Overall Financial Position (Never changes based on date filters) */}
+          <section className="op-ledger-totals">
+            <p>
+              <span>Total Billed</span>
+              <b>{money(overall.billed)}</b>
+            </p>
+            <p>
+              <span>Total Received</span>
+              <b style={{ color: "#1f6a53" }}>{money(overall.received)}</b>
+            </p>
+            <p>
+              <span>Remaining Balance</span>
+              <strong style={{ color: overall.outstanding > 0 ? "#9a493d" : "#1f6a53" }}>
+                {money(overall.balance)}
+              </strong>
+            </p>
+            <p>
+              <span>Overall Present Attendance</span>
+              <b style={{ color: "#1f6a53" }}>{overallTotalPresentDays} days</b>
+            </p>
+            {totalPresentDays !== overallTotalPresentDays && (
+              <p>
+                <span>In-Range Present</span>
+                <b>{totalPresentDays} days</b>
+              </p>
+            )}
+          </section>
+
+          {/* Date Filter Toolbar for Chronological Activity */}
+          <div className="op-toolbar" style={{ background: "#f3f7f4", padding: "10px 14px", borderRadius: "7px" }}>
+            <label className="op-field" style={{ margin: 0 }}>
+              <span>From Date</span>
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </label>
+            <label className="op-field" style={{ margin: 0 }}>
+              <span>To Date</span>
+              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            </label>
+            <Button
+              secondary
+              onClick={() => {
+                setFrom(`${isoToday().slice(0, 7)}-01`);
+                setTo(isoToday());
+              }}
+            >
+              This Month
+            </Button>
+            <Button
+              secondary
+              onClick={() => {
+                setFrom("2020-01-01");
+                setTo(isoToday());
+              }}
+            >
+              All Time
+            </Button>
+          </div>
+
+          <div className="op-section-title">
+            <h2>Chronological Ledger Activity ({timeline.length} records in range)</h2>
+          </div>
+
+          {timeline.length ? (
+            <section className="op-ledger-list">
+              {timeline.map((item) => (
+                <article key={item.key}>
+                  <time>{fmt(item.date)}</time>
+                  <div>
+                    <b>{item.type}</b>
+                    <small>{item.detail}</small>
+                  </div>
+                  <Status>{item.status}</Status>
+                  <strong className={item.isCredit ? "credit" : ""}>
+                    {item.amount === null ? (
+                      "—"
+                    ) : (
+                      <>
+                        {item.amount < 0 ? "−" : "+"}
+                        {money(Math.abs(item.amount))}
+                      </>
+                    )}
+                  </strong>
+                  <span className="op-ledger-row-actions">
+                    {item.bill && (
+                      <button
+                        className="op-icon"
+                        title="View invoice"
+                        onClick={() => viewBill(item.bill!)}
+                      >
+                        <FileText size={16} />
+                      </button>
+                    )}
+                    {item.isCredit && item.bill && (
+                      <button
+                        className="op-icon"
+                        title="Print payment receipt"
+                        onClick={() => setActiveReceipt({ bill: item.bill!, payment: item.payment })}
+                      >
+                        <Printer size={16} />
+                      </button>
+                    )}
+                  </span>
+                </article>
+              ))}
+            </section>
+          ) : (
+            <div className="op-empty-state">
+              <ReceiptText />
+              <h2>No activity in selected date range</h2>
+              <p>Try expanding the date range to see older invoices, payments, and attendance.</p>
+            </div>
+          )}
+
+          <footer>
+            <Button secondary onClick={close}>
+              Close
+            </Button>
+          </footer>
+        </div>
+      </Modal>
+
+      {activeReceipt && (
+        <BillReceipt
+          bill={activeReceipt.bill}
+          payment={activeReceipt.payment}
+          store={store}
+          close={() => setActiveReceipt(null)}
+        />
+      )}
+    </>
+  );
 }

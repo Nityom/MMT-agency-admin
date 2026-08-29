@@ -213,6 +213,27 @@ export type Bill = {
   status: BillStatus;
 };
 
+export type QuotationStatus = "Draft" | "Sent" | "Accepted" | "Converted" | "Expired";
+
+export type Quotation = {
+  id: number;
+  number: number;
+  quotationDate: ISODate;
+  validUntil?: ISODate;
+  clientId: number;
+  client: ClientSnapshot;
+  vehicleLines: BillVehicleLine[];
+  charges: BillCharge[];
+  total: number;
+  status: QuotationStatus;
+  notes?: string;
+  campaignBookingId?: number;
+};
+
+export function nextQuotationNumber(quotations: Quotation[] = [], fallback = 1): number {
+  return Math.max(0, fallback - 1, ...quotations.map((q) => q.number)) + 1;
+}
+
 export type OtherBillCategory = "Paper" | "Calendar" | "Other";
 
 export type OtherBillItem = {
@@ -341,6 +362,8 @@ export type FleetStore = {
   advances: Advance[];
   payrollPayments: PayrollPayment[];
   bills: Bill[];
+  nextQuotationNumber?: number;
+  quotations?: Quotation[];
   nextOtherBillNumber: number;
   otherBills: OtherBill[];
   businessExpenses: BusinessExpense[];
@@ -358,6 +381,13 @@ export function addDays(date: ISODate, days: number): ISODate {
 
 export function inclusiveDays(from: ISODate, to: ISODate): number {
   return Math.max(0, Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS) + 1);
+}
+
+export function campaignDurationMonths(startDate: ISODate, endDate: ISODate): number {
+  if (!startDate || !endDate || endDate < startDate) return 1;
+  const days = inclusiveDays(startDate, endDate);
+  // Exactly 28-31 days is 1 month, 58-62 days is 2 months, etc.
+  return Math.max(1, Math.round(days / 30));
 }
 
 export function weekFor(date: ISODate): { start: ISODate; end: ISODate; payoutDate: ISODate } {
@@ -509,27 +539,40 @@ export type EmployeeLedger = {
 
 export function calculateEmployeeLedger(store: FleetStore, employeeId: number): EmployeeLedger {
   const employee = store.employees.find((e) => e.id === employeeId);
-  const monthlySalary = employee?.monthlySalary ?? 0;
+  const attendanceDates = Object.keys(store.attendance || {}).sort();
   
-  const payments = store.employeePayments.filter((p) => p.employeeId === employeeId);
+  let earnedSalary = 0;
+  for (const date of attendanceDates) {
+    if (store.attendance[date]?.[employeeId] === true) {
+      const rate = rateOnDate(store.employeeRates, employeeId, date);
+      const dailyRate = rate?.dailyRate ?? (employee?.monthlySalary ? Math.round(employee.monthlySalary / 30) : 0);
+      earnedSalary += dailyRate;
+    }
+  }
+
+  const payrollPayments = store.payrollPayments.filter((p) => p.employeeId === employeeId);
+  const employeePayments = (store.employeePayments ?? []).filter((p) => p.employeeId === employeeId);
+  const expenses = store.employeeExpenses.filter((e) => e.employeeId === employeeId);
   const advances = store.advances.filter((a) => a.employeeId === employeeId);
-  const payroll = store.payrollPayments.filter((p) => p.employeeId === employeeId);
-  
-  const totalSalaryPayments = payments.filter((p) => p.paymentType === "Salary").reduce((sum, p) => sum + p.amount, 0);
-  const totalOtherPayments = payments.filter((p) => p.paymentType !== "Salary").reduce((sum, p) => sum + p.amount, 0);
-  const totalPayrollPaid = payroll.filter((p) => p.status === "Paid").reduce((sum, p) => sum + (p.paidAmount ?? p.net), 0);
-  const totalPayrollNet = payroll.reduce((sum, p) => sum + p.net, 0);
-  
+
+  const reimbursements = expenses.filter((e) => e.treatment === "Employee reimbursement").reduce((sum, e) => sum + e.amount, 0);
+  const deductions = expenses.filter((e) => e.treatment === "Employee deduction").reduce((sum, e) => sum + e.amount, 0);
+
+  const payrollGrossSum = payrollPayments.reduce((sum, p) => sum + p.gross, 0);
+  const totalEarnedGross = earnedSalary > 0 ? earnedSalary : payrollGrossSum > 0 ? payrollGrossSum : (employee?.monthlySalary ?? 0);
+  const totalPayable = totalEarnedGross + reimbursements - deductions;
+
+  const totalPaid = payrollPayments.reduce((sum, p) => sum + (p.paidAmount ?? (p.status === "Paid" ? p.net : 0)), 0) +
+                    employeePayments.reduce((sum, p) => sum + p.amount, 0);
+
   const totalAdvance = advances.reduce((sum, a) => sum + a.amount, 0);
   const advanceRecovered = advances.reduce((sum, a) => sum + a.recovered, 0);
-  const advanceOutstanding = totalAdvance - advanceRecovered;
-  
-  const totalPaid = totalSalaryPayments + totalOtherPayments + totalPayrollPaid;
-  const totalSalaryPayable = monthlySalary + totalPayrollNet;
-  const remainingBalance = totalSalaryPayable - totalPaid + advanceOutstanding;
-  
+  const advanceOutstanding = Math.max(0, totalAdvance - advanceRecovered);
+
+  const remainingBalance = Math.max(0, totalPayable - totalPaid);
+
   return {
-    totalSalaryPayable,
+    totalSalaryPayable: totalPayable,
     totalPaid,
     remainingBalance,
     totalAdvance,
