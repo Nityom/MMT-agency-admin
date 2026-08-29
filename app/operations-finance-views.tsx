@@ -180,6 +180,7 @@ export type BillingViewProps = {
   editBill: (bill: Bill) => void;
   recordPayment: (bill: Bill) => void;
   viewBill: (bill: Bill) => void;
+  removeBill: (billId: number) => void;
 };
 
 export function BillingView({
@@ -195,6 +196,7 @@ export function BillingView({
   editBill,
   recordPayment,
   viewBill,
+  removeBill,
 }: BillingViewProps) {
   const [periodMode, setPeriodMode] = useState<"all" | "month" | "range">("all");
   const [selectedMonth, setSelectedMonth] = useState(isoToday().slice(0, 7));
@@ -414,6 +416,7 @@ export function BillingView({
                       : undefined
                   }
                   view={() => viewBill(bill)}
+                  remove={() => removeBill(bill.id)}
                 />
               </Row>
             );

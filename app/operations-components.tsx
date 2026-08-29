@@ -105,8 +105,9 @@ export function PaymentReceiptModal({
   );
 }
 
-export function Button({ children, onClick, secondary = false, type = "button" }: { children: React.ReactNode; onClick?: () => void; secondary?: boolean; type?: "button" | "submit" }) {
-  return <button type={type} className={secondary ? "op-button secondary" : "op-button"} onClick={onClick}>{children}</button>;
+export function Button({ children, onClick, secondary = false, type = "button", className, style }: { children: React.ReactNode; onClick?: () => void; secondary?: boolean; type?: "button" | "submit"; className?: string; style?: React.CSSProperties }) {
+  const baseClass = secondary ? "op-button secondary" : "op-button";
+  return <button type={type} className={className ? `${baseClass} ${className}` : baseClass} onClick={onClick} style={style}>{children}</button>;
 }
 
 export function AttendanceCalendar<T extends string | number>({ selected, attendance, employeeIds, onSelect }: { selected: string; attendance: Record<string, Record<T, boolean>>; employeeIds: T[]; onSelect: (date: string) => void }) {

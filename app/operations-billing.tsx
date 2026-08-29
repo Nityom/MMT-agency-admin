@@ -1531,6 +1531,7 @@ export function Invoice({
   store,
   close,
   edit,
+  remove,
   quotation = false,
   generateReceipt,
 }: {
@@ -1538,6 +1539,7 @@ export function Invoice({
   store: FleetStore;
   close: () => void;
   edit?: () => void;
+  remove?: () => void;
   quotation?: boolean;
   generateReceipt?: (payment?: Bill["payments"][number] | null) => void;
 }) {
@@ -1554,6 +1556,16 @@ export function Invoice({
             <Button secondary onClick={edit}>
               <FileText size={17} />
               Edit bill
+            </Button>
+          )}
+          {!quotation && remove && (
+            <Button
+              secondary
+              onClick={remove}
+              style={{ color: "#a13e34" }}
+            >
+              <Trash2 size={17} />
+              Delete bill
             </Button>
           )}
           {!quotation && generateReceipt && (bill.advanceReceived > 0 || bill.payments.length > 0) && (
