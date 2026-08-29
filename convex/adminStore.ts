@@ -19,6 +19,7 @@ const entityTables = {
   businessExpenses: "businessExpenses",
   suppliers: "suppliers",
   supplierPayments: "supplierPayments",
+  quotations: "quotations",
 } as const;
 
 const entityTableValidator = v.union(
@@ -39,6 +40,7 @@ const entityTableValidator = v.union(
   v.literal("businessExpenses"),
   v.literal("suppliers"),
   v.literal("supplierPayments"),
+  v.literal("quotations"),
 );
 
 async function updateStoreRevision(ctx: MutationCtx, storeKey: string, revision: number) {
@@ -90,6 +92,7 @@ export const get = query({
           company: settings.company,
           nextBillNumber: settings.nextBillNumber,
           nextOtherBillNumber: settings.nextOtherBillNumber,
+          nextQuotationNumber: settings.nextQuotationNumber ?? 1,
           ...Object.fromEntries(entries),
         }),
         schemaVersion: settings.schemaVersion,
@@ -141,6 +144,7 @@ export const saveSettings = mutation({
     company: v.any(),
     nextBillNumber: v.number(),
     nextOtherBillNumber: v.number(),
+    nextQuotationNumber: v.optional(v.number()),
     updatedAt: v.number(),
   },
   handler: async (ctx, args) => {

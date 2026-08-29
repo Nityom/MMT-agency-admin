@@ -797,8 +797,14 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
     vehicleAttendance: {},
     employeeExpenses,
     bills,
+    otherBills: Array.isArray(source.otherBills) ? source.otherBills : fallback.otherBills ?? [],
     businessExpenses,
+    suppliers: Array.isArray(source.suppliers) ? source.suppliers : fallback.suppliers ?? [],
+    supplierPayments: Array.isArray(source.supplierPayments) ? source.supplierPayments : fallback.supplierPayments ?? [],
+    quotations: Array.isArray(source.quotations) ? source.quotations : fallback.quotations ?? [],
+    nextQuotationNumber: number(source.nextQuotationNumber, fallback.nextQuotationNumber ?? 1),
     nextBillNumber: nextBillNumber(bills, fallback.nextBillNumber),
+    nextOtherBillNumber: number(source.nextOtherBillNumber, fallback.nextOtherBillNumber ?? 1),
   };
 }
 
@@ -806,6 +812,8 @@ export const emptyStore: FleetStore = {
   schemaVersion: 2,
   company: defaultCompany,
   nextBillNumber: 45,
+  nextOtherBillNumber: 1,
+  nextQuotationNumber: 1,
   employees: [],
   employeeRates: [],
   employeePayments: [],
@@ -820,9 +828,9 @@ export const emptyStore: FleetStore = {
   advances: [],
   payrollPayments: [],
   bills: [],
-  nextOtherBillNumber: 1,
   otherBills: [],
   businessExpenses: [],
   suppliers: [],
   supplierPayments: [],
+  quotations: [],
 };

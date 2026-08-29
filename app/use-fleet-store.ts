@@ -26,6 +26,7 @@ const arrayCollections = [
   ["businessExpenses", "businessExpenses"],
   ["suppliers", "suppliers"],
   ["supplierPayments", "supplierPayments"],
+  ["quotations", "quotations"],
 ] as const;
 
 const attendanceCollections = [
@@ -73,17 +74,18 @@ function settingsSnapshot(store: FleetStore) {
     company: store.company,
     nextBillNumber: store.nextBillNumber,
     nextOtherBillNumber: store.nextOtherBillNumber,
+    nextQuotationNumber: store.nextQuotationNumber ?? 1,
   });
 }
 
 function collectionRows(store: FleetStore): [EntityTable, EntityRow[]][] {
   const arrays = arrayCollections.map(([field, table]) => [
     table,
-    store[field].map((data, position) => ({ entityId: String(data.id), position, data })),
+    (store[field] ?? []).map((data, position) => ({ entityId: String(data.id), position, data })),
   ] as [EntityTable, EntityRow[]]);
   const attendance = attendanceCollections.map(([field, table]) => [
     table,
-    Object.entries(store[field]).map(([entityId, data], position) => ({ entityId, position, data })),
+    Object.entries(store[field] ?? {}).map(([entityId, data], position) => ({ entityId, position, data })),
   ] as [EntityTable, EntityRow[]]);
   return [...arrays, ...attendance];
 }
