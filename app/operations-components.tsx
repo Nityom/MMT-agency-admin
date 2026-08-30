@@ -25,6 +25,10 @@ export function PaymentReceiptModal({
   };
   close: () => void;
 }) {
+  const supplierInfo = (store.suppliers ?? []).find(
+    (s) => s.name.trim().toLowerCase() === paidTo.trim().toLowerCase()
+  );
+
   return (
     <div className="invoice-backdrop">
       <div className="invoice-dialog" style={{ width: "min(640px, 100%)" }}>
@@ -59,6 +63,18 @@ export function PaymentReceiptModal({
                 <th style={{ background: "#f3f7f4" }}>Supplier / Party</th>
                 <td><b>{paidTo}</b></td>
               </tr>
+              {supplierInfo?.phone && (
+                <tr>
+                  <th style={{ background: "#f3f7f4" }}>Phone / Mobile</th>
+                  <td>{supplierInfo.phone}</td>
+                </tr>
+              )}
+              {supplierInfo?.address && (
+                <tr>
+                  <th style={{ background: "#f3f7f4" }}>Address / Location</th>
+                  <td>{supplierInfo.address}</td>
+                </tr>
+              )}
               {category && (
                 <tr>
                   <th style={{ background: "#f3f7f4" }}>Work Category</th>
