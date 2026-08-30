@@ -466,9 +466,9 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
   const gross = [...breakdown.values()].reduce((sum, item) => sum + item.amount, 0);
   const paidPayment = store.payrollPayments.find((payment) => payment.employeeId === employeeId && payment.periodStart === periodStart && payment.status === "Paid");
 
-  // Total advance taken up to this period's payout date:
+  // Total advance taken on or before this period's end date:
   const totalAdvance = store.advances
-    .filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate)
+    .filter((advance) => advance.employeeId === employeeId && advance.date <= periodEnd)
     .reduce((sum, advance) => sum + advance.amount, 0);
 
   // Advance already recovered in prior payroll periods that started before this period:
@@ -478,7 +478,7 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
 
   // Explicitly recorded recoveries in store.advances:
   const explicitRecoveries = store.advances
-    .filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate)
+    .filter((advance) => advance.employeeId === employeeId && advance.date <= periodEnd)
     .reduce((sum, advance) => sum + (advance.recovered ?? 0), 0);
 
   const totalPriorRecovered = Math.max(priorPayrollRecoveries, explicitRecoveries);
