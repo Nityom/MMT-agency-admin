@@ -420,9 +420,9 @@ export function PayrollView({
     const periodBalance = Math.max(0, row.preview.net - paid);
     const overallBalance = calculateEmployeeLedger(store, row.preview.employeeId).remainingBalance;
     const status =
-      overallBalance === 0 && (paid > 0 || row.preview.net === 0)
+      periodBalance === 0 && (paid > 0 || row.preview.net === 0)
         ? "Paid"
-        : overallBalance > 0
+        : periodBalance > 0
         ? "Pending"
         : "No dues";
     return {
@@ -447,8 +447,8 @@ export function PayrollView({
   const totalNet = payrollNetTotal;
   const totalPaid =
     payrollPaidTotal ?? calculatedRows.reduce((sum, r) => sum + r.paid, 0);
-  const totalRemaining = store.employees.reduce(
-    (sum, e) => sum + calculateEmployeeLedger(store, e.id).remainingBalance,
+  const totalRemaining = calculatedRows.reduce(
+    (sum, r) => sum + r.periodBalance,
     0
   );
 
@@ -464,13 +464,13 @@ export function PayrollView({
       );
 
     if (!matchesSearch) return false;
-    if (filterTab === "Pending") return row.balance > 0;
-    if (filterTab === "Paid") return row.balance === 0 && row.paid > 0;
+    if (filterTab === "Pending") return row.periodBalance > 0;
+    if (filterTab === "Paid") return row.periodBalance === 0 && (row.paid > 0 || row.preview.net === 0);
     return true;
   });
 
-  const pendingCount = calculatedRows.filter((r) => r.balance > 0).length;
-  const paidCount = calculatedRows.filter((r) => r.balance === 0 && r.paid > 0).length;
+  const pendingCount = calculatedRows.filter((r) => r.periodBalance > 0).length;
+  const paidCount = calculatedRows.filter((r) => r.periodBalance === 0 && (r.paid > 0 || r.preview.net === 0)).length;
 
   return (
     <div className="op-salary-workspace">

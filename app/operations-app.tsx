@@ -235,8 +235,8 @@ export default function OperationsApp() {
     };
   });
   const payrollPaidTotal = payrollRows.reduce((sum, row) => sum + row.paid, 0);
-  const payrollRemainingBalanceTotal = store.employees.reduce(
-    (sum, e) => sum + calculateEmployeeLedger(store, e.id).remainingBalance,
+  const payrollRemainingBalanceTotal = payrollRows.reduce(
+    (sum, row) => sum + row.periodBalance,
     0
   );
   const selectPayrollWeek = (date: string) => setPayrollWeek(date);

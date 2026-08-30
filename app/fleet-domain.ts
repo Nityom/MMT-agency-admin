@@ -465,7 +465,9 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
   const paidPayment = store.payrollPayments.find((payment) => payment.employeeId === employeeId && payment.periodStart === periodStart && payment.status === "Paid");
   const outstandingAdvance = store.advances.filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
   const maxRecoverable = Math.max(0, gross + reimbursements - deductions);
-  const advanceRecovery = paidPayment?.advanceRecovery ?? Math.min(outstandingAdvance, maxRecoverable);
+  const advanceRecovery = paidPayment && paidPayment.advanceRecovery !== undefined && paidPayment.advanceRecovery > 0
+    ? paidPayment.advanceRecovery
+    : Math.min(outstandingAdvance, maxRecoverable);
   const remainingAdvance = Math.max(0, outstandingAdvance - advanceRecovery);
 
   return {
