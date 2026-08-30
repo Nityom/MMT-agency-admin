@@ -403,12 +403,20 @@ export default function OperationsApp() {
         paidAt: existing?.paidAt ?? isoToday(),
       };
     });
+    const updatedPayrollPayments = [...store.payrollPayments.filter((item) => item.periodStart !== payrollWeek), ...payments];
+    const paidRecoveries = new Map(
+      store.employees.map((employee) => [
+        employee.id,
+        updatedPayrollPayments
+          .filter((item) => item.employeeId === employee.id && (item.status === "Paid" || (item.paidAmount ?? 0) >= item.net))
+          .reduce((sum, item) => sum + item.advanceRecovery, 0),
+      ])
+    );
     setStore((current) => ({
       ...current,
-      payrollPayments: [...current.payrollPayments.filter((item) => item.periodStart !== payrollWeek), ...payments],
+      payrollPayments: updatedPayrollPayments,
       advances: current.advances.map((advanceItem) => {
-        const empPayments = payments.filter((p) => p.employeeId === advanceItem.employeeId);
-        const totalRecovery = empPayments.reduce((sum, p) => sum + p.advanceRecovery, 0);
+        const totalRecovery = paidRecoveries.get(advanceItem.employeeId) ?? 0;
         const earlier = current.advances.filter((item) => item.employeeId === advanceItem.employeeId && (item.date < advanceItem.date || (item.date === advanceItem.date && item.id < advanceItem.id))).reduce((sum, item) => sum + item.amount, 0);
         return { ...advanceItem, recovered: Math.min(advanceItem.amount, Math.max(0, totalRecovery - earlier)) };
       }),

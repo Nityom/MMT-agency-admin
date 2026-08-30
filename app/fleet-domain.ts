@@ -471,12 +471,12 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
     .filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate)
     .reduce((sum, advance) => sum + advance.amount, 0);
 
-  // Advance already recovered in prior paid payroll periods that ended before this period starts:
+  // Advance already recovered in prior payroll periods that started before this period:
   const priorPayrollRecoveries = store.payrollPayments
-    .filter((p) => p.employeeId === employeeId && (p.status === "Paid" || (p.paidAmount ?? 0) > 0) && p.periodEnd < periodStart)
+    .filter((p) => p.employeeId === employeeId && (p.periodStart < periodStart || p.periodEnd < periodStart))
     .reduce((sum, p) => sum + (p.advanceRecovery ?? 0), 0);
 
-  // Explicitly recorded recoveries:
+  // Explicitly recorded recoveries in store.advances:
   const explicitRecoveries = store.advances
     .filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate)
     .reduce((sum, advance) => sum + (advance.recovered ?? 0), 0);
