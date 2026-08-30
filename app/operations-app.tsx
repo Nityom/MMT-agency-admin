@@ -154,10 +154,27 @@ export default function OperationsApp() {
   const employeeRateHistory = [...store.employeeRates].sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
   const attendanceVehicles = store.vehicles.filter((vehicle) => vehicle.status !== "Inactive");
   const attendanceVehicleIds = attendanceVehicles.map((vehicle) => vehicle.id);
-  const activeCampaigns = store.campaignBookings.filter((booking) => bookingStatus(booking) === "Active");
-  const campaignForVehicleOnDate = (vehicleId: number, date: string) => store.campaignBookings.flatMap((booking) => booking.vehiclePeriods.map((period) => ({ booking, period }))).find(({ booking, period }) => period.vehicleIds.includes(vehicleId) && period.startDate <= date && period.endDate >= date && booking.startDate <= date && bookingEnd(booking) >= date);
+  const isBookingOngoing = (booking: CampaignBooking) =>
+    !booking.stoppedAt &&
+    isoToday() >= booking.startDate &&
+    isoToday() <= bookingEnd(booking);
+  const activeCampaigns = store.campaignBookings.filter(isBookingOngoing);
+  const campaignForVehicleOnDate = (vehicleId: number, date: string) =>
+    store.campaignBookings
+      .flatMap((booking) =>
+        booking.vehiclePeriods.map((period) => ({ booking, period })),
+      )
+      .find(
+        ({ booking, period }) =>
+          (!booking.stoppedAt || date < booking.stoppedAt) &&
+          period.vehicleIds.includes(vehicleId) &&
+          period.startDate <= date &&
+          period.endDate >= date &&
+          booking.startDate <= date &&
+          bookingEnd(booking) >= date,
+      );
   const normalizedClientSearch = clientSearch.trim().toLowerCase();
-  const campaignClientIds = new Set(store.campaignBookings.filter((booking) => clientCampaignFilter === "Ongoing" ? bookingStatus(booking) === "Active" : clientCampaignFilter === "Completed" ? ["Completed", "Stopped", "Billed"].includes(bookingStatus(booking)) : false).map((booking) => booking.clientId));
+  const campaignClientIds = new Set(store.campaignBookings.filter((booking) => clientCampaignFilter === "Ongoing" ? isBookingOngoing(booking) : clientCampaignFilter === "Completed" ? (!isBookingOngoing(booking) && (Boolean(booking.stoppedAt) || isoToday() > bookingEnd(booking))) : false).map((booking) => booking.clientId));
   const matchingClients = store.clients.filter((client) => {
     const matchesSearch = !normalizedClientSearch || `${client.firmName} ${client.mobile} ${client.alternatePhone ?? ""} ${client.categories.join(" ")}`.toLowerCase().includes(normalizedClientSearch);
     const matchesCategory = clientCategoryFilter === "All" || client.categories.includes(clientCategoryFilter);

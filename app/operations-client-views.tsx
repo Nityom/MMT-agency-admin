@@ -15,6 +15,7 @@ import {
   clientCategories,
   clientOverallBalance,
   fmt,
+  isoToday,
   money,
 } from "./operations-utils";
 
@@ -111,16 +112,32 @@ export function CampaignsView({
       return false;
     }
     const status = bookingStatus(b);
-    if (selectedStatus !== "All" && status !== selectedStatus) {
+    const isOngoing =
+      !b.stoppedAt &&
+      isoToday() >= b.startDate &&
+      isoToday() <= bookingEnd(b);
+
+    if (selectedStatus === "Active") {
+      if (!isOngoing) return false;
+    } else if (selectedStatus === "Billed") {
+      if (!b.generatedBillId) return false;
+    } else if (selectedStatus === "Scheduled") {
+      if (isoToday() >= b.startDate || b.stoppedAt) return false;
+    } else if (selectedStatus === "Stopped") {
+      if (!b.stoppedAt) return false;
+    } else if (selectedStatus !== "All" && status !== selectedStatus) {
       return false;
     }
+
     const query = campaignSearch.trim().toLowerCase();
     if (!query) return true;
     return (
       b.client.firmName.toLowerCase().includes(query) ||
       (b.client.ownerName || "").toLowerCase().includes(query) ||
       b.client.mobile.includes(query) ||
-      status.toLowerCase().includes(query)
+      status.toLowerCase().includes(query) ||
+      (isOngoing && "active".includes(query)) ||
+      (b.generatedBillId && "billed".includes(query))
     );
   });
 

@@ -567,6 +567,10 @@ function LegacyCampaignBookingCard({
   generateBill: () => void;
 }) {
   const status = bookingStatus(booking),
+    isOngoing =
+      !booking.stoppedAt &&
+      isoToday() >= booking.startDate &&
+      isoToday() <= bookingEnd(booking),
     totalDays = inclusiveDays(booking.startDate, bookingEnd(booking));
   const vehicleLines = bookingVehicleLines(
     store,
@@ -674,7 +678,7 @@ function LegacyCampaignBookingCard({
           Edit / extend / schedule stop
         </Button>
         <Button secondary onClick={deleteBooking}>Delete campaign</Button>
-        {status === "Active" && (
+        {isOngoing && (
           <Button secondary onClick={stop}>
             Stop now
           </Button>
@@ -723,6 +727,10 @@ function CampaignSlotCardContent({
       />
     );
   const status = bookingStatus(booking);
+  const isOngoing =
+    !booking.stoppedAt &&
+    isoToday() >= booking.startDate &&
+    isoToday() <= bookingEnd(booking);
   const vehicleLines = bookingVehicleLines(
     store,
     booking,
@@ -827,9 +835,9 @@ function CampaignSlotCardContent({
         <Button secondary onClick={edit}>
           Edit / extend / schedule stop
         </Button>
-        {status !== "Active" && <Button secondary onClick={renew}>Renew campaign</Button>}
+        {!isOngoing && <Button secondary onClick={renew}>Renew campaign</Button>}
         <Button secondary onClick={deleteBooking}>Delete campaign</Button>
-        {status === "Active" && (
+        {isOngoing && (
           <Button secondary onClick={stop}>
             Stop now
           </Button>
@@ -1057,14 +1065,20 @@ export function CampaignAttendanceView({
   const [showReportModal, setShowReportModal] = useState(false);
 
   const rawBookings = store.campaignBookings
-    .filter(
-      (booking) => booking.startDate <= date && bookingEnd(booking) >= date,
-    )
+    .filter((booking) => {
+      if (booking.stoppedAt && date >= booking.stoppedAt) return false;
+      return booking.startDate <= date && bookingEnd(booking) >= date;
+    })
     .map((booking) => ({
       booking,
-      periods: booking.vehiclePeriods.filter(
-        (period) => period.startDate <= date && period.endDate >= date,
-      ),
+      periods: booking.vehiclePeriods.filter((period) => {
+        if (booking.stoppedAt && date >= booking.stoppedAt) return false;
+        const periodEnd =
+          booking.stoppedAt && booking.stoppedAt < period.endDate
+            ? booking.stoppedAt
+            : period.endDate;
+        return period.startDate <= date && periodEnd >= date;
+      }),
     }))
     .filter(({ periods }) => periods.length > 0);
 
