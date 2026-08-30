@@ -224,9 +224,14 @@ function OtherBillForm({
               <input
                 type="date"
                 value={item.fromDate ?? ""}
-                onChange={(event) =>
-                  updateItem(index, { fromDate: event.target.value })
-                }
+                onChange={(event) => {
+                  const fromDate = event.target.value;
+                  const qty =
+                    fromDate && item.toDate && item.toDate >= fromDate
+                      ? inclusiveDays(fromDate, item.toDate)
+                      : item.quantity;
+                  updateItem(index, { fromDate, quantity: qty });
+                }}
               />
             </label>
             <label>
@@ -234,7 +239,14 @@ function OtherBillForm({
               <input
                 type="date"
                 value={item.toDate ?? ""}
-                onChange={(event) => updateItem(index, { toDate: event.target.value })}
+                onChange={(event) => {
+                  const toDate = event.target.value;
+                  const qty =
+                    item.fromDate && toDate && toDate >= item.fromDate
+                      ? inclusiveDays(item.fromDate, toDate)
+                      : item.quantity;
+                  updateItem(index, { toDate, quantity: qty });
+                }}
               />
             </label>
             <label>

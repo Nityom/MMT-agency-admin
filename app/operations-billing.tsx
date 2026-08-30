@@ -4,6 +4,7 @@ import { Check, FileText, Gauge, Plus, Printer, ReceiptText, Trash2, X } from "l
 import Image from "next/image";
 import { FormEvent, useState } from "react";
 import {
+  addDays,
   Bill,
   BillCharge,
   BillChargeCategory,
@@ -25,6 +26,8 @@ import {
   bookingEnd,
   bookingVehicleLines,
   campaignChargeCategories,
+  campaignSlotKey,
+  campaignSlotPresentDays,
   fmt,
   input,
   isoToday,
@@ -52,6 +55,67 @@ export function BillingComposer({
   const initialBillingClientId =
     (bill?.clientId ?? initialClientId) || store.clients[0]?.id || 0;
   const initialBillDate = bill?.billDate ?? isoToday();
+
+  const calculateDaysForLine = (
+    vehicleId: number,
+    start: string,
+    end: string,
+  ) => {
+    if (!start || !end || start > end) {
+      return { advertisementDays: 0, offDays: 0, bookedDays: 0 };
+    }
+    const bookedDays = inclusiveDays(start, end);
+    let presentDays = 0;
+    let hasAttendanceRecords = false;
+
+    if (vehicleId > 0) {
+      const dates = Array.from({ length: bookedDays }, (_, offset) =>
+        addDays(start, offset),
+      );
+      hasAttendanceRecords = dates.some(
+        (d) => store.vehicleAttendance[d]?.[vehicleId] !== undefined,
+      );
+      presentDays = vehiclePresentDays(store, vehicleId, start, end);
+    } else if (vehicleId < 0) {
+      const absId = Math.abs(vehicleId);
+      const slotIndex = (absId % 100) - 1;
+      const rem = Math.floor(absId / 100);
+      const periodId = rem % 100;
+      const bookingId = Math.floor(rem / 100);
+      const booking = store.campaignBookings.find((b) => b.id === bookingId);
+      const period = booking?.vehiclePeriods.find((p) => p.id === periodId);
+      const legacyVehicleId = period?.vehicleIds[slotIndex];
+
+      const dates = Array.from({ length: bookedDays }, (_, offset) =>
+        addDays(start, offset),
+      );
+      hasAttendanceRecords = dates.some(
+        (d) =>
+          store.campaignAttendance[d]?.[
+            campaignSlotKey(bookingId, periodId, slotIndex)
+          ] !== undefined ||
+          (legacyVehicleId &&
+            store.vehicleAttendance[d]?.[legacyVehicleId] !== undefined),
+      );
+      presentDays = campaignSlotPresentDays(
+        store,
+        bookingId,
+        periodId,
+        slotIndex,
+        start,
+        end,
+        legacyVehicleId,
+      );
+    }
+
+    const finalPresent = hasAttendanceRecords ? presentDays : bookedDays;
+    return {
+      bookedDays,
+      advertisementDays: finalPresent,
+      offDays: Math.max(0, bookedDays - finalPresent),
+    };
+  };
+
   const campaignLine = (
     vehicleId: number,
     selectedClientId: number,
@@ -89,9 +153,7 @@ export function BillingComposer({
       bookingEnd(match.booking),
       throughDate,
     ].sort()[0];
-    const bookedDays = inclusiveDays(match.period.startDate, endDate);
-    const presentDays = vehiclePresentDays(
-      store,
+    const { advertisementDays, offDays } = calculateDaysForLine(
       vehicleId,
       match.period.startDate,
       endDate,
@@ -101,8 +163,8 @@ export function BillingComposer({
       label: vehicleLabel,
       startDate: match.period.startDate,
       endDate,
-      advertisementDays: presentDays,
-      offDays: bookedDays - presentDays,
+      advertisementDays,
+      offDays,
       dailyRate: match.period.dailyRate,
     };
   };
@@ -168,14 +230,20 @@ export function BillingComposer({
         itemIndex === index ? { ...charge, ...patch } : charge,
       ),
     );
-  const finalLines: BillVehicleLine[] = lines.map((line, index) => ({
-    ...line,
-    id: index + 1,
-    bookedDays: line.startDate <= line.endDate ? inclusiveDays(line.startDate, line.endDate) : 0,
-    advertisementDays: line.startDate <= line.endDate ? (line.vehicleId < 0 ? line.advertisementDays : vehiclePresentDays(store, line.vehicleId, line.startDate, line.endDate)) : 0,
-    offDays: line.startDate <= line.endDate ? Math.max(0, inclusiveDays(line.startDate, line.endDate) - (line.vehicleId < 0 ? line.advertisementDays : vehiclePresentDays(store, line.vehicleId, line.startDate, line.endDate))) : 0,
-    driverNames: [],
-  }));
+  const finalLines: BillVehicleLine[] = lines.map((line, index) => {
+    const bookedDays =
+      line.startDate <= line.endDate
+        ? inclusiveDays(line.startDate, line.endDate)
+        : 0;
+    return {
+      ...line,
+      id: index + 1,
+      bookedDays,
+      advertisementDays: line.advertisementDays,
+      offDays: Math.max(0, bookedDays - line.advertisementDays),
+      driverNames: [],
+    };
+  });
   const finalCharges: BillCharge[] = charges.map((charge, index) => ({
     ...charge,
     id: index + 1,
@@ -322,16 +390,20 @@ export function BillingComposer({
               <span>Vehicle</span>
               <select
                 value={line.vehicleId}
-                onChange={(event) =>
-                  updateLine(
-                    index,
-                    campaignLine(
-                      Number(event.target.value),
-                      clientId,
-                      billDate,
-                    ),
-                  )
-                }
+                onChange={(event) => {
+                  const newVehicleId = Number(event.target.value);
+                  const base = campaignLine(newVehicleId, clientId, billDate);
+                  const { advertisementDays, offDays } = calculateDaysForLine(
+                    newVehicleId,
+                    base.startDate,
+                    base.endDate,
+                  );
+                  updateLine(index, {
+                    ...base,
+                    advertisementDays,
+                    offDays,
+                  });
+                }}
               >
                 {store.vehicles.map((vehicle) => (
                   <option value={vehicle.id} key={vehicle.id}>
@@ -345,9 +417,19 @@ export function BillingComposer({
               <input
                 type="date"
                 value={line.startDate}
-                onChange={(event) =>
-                  updateLine(index, { startDate: event.target.value })
-                }
+                onChange={(event) => {
+                  const startDate = event.target.value;
+                  const { advertisementDays, offDays } = calculateDaysForLine(
+                    line.vehicleId,
+                    startDate,
+                    line.endDate,
+                  );
+                  updateLine(index, {
+                    startDate,
+                    advertisementDays,
+                    offDays,
+                  });
+                }}
               />
             </label>
             <label>
@@ -355,9 +437,19 @@ export function BillingComposer({
               <input
                 type="date"
                 value={line.endDate}
-                onChange={(event) =>
-                  updateLine(index, { endDate: event.target.value })
-                }
+                onChange={(event) => {
+                  const endDate = event.target.value;
+                  const { advertisementDays, offDays } = calculateDaysForLine(
+                    line.vehicleId,
+                    line.startDate,
+                    endDate,
+                  );
+                  updateLine(index, {
+                    endDate,
+                    advertisementDays,
+                    offDays,
+                  });
+                }}
               />
             </label>
             <label>
@@ -366,11 +458,17 @@ export function BillingComposer({
                 type="number"
                 min="0"
                 value={line.advertisementDays}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const advertisementDays = Number(event.target.value);
+                  const bookedDays =
+                    line.startDate <= line.endDate
+                      ? inclusiveDays(line.startDate, line.endDate)
+                      : 0;
                   updateLine(index, {
-                    advertisementDays: Number(event.target.value),
-                  })
-                }
+                    advertisementDays,
+                    offDays: Math.max(0, bookedDays - advertisementDays),
+                  });
+                }}
               />
             </label>
             <label>
@@ -1103,24 +1201,31 @@ export function CampaignBillModeModal({
         )}
 
         {scope === "custom" && (
-          <div className="op-form-grid">
-            <label className="op-field">
-              <span>From Date</span>
-              <input
-                type="date"
-                value={customFrom}
-                onChange={(e) => setCustomFrom(e.target.value)}
-              />
-            </label>
-            <label className="op-field">
-              <span>To Date</span>
-              <input
-                type="date"
-                value={customTo}
-                onChange={(e) => setCustomTo(e.target.value)}
-              />
-            </label>
-          </div>
+          <>
+            <div className="op-form-grid">
+              <label className="op-field">
+                <span>From Date</span>
+                <input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                />
+              </label>
+              <label className="op-field">
+                <span>To Date</span>
+                <input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                />
+              </label>
+            </div>
+            {customFrom && customTo && customFrom <= customTo && (
+              <p className="op-form-note" style={{ margin: "2px 0 0" }}>
+                Billing range: <b>{inclusiveDays(customFrom, customTo)} days</b> ({fmt(customFrom)} to {fmt(customTo)})
+              </p>
+            )}
+          </>
         )}
 
         <label className="op-field">
