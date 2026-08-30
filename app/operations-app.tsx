@@ -364,16 +364,16 @@ export default function OperationsApp() {
     setStore((current) => {
       const existing = current.payrollPayments.find((payment) => payment.employeeId === preview.employeeId && ((payment.periodStart === preview.periodStart && payment.periodEnd === preview.periodEnd) || payment.periodStart === preview.periodStart));
       const actualPaid = paidAmount !== undefined ? paidAmount : status === "Paid" ? preview.net : (existing?.paidAmount ?? 0);
-      const isFullPaid = actualPaid >= preview.net && preview.net > 0;
+      const isFullPaid = actualPaid >= preview.net;
       const payment: PayrollPayment = {
         ...preview,
         id: existing?.id ?? nextId(current.payrollPayments),
         status: isFullPaid ? "Paid" : "Pending",
         paidAmount: actualPaid,
-        ...(actualPaid > 0 ? { paidAt: existing?.paidAt ?? isoToday() } : {}),
+        ...(isFullPaid ? { paidAt: existing?.paidAt ?? isoToday() } : {}),
       };
       const payrollPayments = [...current.payrollPayments.filter((item) => item.id !== payment.id && !(item.employeeId === preview.employeeId && item.periodStart === preview.periodStart)), payment];
-      const paidRecoveries = new Map(current.employees.map((employee) => [employee.id, payrollPayments.filter((item) => item.employeeId === employee.id && (item.status === "Paid" || (item.paidAmount ?? 0) > 0)).reduce((sum, item) => sum + item.advanceRecovery, 0)]));
+      const paidRecoveries = new Map(current.employees.map((employee) => [employee.id, payrollPayments.filter((item) => item.employeeId === employee.id && item.status === "Paid").reduce((sum, item) => sum + item.advanceRecovery, 0)]));
       const advances = current.advances.map((advanceItem) => {
         const earlierAmount = current.advances.filter((item) => item.employeeId === advanceItem.employeeId && (item.date < advanceItem.date || (item.date === advanceItem.date && item.id < advanceItem.id))).reduce((sum, item) => sum + item.amount, 0);
         return { ...advanceItem, recovered: Math.min(advanceItem.amount, Math.max(0, (paidRecoveries.get(advanceItem.employeeId) ?? 0) - earlierAmount)) };

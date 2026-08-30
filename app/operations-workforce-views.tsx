@@ -739,7 +739,7 @@ export function PayrollView({
                       min="0"
                       step="1"
                       className={`op-salary-paid-field ${
-                        (saved?.status === "Paid" || paid >= preview.net) && preview.net > 0
+                        (saved?.status === "Paid" || paid >= preview.net)
                           ? "is-paid"
                           : ""
                       }`}
@@ -750,14 +750,14 @@ export function PayrollView({
                         const val = Number(e.target.value) || 0;
                         setPayrollStatus(
                           preview,
-                          val >= preview.net && preview.net > 0 ? "Paid" : "Pending",
+                          val >= preview.net ? "Paid" : "Pending",
                           val
                         );
                       }}
                     />
                   </div>
-                  {(saved?.status === "Paid" || paid >= preview.net) && preview.net > 0 ? (
-                    <span className="op-paid-badge-pill" title="Fully paid for this period">
+                  {(saved?.status === "Paid" || paid >= preview.net) ? (
+                    <span className="op-paid-badge-pill" title="Fully settled for this period">
                       <Check size={13} /> Paid
                     </span>
                   ) : (
@@ -780,19 +780,16 @@ export function PayrollView({
                       </span>
                       <small className="op-subtext">{paid > 0 ? `Paid ${money(paid)} of ${money(preview.net)}` : "Pending"}</small>
                     </>
-                  ) : preview.remainingAdvance > 0 ? (
-                    <>
-                      <span className="op-balance-badge advance-owed">
-                        −{money(preview.remainingAdvance)} Advance Due
-                      </span>
-                      <small className="op-subtext">Owes {money(preview.remainingAdvance)} advance</small>
-                    </>
                   ) : (
                     <>
                       <span className="op-balance-badge settled">
                         ✓ {money(0)} Settled
                       </span>
-                      <small className="op-subtext">All dues paid</small>
+                      <small className="op-subtext">
+                        {preview.advanceRecovery > 0
+                          ? `Adjusted ${money(preview.advanceRecovery)} adv`
+                          : "All dues paid"}
+                      </small>
                     </>
                   )}
                 </div>

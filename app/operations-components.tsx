@@ -95,8 +95,13 @@ export function PaymentReceiptModal({
           </table>
           <div style={{ marginTop: "28px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", paddingTop: "14px", borderTop: "1px dashed #999" }}>
             <small style={{ color: "#666" }}>Computer generated receipt · {store.company.name}</small>
-            <div style={{ textAlign: "center" }}>
-              <p style={{ margin: 0, fontWeight: 700 }}>Authorized Signatory</p>
+            <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <img
+                src="/sign.png"
+                alt="Authorized Signatory"
+                style={{ height: "46px", width: "auto", objectFit: "contain", marginBottom: "4px" }}
+              />
+              <p style={{ margin: 0, fontWeight: 700, fontSize: "13px" }}>Authorized Signatory</p>
             </div>
           </div>
         </article>
@@ -130,8 +135,8 @@ export function Row({ children }: { children: React.ReactNode }) { return <div c
 export function Status({ children }: { children: string }) { return <span className={`op-status ${children.toLowerCase()}`}>{children}</span>; }
 export function Actions({ edit, payment, view, remove }: { edit?: () => void; payment?: () => void; view?: () => void; remove?: () => void }) { return <span className="op-actions">{edit && <button title="Edit" onClick={edit}><ChevronRight size={17}/></button>}{payment && <button title="Record payment" onClick={payment}><Banknote size={16}/></button>}{view && <button title="Print / preview" onClick={view}><Printer size={16}/></button>}{remove && <button className="delete" title="Delete" onClick={remove}><Trash2 size={16}/></button>}</span>; }
 
-export function FormField({ label, name, type = "text", defaultValue, required = false, min }: { label: string; name: string; type?: string; defaultValue?: string | number; required?: boolean; min?: number }) {
-  return <label className="op-field"><span>{label}</span><input name={name} type={type} defaultValue={defaultValue} required={required} min={min ?? (type === "number" ? 0 : undefined)}/></label>;
+export function FormField({ label, name, type = "text", defaultValue, required = false, min, placeholder, autoFocus }: { label: string; name: string; type?: string; defaultValue?: string | number; required?: boolean; min?: number; placeholder?: string; autoFocus?: boolean }) {
+  return <label className="op-field"><span>{label}</span><input name={name} type={type} defaultValue={defaultValue} required={required} min={min ?? (type === "number" ? 0 : undefined)} placeholder={placeholder} autoFocus={autoFocus}/></label>;
 }
 
 export function FormSelect({ label, name, options, defaultValue, required = false }: { label: string; name: string; options: { value: string | number; label: string }[]; defaultValue?: string | number; required?: boolean }) {

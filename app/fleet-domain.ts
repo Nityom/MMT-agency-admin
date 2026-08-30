@@ -294,6 +294,8 @@ export type SupplierPayment = BusinessExpensePayment & {
 export type SupplierProfile = {
   id: number;
   name: string;
+  phone?: string;
+  address?: string;
   createdAt: ISODate;
 };
 
@@ -463,11 +465,30 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
   const deductions = relevantExpenses.filter((expense) => expense.treatment === "Employee deduction").reduce((sum, expense) => sum + expense.amount, 0);
   const gross = [...breakdown.values()].reduce((sum, item) => sum + item.amount, 0);
   const paidPayment = store.payrollPayments.find((payment) => payment.employeeId === employeeId && payment.periodStart === periodStart && payment.status === "Paid");
-  const outstandingAdvance = store.advances.filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
+
+  // Total advance taken up to this period's payout date:
+  const totalAdvance = store.advances
+    .filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate)
+    .reduce((sum, advance) => sum + advance.amount, 0);
+
+  // Advance already recovered in prior paid payroll periods that ended before this period starts:
+  const priorPayrollRecoveries = store.payrollPayments
+    .filter((p) => p.employeeId === employeeId && (p.status === "Paid" || (p.paidAmount ?? 0) > 0) && p.periodEnd < periodStart)
+    .reduce((sum, p) => sum + (p.advanceRecovery ?? 0), 0);
+
+  // Explicitly recorded recoveries:
+  const explicitRecoveries = store.advances
+    .filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate)
+    .reduce((sum, advance) => sum + (advance.recovered ?? 0), 0);
+
+  const totalPriorRecovered = Math.max(priorPayrollRecoveries, explicitRecoveries);
+  const outstandingAdvance = Math.max(0, totalAdvance - totalPriorRecovered);
+
   const maxRecoverable = Math.max(0, gross + reimbursements - deductions);
-  const advanceRecovery = paidPayment && paidPayment.advanceRecovery !== undefined && paidPayment.advanceRecovery > 0
+  const autoRecovery = Math.min(outstandingAdvance, maxRecoverable);
+  const advanceRecovery = paidPayment && paidPayment.advanceRecovery !== undefined && (paidPayment.advanceRecovery > 0 || outstandingAdvance === 0)
     ? paidPayment.advanceRecovery
-    : Math.min(outstandingAdvance, maxRecoverable);
+    : autoRecovery;
   const remainingAdvance = Math.max(0, outstandingAdvance - advanceRecovery);
 
   return {
