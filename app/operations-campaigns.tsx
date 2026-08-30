@@ -58,16 +58,39 @@ export function CampaignBookingForm({
   const initialEndDate =
     booking?.endDate ??
     `${initialMonth}-${new Date(Number(initialMonth.slice(0, 4)), Number(initialMonth.slice(5, 7)), 0).getDate()}`;
+  const clientByFirm = booking?.client?.firmName
+    ? store.clients.find(
+        (c) =>
+          c.firmName.trim().toLowerCase() ===
+          booking.client.firmName.trim().toLowerCase(),
+      )
+    : undefined;
+
+  const clientById = booking?.clientId
+    ? store.clients.find((c) => c.id === booking.clientId)
+    : undefined;
+
+  const matchedBookingClient =
+    clientByFirm ??
+    (booking?.client?.firmName &&
+    clientById &&
+    clientById.firmName.trim().toLowerCase() !==
+      booking.client.firmName.trim().toLowerCase()
+      ? undefined
+      : clientById);
+
   const [clientId, setClientId] = useState(
-    booking?.clientId ??
+    matchedBookingClient?.id ??
+      booking?.clientId ??
       store.clients.find((client) => client.status === "Active")?.id ??
       0,
   );
   const [clientQuery, setClientQuery] = useState(
-    booking ? booking.client.mobile : "",
+    booking ? booking.client.mobile || booking.client.firmName : "",
   );
   const [campaignClientName, setCampaignClientName] = useState(
     booking?.client.firmName ??
+      matchedBookingClient?.firmName ??
       store.clients.find((client) => client.status === "Active")?.firmName ??
       "",
   );
@@ -95,7 +118,8 @@ export function CampaignBookingForm({
     ],
   );
   const [formError, setFormError] = useState("");
-  const client = store.clients.find((item) => item.id === clientId);
+  const client =
+    store.clients.find((item) => item.id === clientId) ?? matchedBookingClient;
   const normalizedClientQuery = clientQuery.trim().toLowerCase();
   const matchingClients = store.clients
     .filter((item) => item.status === "Active" || item.id === booking?.clientId)
@@ -125,7 +149,19 @@ export function CampaignBookingForm({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    if (!client) return;
+    const finalClient =
+      store.clients.find((item) => item.id === clientId) ??
+      clientByFirm ??
+      (campaignClientName
+        ? store.clients.find(
+            (item) =>
+              item.firmName.trim().toLowerCase() ===
+              campaignClientName.trim().toLowerCase(),
+          )
+        : undefined) ??
+      client;
+    if (!finalClient) return;
+    const finalClientId = finalClient.id || clientId;
     const startDate = input(data, "startDate"),
       endDate = input(data, "endDate"),
       stoppedAt = input(data, "stoppedAt");
@@ -158,13 +194,13 @@ export function CampaignBookingForm({
     save({
       id: booking?.id ?? nextId(store.campaignBookings),
       month: input(data, "month"),
-      clientId,
+      clientId: finalClientId,
       client: {
-        firmName: campaignClientName.trim() || client.firmName,
-        ownerName: client.ownerName,
-        address: client.address,
-        mobile: client.mobile,
-        email: client.email,
+        firmName: campaignClientName.trim() || finalClient.firmName,
+        ownerName: finalClient.ownerName,
+        address: finalClient.address,
+        mobile: finalClient.mobile,
+        email: finalClient.email,
       },
       startDate,
       endDate,

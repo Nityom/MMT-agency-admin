@@ -298,12 +298,32 @@ export default function OperationsApp() {
       amount: facility.quantity * facility.rate,
     }));
 
+    const matchedClient =
+      (booking.client?.firmName
+        ? store.clients.find(
+            (c) =>
+              c.firmName.trim().toLowerCase() ===
+              booking.client.firmName.trim().toLowerCase(),
+          )
+        : undefined) ??
+      store.clients.find((c) => c.id === booking.clientId);
+
+    const actualClientId = matchedClient?.id ?? booking.clientId;
+
     const bill: Bill = {
       id: nextId(store.bills),
       number: nextBillNumber(store.bills, store.nextBillNumber),
       billDate: isoToday(),
-      clientId: booking.clientId,
-      client: booking.client,
+      clientId: actualClientId,
+      client: matchedClient
+        ? {
+            firmName: matchedClient.firmName,
+            ownerName: matchedClient.ownerName,
+            address: matchedClient.address,
+            mobile: matchedClient.mobile,
+            email: matchedClient.email,
+          }
+        : booking.client,
       vehicleLines,
       charges,
       advanceReceived: 0,
@@ -315,7 +335,7 @@ export default function OperationsApp() {
     setCampaignBillBooking(null);
     setDraftCampaignBooking(booking);
     setEditingBill(bill);
-    setBillingClientId(booking.clientId);
+    setBillingClientId(actualClientId);
     setComposeBill(true);
   };
   const setPayrollStatus = (preview: (typeof payrollPreviews)[number], status: "Pending" | "Paid", paidAmount?: number) => {
@@ -597,7 +617,7 @@ export default function OperationsApp() {
     </div>
   </>);
 
-  if (composeBill) return <BillingComposer store={store} initialClientId={billingClientId} bill={editingBill} cancel={() => { setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); }} save={(bill) => { const isExisting = store.bills.some((item) => item.id === bill.id); setStore((current) => ({ ...current, bills: isExisting ? current.bills.map((item) => item.id === bill.id ? bill : item) : [...current.bills, bill], nextBillNumber: isExisting ? current.nextBillNumber : bill.number + 1, campaignBookings: draftCampaignBooking ? current.campaignBookings.map((item) => item.id === draftCampaignBooking.id ? { ...item, generatedBillId: bill.id } : item) : current.campaignBookings })); setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); setInvoice(bill); notify("Bill saved and receipt ready"); }}/>
+  if (composeBill) return <BillingComposer store={store} initialClientId={billingClientId} bill={editingBill} campaignBooking={draftCampaignBooking} cancel={() => { setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); }} save={(bill) => { const isExisting = store.bills.some((item) => item.id === bill.id); setStore((current) => ({ ...current, bills: isExisting ? current.bills.map((item) => item.id === bill.id ? bill : item) : [...current.bills, bill], nextBillNumber: isExisting ? current.nextBillNumber : bill.number + 1, campaignBookings: draftCampaignBooking ? current.campaignBookings.map((item) => item.id === draftCampaignBooking.id ? { ...item, generatedBillId: bill.id } : item) : current.campaignBookings })); setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); setInvoice(bill); notify("Bill saved and receipt ready"); }}/>
   if (composeQuotation) return <QuotationComposer store={store} cancel={() => setComposeQuotation(false)} preview={(quotation) => { setComposeQuotation(false); setQuotationDraft(quotation); }}/>;
   if (quotationDraft) return <Invoice bill={quotationDraft} store={store} quotation close={() => setQuotationDraft(null)}/>;
   if (campaignBillBooking) return <CampaignBillModeModal booking={campaignBillBooking} close={() => setCampaignBillBooking(null)} generate={(paymentMode, options) => generateCampaignBill(campaignBillBooking, paymentMode, options)}/>;

@@ -43,17 +43,72 @@ export function BillingComposer({
   store,
   initialClientId,
   bill,
+  campaignBooking,
   cancel,
   save,
 }: {
   store: FleetStore;
   initialClientId: number;
   bill?: Bill | null;
+  campaignBooking?: CampaignBooking | null;
   cancel: () => void;
   save: (bill: Bill) => void;
 }) {
+  const linkedCampaign =
+    campaignBooking ??
+    (bill
+      ? store.campaignBookings.find(
+          (b) =>
+            b.generatedBillId === bill.id ||
+            (bill.id && b.id === bill.id) ||
+            b.clientId === bill.clientId,
+        )
+      : undefined);
+
+  const effectiveClientSnapshot =
+    campaignBooking?.client ??
+    linkedCampaign?.client ??
+    bill?.client;
+
+  const effectiveFirmName = (
+    effectiveClientSnapshot?.firmName ||
+    ""
+  ).trim();
+
+  const effectiveOwnerName =
+    effectiveClientSnapshot?.ownerName ||
+    "";
+
+  const clientByFirm = effectiveFirmName
+    ? store.clients.find(
+        (c) =>
+          c.firmName.trim().toLowerCase() ===
+          effectiveFirmName.toLowerCase(),
+      )
+    : undefined;
+
+  const clientById = store.clients.find(
+    (c) => c.id === (campaignBooking?.clientId || bill?.clientId || initialClientId),
+  );
+
+  const matchedClient =
+    clientByFirm ??
+    (effectiveFirmName &&
+    clientById &&
+    clientById.firmName.trim().toLowerCase() !==
+      effectiveFirmName.toLowerCase()
+      ? undefined
+      : clientById);
+
   const initialBillingClientId =
-    (bill?.clientId ?? initialClientId) || store.clients[0]?.id || 0;
+    clientByFirm?.id ??
+    (effectiveFirmName
+      ? clientById &&
+        clientById.firmName.trim().toLowerCase() ===
+          effectiveFirmName.toLowerCase()
+        ? clientById.id
+        : -999
+      : (clientById?.id ?? initialClientId ?? store.clients[0]?.id ?? 0));
   const initialBillDate = bill?.billDate ?? isoToday();
 
   const calculateDaysForLine = (
@@ -258,7 +313,11 @@ export function BillingComposer({
       existingPayments.reduce((sum, payment) => sum + payment.amount, 0),
   );
   const submit = () => {
-    const client = store.clients.find((item) => item.id === clientId);
+    const client =
+      store.clients.find((item) => item.id === clientId) ??
+      matchedClient ??
+      effectiveClientSnapshot ??
+      bill?.client;
     if (!client || !lines.length) return;
     const payments: Bill["payments"] =
       bill && markFullPayment && remainingBalance > 0
@@ -276,11 +335,17 @@ export function BillingComposer({
         : existingPayments;
     const paid =
       advance + payments.reduce((sum, payment) => sum + payment.amount, 0);
+    const finalClientId =
+      client && "id" in client && typeof (client as any).id === "number" && (client as any).id > 0
+        ? (client as any).id
+        : clientId > 0
+          ? clientId
+          : 0;
     save({
       id: bill?.id ?? nextId(store.bills),
       number: bill?.number ?? nextBillNumber(store.bills, store.nextBillNumber),
       billDate,
-      clientId,
+      clientId: finalClientId,
       client: {
         firmName: client.firmName,
         ownerName: client.ownerName,
@@ -328,14 +393,29 @@ export function BillingComposer({
                     store.vehicles[0]?.id ??
                     0;
                 setClientId(selectedClientId);
-                setLines([
-                  campaignLine(firstVehicleId, selectedClientId, billDate),
-                ]);
+                if (!bill) {
+                  setLines([
+                    campaignLine(firstVehicleId, selectedClientId, billDate),
+                  ]);
+                }
               }}
             >
+              {!store.clients.some((client) => client.id === clientId) &&
+                (effectiveFirmName || bill?.client || matchedClient) && (
+                  <option value={clientId}>
+                    {effectiveFirmName ||
+                      bill?.client?.firmName ||
+                      matchedClient?.firmName}{" "}
+                    {effectiveOwnerName ||
+                    bill?.client?.ownerName ||
+                    matchedClient?.ownerName
+                      ? `· ${effectiveOwnerName || bill?.client?.ownerName || matchedClient?.ownerName}`
+                      : ""}
+                  </option>
+                )}
               {store.clients.map((client) => (
                 <option value={client.id} key={client.id}>
-                  {client.firmName} · {client.ownerName}
+                  {client.firmName} {client.ownerName ? `· ${client.ownerName}` : ""}
                 </option>
               ))}
             </select>
