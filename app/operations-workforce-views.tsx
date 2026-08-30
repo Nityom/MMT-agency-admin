@@ -732,7 +732,11 @@ export function PayrollView({
                       type="number"
                       min="0"
                       step="1"
-                      className="op-salary-paid-field"
+                      className={`op-salary-paid-field ${
+                        (saved?.status === "Paid" || paid >= preview.net) && preview.net > 0
+                          ? "is-paid"
+                          : ""
+                      }`}
                       aria-label={`Paid amount for ${employee?.name}`}
                       value={paid === 0 && !saved ? "" : paid}
                       placeholder="0"
@@ -746,7 +750,11 @@ export function PayrollView({
                       }}
                     />
                   </div>
-                  {balance > 0 && (
+                  {(saved?.status === "Paid" || paid >= preview.net) && preview.net > 0 ? (
+                    <span className="op-paid-badge-pill" title="Fully paid for this period">
+                      <Check size={13} /> Paid
+                    </span>
+                  ) : (
                     <button
                       type="button"
                       className="op-quick-pay-full-btn"
