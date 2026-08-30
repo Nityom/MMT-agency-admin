@@ -120,71 +120,82 @@ async function runMutationQueue(tasks: (() => Promise<unknown>)[]) {
 export function useFleetStore() {
   const [store, setStore] = useState<FleetStore>(emptyStore);
   const [storageReady, setStorageReady] = useState(false);
-  const [loadRemoteStore, setLoadRemoteStore] = useState(false);
-  const remoteRevision = useQuery(api.adminStore.getRevision, storageReady ? "skip" : { key: STORE_KEY });
-  const remoteStore = useQuery(api.adminStore.get, loadRemoteStore && !storageReady ? { key: STORE_KEY } : "skip");
+  const [targetRevision, setTargetRevision] = useState<number | null>(null);
+
+  const remoteRevision = useQuery(api.adminStore.getRevision, { key: STORE_KEY });
+  const remoteStore = useQuery(
+    api.adminStore.get,
+    targetRevision !== null ? { key: STORE_KEY } : "skip",
+  );
+
   const saveSettings = useMutation(api.adminStore.saveSettings);
   const saveEntities = useMutation(api.adminStore.saveEntities);
   const deleteEntities = useMutation(api.adminStore.deleteEntities);
+
   const persisted = useRef<StoreSnapshot | null>(null);
   const revision = useRef<number | null>(null);
   const saveQueue = useRef(Promise.resolve());
+  const initialMount = useRef(true);
 
+  // Initial load from cache or trigger remote load
   useEffect(() => {
-    if (remoteRevision === undefined || storageReady) return;
-    let cancelled = false;
-    const cached = readStoreCache();
-    if (!cached || cached.revision !== remoteRevision) {
-      queueMicrotask(() => {
-        if (!cancelled) setLoadRemoteStore(true);
-      });
-    } else {
-      queueMicrotask(() => {
-        if (cancelled) return;
+    if (remoteRevision === undefined) return;
+
+    if (initialMount.current) {
+      initialMount.current = false;
+      const cached = readStoreCache();
+      if (cached && cached.revision === remoteRevision) {
         revision.current = cached.revision;
         persisted.current = createSnapshot(cached.store);
         setStore(cached.store);
         setStorageReady(true);
-      });
-    }
-    return () => { cancelled = true; };
-  }, [remoteRevision, storageReady]);
-
-  useEffect(() => {
-    if (!loadRemoteStore || remoteStore === undefined || storageReady) return;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-      let loadedStore = emptyStore;
-      if (remoteStore !== null) {
-        try {
-          loadedStore = migrateStore(JSON.parse(remoteStore.payload), emptyStore);
-        } catch {
-          loadedStore = emptyStore;
-        }
+        return;
       }
-      persisted.current = remoteStore?.normalized ? createSnapshot(loadedStore) : null;
-      revision.current = remoteRevision ?? null;
-      if (remoteStore?.normalized) writeStoreCache(loadedStore, revision.current);
-      setStore(loadedStore);
-      setStorageReady(true);
-    });
-    return () => { cancelled = true; };
-  }, [loadRemoteStore, remoteRevision, remoteStore, storageReady]);
+    }
 
+    // If remote revision differs from what we currently have
+    if (remoteRevision !== revision.current) {
+      setTargetRevision(remoteRevision);
+    }
+  }, [remoteRevision]);
+
+  // When remote store data arrives from Convex
   useEffect(() => {
-    if (!storageReady) return;
+    if (targetRevision === null || remoteStore === undefined || remoteStore === null) return;
+
+    let loadedStore = emptyStore;
+    try {
+      loadedStore = migrateStore(JSON.parse(remoteStore.payload), emptyStore);
+    } catch {
+      loadedStore = emptyStore;
+    }
+
+    persisted.current = createSnapshot(loadedStore);
+    revision.current = targetRevision;
+    writeStoreCache(loadedStore, targetRevision);
+    setStore(loadedStore);
+    setStorageReady(true);
+    setTargetRevision(null);
+  }, [remoteStore, targetRevision]);
+
+  // Auto-save local changes to Convex
+  useEffect(() => {
+    if (!storageReady || targetRevision !== null) return;
     const timeout = window.setTimeout(() => {
       const nextStore = store;
       saveQueue.current = saveQueue.current.then(async () => {
         const previous = persisted.current;
+        if (!previous) return;
+
         const updatedAt = Date.now();
         const mutations: (() => Promise<unknown>)[] = [];
+
         for (const [table, rows] of collectionRows(nextStore)) {
-          const previousRows = previous?.collections.get(table) ?? new Map<string, string>();
+          const previousRows = previous.collections.get(table) ?? new Map<string, string>();
           const nextRows = new Map(rows.map((row) => [row.entityId, JSON.stringify([row.position, row.data])]));
           const changed = rows.filter((row) => previousRows.get(row.entityId) !== nextRows.get(row.entityId));
           const removed = [...previousRows.keys()].filter((entityId) => !nextRows.has(entityId));
+
           for (const entities of batches(changed)) {
             mutations.push(() => saveEntities({ storeKey: STORE_KEY, table, updatedAt, entities }));
           }
@@ -192,30 +203,36 @@ export function useFleetStore() {
             mutations.push(() => deleteEntities({ storeKey: STORE_KEY, table, updatedAt, entityIds }));
           }
         }
-        await runMutationQueue(mutations);
+
         const nextSettings = settingsSnapshot(nextStore);
-        let wroteData = mutations.length > 0;
-        if (!previous || previous.settings !== nextSettings) {
-          await saveSettings({
-            storeKey: STORE_KEY,
-            schemaVersion: nextStore.schemaVersion,
-            company: nextStore.company,
-            nextBillNumber: nextStore.nextBillNumber,
-            nextOtherBillNumber: nextStore.nextOtherBillNumber,
-            nextQuotationNumber: nextStore.nextQuotationNumber ?? 1,
-            updatedAt,
-          });
-          wroteData = true;
+        const settingsChanged = previous.settings !== nextSettings;
+        if (settingsChanged) {
+          mutations.push(() =>
+            saveSettings({
+              storeKey: STORE_KEY,
+              schemaVersion: nextStore.schemaVersion,
+              company: nextStore.company,
+              nextBillNumber: nextStore.nextBillNumber,
+              nextOtherBillNumber: nextStore.nextOtherBillNumber,
+              nextQuotationNumber: nextStore.nextQuotationNumber ?? 1,
+              updatedAt,
+            }),
+          );
         }
+
+        if (mutations.length === 0) return;
+
+        await runMutationQueue(mutations);
+
         persisted.current = createSnapshot(nextStore);
-        if (wroteData) revision.current = updatedAt;
-        writeStoreCache(nextStore, revision.current);
+        revision.current = updatedAt;
+        writeStoreCache(nextStore, updatedAt);
       }).catch((error: unknown) => {
         console.error("Unable to save admin data to Convex", error);
       });
     }, SAVE_DELAY_MS);
     return () => window.clearTimeout(timeout);
-  }, [deleteEntities, saveEntities, saveSettings, storageReady, store]);
+  }, [deleteEntities, saveEntities, saveSettings, storageReady, store, targetRevision]);
 
   return { store, setStore, storageReady };
 }
