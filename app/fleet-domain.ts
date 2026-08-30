@@ -424,6 +424,8 @@ export type PayrollPreview = Omit<PayrollPayment, "id" | "status" | "paidAt"> & 
   absentDays: number;
   unmarkedDays: number;
   carryForward: number;
+  totalAdvance: number;
+  remainingAdvance: number;
   rateBreakdown: { location: string; dailyRate: number; days: number; amount: number }[];
 };
 
@@ -464,6 +466,7 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
   const outstandingAdvance = store.advances.filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
   const maxRecoverable = Math.max(0, gross + reimbursements - deductions);
   const advanceRecovery = paidPayment?.advanceRecovery ?? Math.min(outstandingAdvance, maxRecoverable);
+  const remainingAdvance = Math.max(0, outstandingAdvance - advanceRecovery);
 
   return {
     employeeId,
@@ -479,6 +482,8 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
     reimbursements,
     deductions,
     advanceRecovery,
+    totalAdvance: outstandingAdvance,
+    remainingAdvance,
     carryForward: 0,
     net: Math.max(0, gross + reimbursements - deductions - advanceRecovery),
   };
@@ -547,40 +552,27 @@ export type EmployeeLedger = {
 
 export function calculateEmployeeLedger(store: FleetStore, employeeId: number): EmployeeLedger {
   const employee = store.employees.find((e) => e.id === employeeId);
-  const attendanceDates = Object.keys(store.attendance || {}).sort();
-  
-  let earnedSalary = 0;
-  for (const date of attendanceDates) {
-    if (store.attendance[date]?.[employeeId] === true) {
-      const rate = rateOnDate(store.employeeRates, employeeId, date);
-      const dailyRate = rate?.dailyRate ?? (employee?.monthlySalary ? Math.round(employee.monthlySalary / 30) : 0);
-      earnedSalary += dailyRate;
-    }
-  }
-
-  const payrollPayments = store.payrollPayments.filter((p) => p.employeeId === employeeId);
-  const employeePayments = (store.employeePayments ?? []).filter((p) => p.employeeId === employeeId);
-  const expenses = store.employeeExpenses.filter((e) => e.employeeId === employeeId);
   const advances = store.advances.filter((a) => a.employeeId === employeeId);
-
-  const reimbursements = expenses.filter((e) => e.treatment === "Employee reimbursement").reduce((sum, e) => sum + e.amount, 0);
-  const deductions = expenses.filter((e) => e.treatment === "Employee deduction").reduce((sum, e) => sum + e.amount, 0);
-
-  const payrollGrossSum = payrollPayments.reduce((sum, p) => sum + p.gross, 0);
-  const totalEarnedGross = earnedSalary > 0 ? earnedSalary : payrollGrossSum > 0 ? payrollGrossSum : (employee?.monthlySalary ?? 0);
-  const totalPayable = totalEarnedGross + reimbursements - deductions;
-
-  const totalPaid = payrollPayments.reduce((sum, p) => sum + (p.paidAmount ?? (p.status === "Paid" ? p.net : 0)), 0) +
-                    employeePayments.reduce((sum, p) => sum + p.amount, 0);
-
   const totalAdvance = advances.reduce((sum, a) => sum + a.amount, 0);
   const advanceRecovered = advances.reduce((sum, a) => sum + a.recovered, 0);
   const advanceOutstanding = Math.max(0, totalAdvance - advanceRecovered);
 
-  const remainingBalance = Math.max(0, totalPayable - totalPaid);
+  const payrollPayments = store.payrollPayments.filter((p) => p.employeeId === employeeId);
+  const employeePayments = (store.employeePayments ?? []).filter((p) => p.employeeId === employeeId);
+
+  const pendingSalaryDues = payrollPayments.reduce((sum, p) => {
+    const paid = p.status === "Paid" ? (p.paidAmount ?? p.net) : (p.paidAmount ?? 0);
+    return sum + Math.max(0, p.net - paid);
+  }, 0);
+
+  const totalPaid = payrollPayments.reduce((sum, p) => sum + (p.paidAmount ?? (p.status === "Paid" ? p.net : 0)), 0) +
+                    employeePayments.reduce((sum, p) => sum + p.amount, 0);
+
+  const totalSalaryPayable = payrollPayments.reduce((sum, p) => sum + p.gross, 0) + (employee?.monthlySalary ?? 0);
+  const remainingBalance = pendingSalaryDues > 0 ? pendingSalaryDues : advanceOutstanding > 0 ? -advanceOutstanding : 0;
 
   return {
-    totalSalaryPayable: totalPayable,
+    totalSalaryPayable,
     totalPaid,
     remainingBalance,
     totalAdvance,

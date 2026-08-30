@@ -655,7 +655,7 @@ export function PayrollView({
               "Salary Slip",
             ]}
           >
-            {filteredRows.map(({ preview, employee, saved, paid, balance, status }) => (
+            {filteredRows.map(({ preview, employee, saved, paid, balance, periodBalance, status }) => (
               <Row key={preview.employeeId}>
                 <div>
                   <button
@@ -700,8 +700,14 @@ export function PayrollView({
 
                 <div className="op-adjustments-cell">
                   {preview.advanceRecovery > 0 && (
-                    <span className="op-adj-tag adv" title="Advance Recovery">
+                    <span
+                      className="op-adj-tag adv"
+                      title={`Advance recovery: ${money(preview.advanceRecovery)} deducted from this salary (Total advance: ${money(preview.totalAdvance)}${preview.remainingAdvance > 0 ? `, Remaining balance: ${money(preview.remainingAdvance)}` : ""})`}
+                    >
                       −{money(preview.advanceRecovery)} adv
+                      {preview.totalAdvance > preview.advanceRecovery && (
+                        <small style={{ marginLeft: 3, opacity: 0.85 }}>({money(preview.totalAdvance)} total)</small>
+                      )}
                     </span>
                   )}
                   {preview.reimbursements > 0 && (
@@ -767,12 +773,19 @@ export function PayrollView({
                 </div>
 
                 <div className="op-balance-cell">
-                  {balance > 0 ? (
+                  {periodBalance > 0 ? (
                     <>
                       <span className="op-balance-badge due">
-                        {money(balance)} Overall Due
+                        {money(periodBalance)} Due
                       </span>
-                      <small className="op-subtext">{paid > 0 ? `Paid ${money(paid)} in period` : "Pending"}</small>
+                      <small className="op-subtext">{paid > 0 ? `Paid ${money(paid)} of ${money(preview.net)}` : "Pending"}</small>
+                    </>
+                  ) : preview.remainingAdvance > 0 ? (
+                    <>
+                      <span className="op-balance-badge advance-owed">
+                        −{money(preview.remainingAdvance)} Advance Due
+                      </span>
+                      <small className="op-subtext">Owes {money(preview.remainingAdvance)} advance</small>
                     </>
                   ) : (
                     <>
@@ -1019,11 +1032,18 @@ export function SalarySlipModal({
                 <tr>
                   <td>
                     <b>Advance Recovery / Deduction</b>
-                    {currentOutstandingAdvance > 0 && (
-                      <small style={{ display: "block", color: "#666" }}>
-                        Outstanding advance before recovery: {money(currentOutstandingAdvance)}
-                      </small>
-                    )}
+                    <small style={{ display: "block", color: "#666" }}>
+                      Total advance taken: {money(preview.totalAdvance)}
+                      {preview.remainingAdvance > 0 ? (
+                        <span style={{ color: "#b91c1c", fontWeight: 700 }}>
+                          {" "}· Remaining balance to recover later: {money(preview.remainingAdvance)}
+                        </span>
+                      ) : (
+                        <span style={{ color: "#15803d", fontWeight: 600 }}>
+                          {" "}· Fully recovered
+                        </span>
+                      )}
+                    </small>
                   </td>
                   <td style={{ textAlign: "center", color: "#b91c1c" }}>
                     −{money(preview.advanceRecovery)}
@@ -1066,10 +1086,19 @@ export function SalarySlipModal({
                     textAlign: "center",
                     fontWeight: "800",
                     fontSize: "17px",
-                    color: calculateEmployeeLedger(store, preview.employeeId).remainingBalance > 0 ? "#9a493d" : "#1f6a53",
+                    color:
+                      calculateEmployeeLedger(store, preview.employeeId).remainingBalance > 0
+                        ? "#9a493d"
+                        : calculateEmployeeLedger(store, preview.employeeId).remainingBalance < 0
+                        ? "#b45309"
+                        : "#1f6a53",
                   }}
                 >
-                  {money(calculateEmployeeLedger(store, preview.employeeId).remainingBalance)}
+                  {calculateEmployeeLedger(store, preview.employeeId).remainingBalance < 0
+                    ? `−${money(Math.abs(calculateEmployeeLedger(store, preview.employeeId).remainingBalance))} (Advance Due)`
+                    : calculateEmployeeLedger(store, preview.employeeId).remainingBalance > 0
+                    ? `${money(calculateEmployeeLedger(store, preview.employeeId).remainingBalance)} (Pending)`
+                    : `✓ ${money(0)} (Settled)`}
                 </td>
               </tr>
             </tbody>

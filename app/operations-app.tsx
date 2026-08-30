@@ -2,7 +2,7 @@
 
 import {
   Banknote, Check, CircleDollarSign,
-  FileText, Printer, ReceiptText, Trash2, Truck,
+  FileText, Printer, ReceiptText, Search, Trash2, Truck,
   UsersRound, WalletCards, Wrench, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -23,7 +23,7 @@ import { QuotationsView } from "./operations-quotations";
 import { EntryForm, MaintenanceEntryForm } from "./operations-forms";
 import { BillingView, ExpensesView, OverviewView } from "./operations-finance-views";
 import { OtherBillLedgersView, OtherBillsView } from "./operations-other-bills";
-import { EmployeeRecordModal } from "./operations-records";
+import { EmployeeAdvanceHistoryModal, EmployeeRecordModal } from "./operations-records";
 import {
   Metric, PageHead, ReportCategoryDetailModal,
   ReportDetailModal,
@@ -95,6 +95,8 @@ export default function OperationsApp() {
   const [vehicleAttendanceDate, setVehicleAttendanceDate] = useState(isoToday());
   const [vehicleAttendanceDraft, setVehicleAttendanceDraft] = useState<Record<number, boolean>>(() => ({ ...(store.vehicleAttendance[isoToday()] ?? {}) }));
   const [vehicleAttendanceDirty, setVehicleAttendanceDirty] = useState(false);
+  const [advanceSearch, setAdvanceSearch] = useState("");
+  const [advanceHistoryEmployeeId, setAdvanceHistoryEmployeeId] = useState<number | null>(null);
   useEffect(() => {
     if (!storageReady) return;
     let cancelled = false;
@@ -577,6 +579,15 @@ export default function OperationsApp() {
   });
 
   const pendingPayrollCount = store.payrollPayments.filter((payment) => payment.status === "Pending").length;
+
+  if (composeBill) return <BillingComposer store={store} initialClientId={billingClientId} bill={editingBill} campaignBooking={draftCampaignBooking} cancel={() => { setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); }} save={(bill) => { const isExisting = store.bills.some((item) => item.id === bill.id); setStore((current) => ({ ...current, bills: isExisting ? current.bills.map((item) => item.id === bill.id ? bill : item) : [...current.bills, bill], nextBillNumber: isExisting ? current.nextBillNumber : bill.number + 1, campaignBookings: draftCampaignBooking ? current.campaignBookings.map((item) => item.id === draftCampaignBooking.id ? { ...item, generatedBillId: bill.id } : item) : current.campaignBookings })); setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); setInvoice(bill); notify("Bill saved and receipt ready"); }}/>;
+  if (composeQuotation) return <QuotationComposer store={store} cancel={() => setComposeQuotation(false)} preview={(quotation) => { setComposeQuotation(false); setQuotationDraft(quotation); }}/>;
+  if (quotationDraft) return <Invoice bill={quotationDraft} store={store} quotation close={() => setQuotationDraft(null)}/>;
+  if (campaignBillBooking) return <CampaignBillModeModal booking={campaignBillBooking} close={() => setCampaignBillBooking(null)} generate={(paymentMode, options) => generateCampaignBill(campaignBillBooking, paymentMode, options)}/>;
+  if (quotationBooking) return <CampaignQuotation booking={quotationBooking} store={store} close={() => setQuotationBooking(null)}/>;
+  if (employeeRecordId) return <EmployeeRecordModal store={store} employeeId={employeeRecordId} close={() => setEmployeeRecordId(null)}/>;
+  if (advanceHistoryEmployeeId) return <EmployeeAdvanceHistoryModal store={store} employeeId={advanceHistoryEmployeeId} close={() => setAdvanceHistoryEmployeeId(null)}/>;
+
   const recordViewShell = (content: React.ReactNode) => <OperationsShell menu={menu} setMenu={setMenu} openNavSections={openNavSections} setOpenNavSections={setOpenNavSections} view={view} go={go} pendingPayrollCount={pendingPayrollCount} dialogContent={dialog && <EntryForm dialog={dialog} store={store} employeeId={editingEmployeeId} clientId={editingClientId} vehicleId={editingVehicleId} close={() => setDialog(null)} commit={commit}/>}>{content}</OperationsShell>;
   if (view === "otherBilling") return recordViewShell(<OtherBillsView store={store} setStore={setStore} notify={notify}/>);
   if (view === "otherBillLedgers") return recordViewShell(<OtherBillLedgersView store={store}/>);
@@ -617,7 +628,105 @@ export default function OperationsApp() {
     const advanceTotal = store.advances.reduce((sum, advance) => sum + advance.amount, 0);
     const recoveredTotal = store.advances.reduce((sum, advance) => sum + advance.recovered, 0);
     const advanceBalance = Math.max(0, advanceTotal - recoveredTotal);
-    return recordViewShell(<><PageHead title="Employee advances" detail="Track issued advances and automatic salary recovery" action="Add advance" onAction={() => setDialog("advance")}/><section className="op-metrics"><Metric label="Advances issued" value={money(advanceTotal)} detail={`${store.advances.length} advance records`} icon={Banknote}/><Metric label="Recovered" value={money(recoveredTotal)} detail="Recovered through paid salary" icon={Check}/><Metric label="Scheduled recovery" value={money(payrollAdvanceRecoveryTotal)} detail={`Salary payout ${fmt(addDays(payrollWeek, 7))}`} icon={CircleDollarSign}/><Metric label="Outstanding" value={money(advanceBalance)} detail="Remaining employee balance" icon={WalletCards}/></section>{store.advances.length ? <Table headers={["Date", "Employee", "Reason", "Advance", "Recovered", "Balance", ""]}>{[...store.advances].sort((left, right) => right.date.localeCompare(left.date)).map((advance) => <Row key={advance.id}><span>{fmt(advance.date)}</span><b>{store.employees.find((employee) => employee.id === advance.employeeId)?.name ?? advance.employeeName ?? "Unassigned employee"}</b><span>{advance.note || "Employee advance"}</span><strong>{money(advance.amount)}</strong><span>{money(advance.recovered)}</span><strong>{money(Math.max(0, advance.amount - advance.recovered))}</strong><Actions remove={() => { if (!window.confirm("Delete this employee advance?")) return; setStore((current) => ({ ...current, advances: current.advances.filter((item) => item.id !== advance.id) })); }}/></Row>)}</Table> : <div className="op-empty-state"><Banknote/><h2>No employee advances</h2><p>Add an advance to track its balance and recover it through salary.</p></div>}</>);
+    const normalizedAdvanceSearch = advanceSearch.trim().toLowerCase();
+    const filteredAdvances = store.advances.filter((advance) => {
+      const empName = (store.employees.find((e) => e.id === advance.employeeId)?.name ?? advance.employeeName ?? "").toLowerCase();
+      const note = (advance.note || "").toLowerCase();
+      const date = fmt(advance.date).toLowerCase();
+      const amountStr = String(advance.amount);
+      return (
+        !normalizedAdvanceSearch ||
+        empName.includes(normalizedAdvanceSearch) ||
+        note.includes(normalizedAdvanceSearch) ||
+        date.includes(normalizedAdvanceSearch) ||
+        amountStr.includes(normalizedAdvanceSearch)
+      );
+    });
+
+    return recordViewShell(
+      <>
+        <PageHead
+          title="Employee advances"
+          detail="Track issued advances and automatic salary recovery"
+          action="Add advance"
+          onAction={() => setDialog("advance")}
+        />
+        <section className="op-metrics">
+          <Metric label="Advances issued" value={money(advanceTotal)} detail={`${store.advances.length} advance records`} icon={Banknote} />
+          <Metric label="Recovered" value={money(recoveredTotal)} detail="Recovered through paid salary" icon={Check} />
+          <Metric label="Scheduled recovery" value={money(payrollAdvanceRecoveryTotal)} detail={`Salary payout ${fmt(addDays(payrollWeek, 7))}`} icon={CircleDollarSign} />
+          <Metric label="Outstanding" value={money(advanceBalance)} detail="Remaining employee balance" icon={WalletCards} />
+        </section>
+
+        <div className="op-toolbar" style={{ marginBottom: 14 }}>
+          <label className="op-search" style={{ minWidth: 260, maxWidth: 420 }}>
+            <Search size={16} />
+            <input
+              placeholder="Search advances by employee, reason, date..."
+              value={advanceSearch}
+              onChange={(e) => setAdvanceSearch(e.target.value)}
+            />
+          </label>
+        </div>
+
+        {filteredAdvances.length ? (
+          <Table headers={["Date", "Employee", "Reason", "Advance", "Recovered", "Balance", ""]}>
+            {[...filteredAdvances]
+              .sort((left, right) => right.date.localeCompare(left.date))
+              .map((advance) => {
+                const emp = store.employees.find((employee) => employee.id === advance.employeeId);
+                const empName = emp?.name ?? advance.employeeName ?? "Unassigned employee";
+                return (
+                  <Row key={advance.id}>
+                    <span>{fmt(advance.date)}</span>
+                    <div>
+                      {advance.employeeId ? (
+                        <button
+                          type="button"
+                          className="op-name-button"
+                          onClick={() => setAdvanceHistoryEmployeeId(advance.employeeId)}
+                          title={`Click to view advance history for ${empName}`}
+                        >
+                          {empName}
+                        </button>
+                      ) : (
+                        <b>{empName}</b>
+                      )}
+                    </div>
+                    <span>{advance.note || "Employee advance"}</span>
+                    <strong>{money(advance.amount)}</strong>
+                    <span style={{ color: advance.recovered > 0 ? "#15803d" : "inherit" }}>
+                      {money(advance.recovered)}
+                    </span>
+                    <strong style={{ color: advance.amount - advance.recovered > 0 ? "#b45309" : "#15803d" }}>
+                      {money(Math.max(0, advance.amount - advance.recovered))}
+                    </strong>
+                    <Actions
+                      remove={() => {
+                        if (!window.confirm("Delete this employee advance?")) return;
+                        setStore((current) => ({
+                          ...current,
+                          advances: current.advances.filter((item) => item.id !== advance.id),
+                        }));
+                      }}
+                    />
+                  </Row>
+                );
+              })}
+          </Table>
+        ) : (
+          <div className="op-empty-state">
+            <Banknote />
+            <h2>{normalizedAdvanceSearch ? "No matching advances found" : "No employee advances"}</h2>
+            <p>
+              {normalizedAdvanceSearch
+                ? "Try searching for another employee name or keyword."
+                : "Add an advance to track its balance and recover it through salary."}
+            </p>
+          </div>
+        )}
+      </>
+    );
   }
   if (String(view) === "vehicles") return recordViewShell(<CampaignAttendanceView store={store} setStore={setStore} notify={notify}/>);
   if (view === "vehicleAttendance") return recordViewShell(<>
@@ -637,15 +746,7 @@ export default function OperationsApp() {
     </div>
   </>);
 
-  if (composeBill) return <BillingComposer store={store} initialClientId={billingClientId} bill={editingBill} campaignBooking={draftCampaignBooking} cancel={() => { setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); }} save={(bill) => { const isExisting = store.bills.some((item) => item.id === bill.id); setStore((current) => ({ ...current, bills: isExisting ? current.bills.map((item) => item.id === bill.id ? bill : item) : [...current.bills, bill], nextBillNumber: isExisting ? current.nextBillNumber : bill.number + 1, campaignBookings: draftCampaignBooking ? current.campaignBookings.map((item) => item.id === draftCampaignBooking.id ? { ...item, generatedBillId: bill.id } : item) : current.campaignBookings })); setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); setInvoice(bill); notify("Bill saved and receipt ready"); }}/>
-  if (composeQuotation) return <QuotationComposer store={store} cancel={() => setComposeQuotation(false)} preview={(quotation) => { setComposeQuotation(false); setQuotationDraft(quotation); }}/>;
-  if (quotationDraft) return <Invoice bill={quotationDraft} store={store} quotation close={() => setQuotationDraft(null)}/>;
-  if (campaignBillBooking) return <CampaignBillModeModal booking={campaignBillBooking} close={() => setCampaignBillBooking(null)} generate={(paymentMode, options) => generateCampaignBill(campaignBillBooking, paymentMode, options)}/>;
-  if (quotationBooking) return <CampaignQuotation booking={quotationBooking} store={store} close={() => setQuotationBooking(null)}/>;
-  const selectedReportCategoryDetail = reportProfitBreakdown.find((item) => item.value === reportCategoryDetail);
-  if (selectedReportCategoryDetail) return <ReportCategoryDetailModal item={selectedReportCategoryDetail} reportStart={reportStart} reportEnd={reportEnd} close={() => setReportCategoryDetail(null)}/>;
-  if (reportDetail) return <ReportDetailModal kind={reportDetail} store={store} reportStart={reportStart} reportEnd={reportEnd} reportBills={reportBills} reportOtherBills={reportOtherBills} reportExpenses={reportExpenses} reportEmployeeExpenses={reportEmployeeExpenses} reportPayroll={reportPayroll} close={() => setReportDetail(null)}/>;
-  if (employeeRecordId) return <EmployeeRecordModal store={store} employeeId={employeeRecordId} close={() => setEmployeeRecordId(null)}/>;
+
   const finalDialogContent = <>
     {dialog && <EntryForm dialog={dialog} store={store} employeeId={editingEmployeeId} clientId={editingClientId} vehicleId={editingVehicleId} close={() => { setDialog(null); setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); }} commit={(updated, message) => { setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); commit(updated, message); }}/>} {campaignFormOpen && <CampaignBookingForm store={store} booking={editingCampaign} close={() => { setCampaignFormOpen(false); setEditingCampaign(null); }} save={(booking) => { setStore((current) => ({ ...current, campaignBookings: editingCampaign ? current.campaignBookings.map((item) => item.id === booking.id ? booking : item) : [...current.campaignBookings, booking] })); setCampaignFormOpen(false); setEditingCampaign(null); notify("Campaign booking saved"); }}/>} {paymentBill && <BillPaymentModal bill={paymentBill} close={() => setPaymentBill(null)} save={(date, receivedAmount, mode, reference, note) => { setStore((current) => ({ ...current, bills: current.bills.map((bill) => { if (bill.id !== paymentBill.id) return bill; const payments = [...(bill.payments ?? []), { id: nextId(bill.payments ?? []), date, amount: receivedAmount, mode, reference, note }]; return { ...bill, payments, status: bill.advanceReceived + payments.reduce((sum, payment) => sum + payment.amount, 0) >= bill.total ? "Paid" : "Pending" }; }) })); setPaymentBill(null); notify(`${mode} installment recorded`); }}/>} {consolidateOpen && <ConsolidateBillsModal store={store} close={() => setConsolidateOpen(false)} preview={(bills) => { setConsolidateOpen(false); setConsolidatedBills(bills); }}/>} {invoice && <Invoice bill={invoice} store={store} close={() => setInvoice(null)} edit={() => { setEditingBill(invoice); setBillingClientId(invoice.clientId); setInvoice(null); setComposeBill(true); }} remove={() => removeBill(invoice.id)} generateReceipt={() => { setReceipt(invoice); setInvoice(null); }}/>} {receipt && <BillReceipt bill={receipt} store={store} close={() => setReceipt(null)}/>} {consolidatedBills.length > 0 && <ConsolidatedInvoice bills={consolidatedBills.map((selected) => store.bills.find((bill) => bill.id === selected.id) ?? selected)} store={store} close={() => setConsolidatedBills([])}/>} {toast && <div className="op-toast"><Check/>{toast}</div>}
   </>;

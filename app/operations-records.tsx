@@ -65,3 +65,108 @@ export function EmployeeRecordModal({ store, employeeId, close }: { store: Fleet
   
   return <Modal title={`${employee.name} · complete record`} close={close}><div className="op-client-ledger op-employee-record"><section className="op-ledger-profile"><div><b>{employee.name}</b><span>{currentRate?.location ?? "No current location"} · {money(currentRate?.dailyRate ?? 0)}/day · Monthly: {money(employee.monthlySalary)}</span><small>{employee.status} · {presentDays} present days</small></div><Status>{employee.status}</Status></section><section className="op-ledger-totals"><p><span>Total payable</span><b>{money(ledger.totalSalaryPayable)}</b></p><p><span>Total paid</span><b>{money(ledger.totalPaid)}</b></p><p><span>Remaining balance</span><strong>{money(ledger.remainingBalance)}</strong></p><p><span>Total advance</span><b>{money(ledger.totalAdvance)}</b></p><p><span>Advance outstanding</span><strong>{money(ledger.advanceOutstanding)}</strong></p></section><div className="op-section-title"><h2>Attendance summary</h2></div>{attendanceRanges.length ? <section className="op-history">{attendanceRanges.map((range, idx) => <p key={idx}><b>{range.startDate === range.endDate ? fmt(range.startDate) : `${fmt(range.startDate)} – ${fmt(range.endDate)}`}</b><span>{range.status}</span><small>{range.days} {range.days === 1 ? "day" : "days"}</small></p>)}</section> : <div className="op-empty-state"><CalendarDays/><h2>No attendance records</h2></div>}<div className="op-section-title"><h2>Payment & expense history</h2></div>{records.length ? <section className="op-ledger-list">{records.map((record) => <article key={record.key}><time>{fmt(record.date)}</time><div><b>{record.type}</b><small>{record.detail}</small></div><Status>{record.status}</Status><strong>{record.amount === null ? "—" : money(record.amount)}</strong></article>)}</section> : <div className="op-empty-state"><ReceiptText/><h2>No payment records</h2><p>Salary, advances, expenses, and payments will appear here.</p></div>}<div className="op-section-title"><h2>Rate and location history</h2></div>{rates.length ? <section className="op-history op-employee-rate-history">{rates.map((rate) => <p key={rate.id}><b>{rate.location}</b><span>{money(rate.dailyRate)}/day</span><small>{fmt(rate.effectiveFrom)} to {rate.effectiveTo ? fmt(rate.effectiveTo) : "Current"}</small></p>)}</section> : <div className="op-empty-state"><WalletCards/><h2>No rate history</h2><p>Add a rate or transfer record for this employee.</p></div>}<footer><Button secondary onClick={close}>Close</Button></footer></div></Modal>;
 }
+
+export function EmployeeAdvanceHistoryModal({ store, employeeId, close }: { store: FleetStore; employeeId: number; close: () => void }) {
+  const employee = store.employees.find((item) => item.id === employeeId);
+  if (!employee) return null;
+
+  const advances = store.advances.filter((item) => item.employeeId === employeeId).sort((a, b) => b.date.localeCompare(a.date));
+  const totalAdvance = advances.reduce((sum, item) => sum + item.amount, 0);
+  const totalRecovered = advances.reduce((sum, item) => sum + item.recovered, 0);
+  const outstanding = Math.max(0, totalAdvance - totalRecovered);
+
+  const payrollRecoveries = store.payrollPayments
+    .filter((p) => p.employeeId === employeeId && p.advanceRecovery > 0)
+    .sort((a, b) => b.periodStart.localeCompare(a.periodStart));
+
+  return (
+    <Modal title={`${employee.name} · Advance History`} close={close}>
+      <div className="op-client-ledger op-employee-record">
+        <section className="op-ledger-profile">
+          <div>
+            <b>{employee.name}</b>
+            <span>Status: {employee.status} · Monthly salary base: {money(employee.monthlySalary)}</span>
+            <small>{advances.length} advance record(s) on file</small>
+          </div>
+          <Status>{outstanding > 0 ? "Advance Pending" : "Fully Recovered"}</Status>
+        </section>
+
+        <section className="op-ledger-totals">
+          <p>
+            <span>Total Advances Taken</span>
+            <b>{money(totalAdvance)}</b>
+          </p>
+          <p>
+            <span>Total Recovered</span>
+            <b style={{ color: "#15803d" }}>{money(totalRecovered)}</b>
+          </p>
+          <p>
+            <span>Remaining Outstanding</span>
+            <strong style={{ color: outstanding > 0 ? "#b45309" : "#15803d" }}>{money(outstanding)}</strong>
+          </p>
+        </section>
+
+        <div className="op-section-title">
+          <h2>Advance Records</h2>
+        </div>
+        {advances.length ? (
+          <section className="op-ledger-list">
+            {advances.map((advance) => {
+              const bal = Math.max(0, advance.amount - advance.recovered);
+              return (
+                <article key={advance.id}>
+                  <time>{fmt(advance.date)}</time>
+                  <div>
+                    <b>{advance.note || "Employee Advance"}</b>
+                    <small>
+                      Taken: {money(advance.amount)} · Recovered: {money(advance.recovered)} · Remaining: {money(bal)}
+                    </small>
+                  </div>
+                  <Status>{bal === 0 ? "Recovered" : "Outstanding"}</Status>
+                  <strong className={bal > 0 ? "" : "credit"}>
+                    {money(advance.amount)}
+                  </strong>
+                </article>
+              );
+            })}
+          </section>
+        ) : (
+          <div className="op-empty-state">
+            <Banknote />
+            <h2>No advance records</h2>
+            <p>No advances recorded for this employee.</p>
+          </div>
+        )}
+
+        {payrollRecoveries.length > 0 && (
+          <>
+            <div className="op-section-title">
+              <h2>Salary Recovery Breakdown</h2>
+            </div>
+            <section className="op-ledger-list">
+              {payrollRecoveries.map((p) => (
+                <article key={p.id}>
+                  <time>{fmt(p.paidAt ?? p.payoutDate)}</time>
+                  <div>
+                    <b>Salary Period: {fmt(p.periodStart)} – {fmt(p.periodEnd)}</b>
+                    <small>Deducted from salary gross ({money(p.gross)})</small>
+                  </div>
+                  <Status>{p.status}</Status>
+                  <strong style={{ color: "#15803d" }}>
+                    −{money(p.advanceRecovery)}
+                  </strong>
+                </article>
+              ))}
+            </section>
+          </>
+        )}
+
+        <footer>
+          <Button secondary onClick={close}>
+            Close
+          </Button>
+        </footer>
+      </div>
+    </Modal>
+  );
+}

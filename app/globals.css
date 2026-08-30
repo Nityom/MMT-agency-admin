@@ -1282,6 +1282,12 @@ button, input, select { font: inherit; letter-spacing: 0; }
   border: 1px solid #dcfce7;
 }
 
+.op-balance-badge.advance-owed {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
 .op-text-muted {
   color: #94a39d;
 }
