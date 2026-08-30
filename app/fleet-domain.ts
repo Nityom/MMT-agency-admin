@@ -399,9 +399,23 @@ export function weekFor(date: ISODate): { start: ISODate; end: ISODate; payoutDa
 }
 
 export function rateOnDate(rates: EmployeeRate[], employeeId: number, date: ISODate): EmployeeRate | undefined {
-  return rates
-    .filter((rate) => rate.employeeId === employeeId && rate.effectiveFrom <= date && (!rate.effectiveTo || rate.effectiveTo >= date))
+  const employeeRates = rates.filter((rate) => rate.employeeId === employeeId);
+  if (!employeeRates.length) return undefined;
+
+  // 1. Exact range match where effectiveFrom <= date and (effectiveTo is unset or >= date)
+  const exact = employeeRates
+    .filter((rate) => rate.effectiveFrom <= date && (!rate.effectiveTo || rate.effectiveTo >= date))
     .sort((left, right) => right.effectiveFrom.localeCompare(left.effectiveFrom))[0];
+  if (exact) return exact;
+
+  // 2. If attendance date is earlier than the earliest effectiveFrom, use the baseline earliest rate
+  const sortedByFrom = [...employeeRates].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+  if (date < sortedByFrom[0].effectiveFrom) {
+    return sortedByFrom[0];
+  }
+
+  // 3. Fallback to the latest available rate for the employee
+  return sortedByFrom[sortedByFrom.length - 1];
 }
 
 export type PayrollPreview = Omit<PayrollPayment, "id" | "status" | "paidAt"> & {

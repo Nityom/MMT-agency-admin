@@ -683,7 +683,7 @@ export function PayrollView({
                   </span>
                 </div>
 
-                <div>
+                <div className="op-daily-rate-cell">
                   <strong className="op-gross-val">{money(preview.gross)}</strong>
                   <small className="op-subtext">
                     {preview.rateBreakdown

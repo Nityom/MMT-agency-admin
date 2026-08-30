@@ -1130,19 +1130,41 @@ button, input, select { font: inherit; letter-spacing: 0; }
   border-radius: 8px;
   overflow-x: auto;
   background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .op-salary-table-wrap .op-table {
-  min-width: 1040px;
+  min-width: 1240px;
 }
 
 .op-salary-table-wrap .op-table > header,
 .op-salary-table-wrap .op-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1.4fr) minmax(95px, 0.9fr) minmax(125px, 1.1fr) minmax(115px, 1fr) minmax(100px, 0.9fr) minmax(165px, 1.4fr) minmax(130px, 1.1fr) minmax(100px, 0.8fr);
+  grid-template-columns:
+    minmax(160px, 1.4fr)
+    minmax(175px, 1.3fr)
+    minmax(160px, 1.3fr)
+    minmax(115px, 0.9fr)
+    minmax(110px, 0.9fr)
+    minmax(185px, 1.4fr)
+    minmax(170px, 1.3fr)
+    minmax(140px, 1.1fr);
   align-items: center;
-  gap: 12px;
-  padding: 0 16px;
+  gap: 16px;
+  padding: 10px 16px;
+}
+
+.op-attendance-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.op-daily-rate-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .op-balance-cell {
@@ -1165,28 +1187,29 @@ button, input, select { font: inherit; letter-spacing: 0; }
 
 .op-paid-input-wrap {
   position: relative;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .op-currency-prefix {
   position: absolute;
-  left: 7px;
-  font-size: 12px;
+  left: 8px;
+  font-size: 13px;
   font-weight: 700;
   color: #6a7c75;
   pointer-events: none;
 }
 
 .op-salary-paid-field {
-  width: 78px;
-  padding: 5px 6px 5px 18px;
+  width: 90px;
+  padding: 6px 8px 6px 20px;
   font-size: 13px;
   font-weight: 700;
   color: #154e3f;
   background: #f7fbf9;
   border: 1px solid #c2d5cb;
-  border-radius: 5px;
+  border-radius: 6px;
   outline: none;
   transition: all 0.15s ease;
 }
@@ -1198,15 +1221,16 @@ button, input, select { font: inherit; letter-spacing: 0; }
 }
 
 .op-quick-pay-full-btn {
-  padding: 4px 8px;
-  font-size: 11px;
+  padding: 5px 9px;
+  font-size: 12px;
   font-weight: 700;
   color: #11684c;
   background: #e1f5ec;
   border: 1px solid #b4e3cf;
-  border-radius: 4px;
+  border-radius: 5px;
   cursor: pointer;
   white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.15s ease;
 }
 
@@ -1218,7 +1242,7 @@ button, input, select { font: inherit; letter-spacing: 0; }
 
 .op-balance-badge {
   display: inline-block;
-  padding: 3px 8px;
+  padding: 4px 9px;
   font-size: 12px;
   font-weight: 700;
   border-radius: 5px;
