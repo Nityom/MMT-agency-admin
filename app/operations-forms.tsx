@@ -776,9 +776,10 @@ export function EntryForm({
                   name="supplierRate"
                   type="number"
                   min="0"
-                  value={expenseSupplierRate || ""}
+                  step="0.01"
+                  value={expenseSupplierRate}
                   onChange={(event) =>
-                    setExpenseSupplierRate(Number(event.target.value))
+                    setExpenseSupplierRate(event.target.value === "" ? 0 : Number(event.target.value))
                   }
                 />
               </label>
@@ -1146,9 +1147,8 @@ export function MaintenanceEntryForm({
               type="number"
               min="0"
               step="0.01"
-              value={supplierRate || ""}
-              onChange={(event) => setSupplierRate(Number(event.target.value))}
-              required
+              value={supplierRate}
+              onChange={(event) => setSupplierRate(event.target.value === "" ? 0 : Number(event.target.value))}
             />
           </label>
           <label className="op-field">
