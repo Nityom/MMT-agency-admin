@@ -414,8 +414,9 @@ export function PayrollView({
   // Compute calculated values for each row
   const calculatedRows = payrollRows.map((row) => {
     const paid =
-      row.saved?.paidAmount ??
-      (row.saved?.status === "Paid" ? row.preview.net : 0);
+      row.saved?.status === "Paid"
+        ? Math.min(row.saved.paidAmount ?? row.preview.net, row.preview.net)
+        : (row.saved?.paidAmount ?? 0);
     const periodBalance = Math.max(0, row.preview.net - paid);
     const overallBalance = calculateEmployeeLedger(store, row.preview.employeeId).remainingBalance;
     const status =

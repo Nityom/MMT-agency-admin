@@ -217,7 +217,10 @@ export default function OperationsApp() {
       (item) => item.employeeId === preview.employeeId &&
         ((item.periodStart === payrollWeek && item.periodEnd === payrollPeriodEnd) || item.periodStart === payrollWeek)
     );
-    const paid = saved?.paidAmount ?? (saved?.status === "Paid" ? preview.net : 0);
+    const paid =
+      saved?.status === "Paid"
+        ? Math.min(saved.paidAmount ?? preview.net, preview.net)
+        : (saved?.paidAmount ?? 0);
     const periodBalance = Math.max(0, preview.net - paid);
     const overallBalance = calculateEmployeeLedger(store, preview.employeeId).remainingBalance;
     return {
