@@ -460,15 +460,9 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
   const reimbursements = relevantExpenses.filter((expense) => expense.treatment === "Employee reimbursement").reduce((sum, expense) => sum + expense.amount, 0);
   const deductions = relevantExpenses.filter((expense) => expense.treatment === "Employee deduction").reduce((sum, expense) => sum + expense.amount, 0);
   const gross = [...breakdown.values()].reduce((sum, item) => sum + item.amount, 0);
-  const carryForward = store.payrollPayments
-    .filter((payment) => payment.employeeId === employeeId && payment.periodStart < periodStart)
-    .reduce((sum, payment) => {
-      const paid = payment.status === "Paid" ? (payment.paidAmount ?? payment.net) : (payment.paidAmount ?? 0);
-      return sum + Math.max(0, payment.net - paid);
-    }, 0);
   const paidPayment = store.payrollPayments.find((payment) => payment.employeeId === employeeId && payment.periodStart === periodStart && payment.status === "Paid");
   const outstandingAdvance = store.advances.filter((advance) => advance.employeeId === employeeId && advance.date <= payoutDate).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
-  const maxRecoverable = Math.max(0, gross + reimbursements - deductions + carryForward);
+  const maxRecoverable = Math.max(0, gross + reimbursements - deductions);
   const advanceRecovery = paidPayment?.advanceRecovery ?? Math.min(outstandingAdvance, maxRecoverable);
 
   return {
@@ -485,8 +479,8 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
     reimbursements,
     deductions,
     advanceRecovery,
-    carryForward,
-    net: Math.max(0, gross + reimbursements - deductions - advanceRecovery + carryForward),
+    carryForward: 0,
+    net: Math.max(0, gross + reimbursements - deductions - advanceRecovery),
   };
 }
 

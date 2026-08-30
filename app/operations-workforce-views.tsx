@@ -698,6 +698,11 @@ export function PayrollView({
                 </div>
 
                 <div className="op-adjustments-cell">
+                  {preview.advanceRecovery > 0 && (
+                    <span className="op-adj-tag adv" title="Advance Recovery">
+                      −{money(preview.advanceRecovery)} adv
+                    </span>
+                  )}
                   {preview.reimbursements > 0 && (
                     <span className="op-adj-tag reimb" title="Reimbursement / Extras">
                       +{money(preview.reimbursements)}
@@ -708,20 +713,9 @@ export function PayrollView({
                       −{money(preview.deductions)}
                     </span>
                   )}
-                  {preview.advanceRecovery > 0 && (
-                    <span className="op-adj-tag adv" title="Advance Recovery">
-                      −{money(preview.advanceRecovery)} adv
-                    </span>
-                  )}
-                  {preview.carryForward > 0 && (
-                    <span className="op-adj-tag carry" title="Previous Carry Forward">
-                      +{money(preview.carryForward)} prior
-                    </span>
-                  )}
                   {preview.reimbursements === 0 &&
                     preview.deductions === 0 &&
-                    preview.advanceRecovery === 0 &&
-                    preview.carryForward === 0 && (
+                    preview.advanceRecovery === 0 && (
                       <span className="op-text-muted">—</span>
                     )}
                 </div>
@@ -1000,17 +994,6 @@ export function SalarySlipModal({
                   </td>
                 </tr>
               ))}
-
-              {preview.carryForward > 0 && (
-                <tr>
-                  <td>
-                    <b>Prior Unpaid Salary (Brought Forward)</b>
-                  </td>
-                  <td style={{ textAlign: "center", color: "#15803d" }}>
-                    +{money(preview.carryForward)}
-                  </td>
-                </tr>
-              )}
 
               {deductionsList.map((item) => (
                 <tr key={item.id}>
