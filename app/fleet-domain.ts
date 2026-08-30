@@ -573,9 +573,35 @@ export type EmployeeLedger = {
   advanceOutstanding: number;
 };
 
+export function getEmployeeAdvancesWithRecoveries(store: FleetStore, employeeId?: number) {
+  const paidRecoveriesMap = new Map<number, number>();
+  for (const emp of store.employees) {
+    const total = store.payrollPayments
+      .filter((p) => p.employeeId === emp.id && (p.status === "Paid" || (p.paidAmount ?? 0) >= p.net))
+      .reduce((sum, p) => sum + (p.advanceRecovery ?? 0), 0);
+    paidRecoveriesMap.set(emp.id, total);
+  }
+
+  const all = store.advances.map((advance) => {
+    const totalEmpRecovery = paidRecoveriesMap.get(advance.employeeId) ?? 0;
+    const earlierAmount = store.advances
+      .filter((item) => item.employeeId === advance.employeeId && (item.date < advance.date || (item.date === advance.date && item.id < advance.id)))
+      .reduce((sum, item) => sum + item.amount, 0);
+    const recovered = Math.max(advance.recovered ?? 0, Math.min(advance.amount, Math.max(0, totalEmpRecovery - earlierAmount)));
+    const balance = Math.max(0, advance.amount - recovered);
+    return {
+      ...advance,
+      recovered,
+      balance,
+    };
+  });
+
+  return employeeId !== undefined ? all.filter((a) => a.employeeId === employeeId) : all;
+}
+
 export function calculateEmployeeLedger(store: FleetStore, employeeId: number): EmployeeLedger {
   const employee = store.employees.find((e) => e.id === employeeId);
-  const advances = store.advances.filter((a) => a.employeeId === employeeId);
+  const advances = getEmployeeAdvancesWithRecoveries(store, employeeId);
   const totalAdvance = advances.reduce((sum, a) => sum + a.amount, 0);
   const advanceRecovered = advances.reduce((sum, a) => sum + a.recovered, 0);
   const advanceOutstanding = Math.max(0, totalAdvance - advanceRecovered);

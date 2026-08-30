@@ -780,6 +780,15 @@ export function PayrollView({
                       </span>
                       <small className="op-subtext">{paid > 0 ? `Paid ${money(paid)} of ${money(preview.net)}` : "Pending"}</small>
                     </>
+                  ) : preview.remainingAdvance > 0 ? (
+                    <>
+                      <span className="op-balance-badge advance-owed">
+                        −{money(preview.remainingAdvance)} Advance Due
+                      </span>
+                      <small className="op-subtext">
+                        {money(preview.remainingAdvance)} forwarded to next period
+                      </small>
+                    </>
                   ) : (
                     <>
                       <span className="op-balance-badge settled">
@@ -787,7 +796,7 @@ export function PayrollView({
                       </span>
                       <small className="op-subtext">
                         {preview.advanceRecovery > 0
-                          ? `Adjusted ${money(preview.advanceRecovery)} adv`
+                          ? "Advance fully recovered"
                           : "All dues paid"}
                       </small>
                     </>

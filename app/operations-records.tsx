@@ -2,7 +2,7 @@
 
 import { Banknote, CalendarDays, Printer, ReceiptText, WalletCards } from "lucide-react";
 import {
-  addDays, Bill, BillCharge, calculateBillTotal, calculateEmployeeLedger, FleetStore, groupAttendanceRanges, inclusiveDays, rateOnDate,
+  addDays, Bill, BillCharge, calculateBillTotal, calculateEmployeeLedger, FleetStore, getEmployeeAdvancesWithRecoveries, groupAttendanceRanges, inclusiveDays, rateOnDate,
 } from "./fleet-domain";
 import { Button, Modal, Status } from "./operations-components";
 import {
@@ -23,21 +23,20 @@ export function ClientLedgerModal({ store, clientId, close, viewBill }: { store:
   const attendanceRecords = bookings.flatMap((booking) => {
     const throughDate = isoToday() < bookingEnd(booking) ? isoToday() : bookingEnd(booking);
     if (throughDate < booking.startDate) return [];
-    return Array.from({ length: inclusiveDays(booking.startDate, throughDate) }, (_, offset) => addDays(booking.startDate, offset)).flatMap((date) => {
-      const periods = booking.vehiclePeriods.filter((period) => period.startDate <= date && period.endDate >= date);
-      const slots = periods.flatMap((period) => Array.from({ length: period.quantity }, (_, slotIndex) => ({ key: campaignSlotKey(booking.id, period.id, slotIndex), legacyVehicleId: period.vehicleIds[slotIndex] })));
-      if (!slots.length) return [];
-      const presentSlots = slots.filter((slot) => store.campaignAttendance[date]?.[slot.key] ?? (slot.legacyVehicleId ? store.vehicleAttendance[date]?.[slot.legacyVehicleId] : false)).length;
-      const absentSlots = slots.length - presentSlots;
-      return [{ key: `attendance-${booking.id}-${date}`, date, type: "Campaign attendance", detail: `${presentSlots}/${slots.length} slots active · Campaign ${fmt(booking.startDate)} to ${fmt(bookingEnd(booking))}`, status: presentSlots === slots.length ? "Present" : presentSlots ? "Partial" : "Not Marked", presentSlots }];
+    const days = inclusiveDays(booking.startDate, throughDate);
+    return Array.from({ length: days }, (_, index) => {
+      const date = addDays(booking.startDate, index);
+      const vehicleDays = bookingVehicleLines(store, booking, date).filter((vehicle) => store.vehicleAttendance[date]?.[vehicle.vehicleId] === true).length;
+      return { date, vehicleDays };
     });
   });
-  const totalPresentDays = attendanceRecords.reduce((sum, record) => sum + record.presentSlots, 0);
-  const bookingRows = bookings.map((booking) => { const charges: BillCharge[] = booking.facilities.map((facility) => ({ ...facility, amount: facility.quantity * facility.rate })); return { key: `booking-${booking.id}`, date: booking.startDate, type: "Campaign booking", detail: `${fmt(booking.startDate)} to ${fmt(bookingEnd(booking))} · ${booking.vehiclePeriods.length} vehicle intervals`, status: bookingStatus(booking), amount: calculateBillTotal(bookingVehicleLines(store, booking, isoToday() < bookingEnd(booking) ? isoToday() : bookingEnd(booking)), charges) as number | null, bill: undefined as Bill | undefined }; });
-  const attendanceRows = attendanceRecords.map((record) => ({ key: record.key, date: record.date, type: record.type, detail: record.detail, status: record.status, amount: null as number | null, bill: undefined as Bill | undefined }));
-  const billRows = bills.map((bill) => ({ key: `bill-${bill.id}`, date: bill.billDate, type: `Invoice INV-${String(bill.number).padStart(4, "0")}`, detail: `Billing date ${fmt(bill.billDate)} · Total ${money(bill.total)} · Balance ${money(billBalance(bill))}`, status: billBalance(bill) ? "Pending" : "Paid", amount: bill.total as number | null, bill }));
-  const paymentRows = bills.flatMap((bill) => [...(bill.advanceReceived ? [{ key: `advance-${bill.id}`, date: bill.billDate, type: "Advance received", detail: `${bill.paymentMode} · Billing date ${fmt(bill.billDate)} · INV-${String(bill.number).padStart(4, "0")}`, status: "Received", amount: -bill.advanceReceived as number | null, bill: undefined as Bill | undefined }] : []), ...bill.payments.map((payment) => ({ key: `payment-${bill.id}-${payment.id}`, date: payment.date, type: "Payment received", detail: `${payment.mode} · Payment date ${fmt(payment.date)} · ${payment.reference || payment.note || "Receipt"} · INV-${String(bill.number).padStart(4, "0")}`, status: "Received", amount: -payment.amount as number | null, bill: undefined as Bill | undefined }))]);
-  const transactions = [...bookingRows, ...attendanceRows, ...billRows, ...paymentRows].sort((left, right) => right.date.localeCompare(left.date) || left.type.localeCompare(right.type));
+  const totalPresentDays = attendanceRecords.reduce((sum, item) => sum + item.vehicleDays, 0);
+  const transactions = [
+    ...bills.map((bill) => ({ key: `bill-${bill.id}`, date: bill.billDate, type: "Invoice generated", detail: `${bill.number} · ${bill.total} total`, status: billBalance(bill) > 0 ? "Pending" : "Paid", amount: bill.total, bill })),
+    ...bills.filter((bill) => bill.advanceReceived > 0).map((bill) => ({ key: `bill-adv-${bill.id}`, date: bill.billDate, type: "Advance received", detail: `${bill.number} booking advance`, status: "Paid", amount: -bill.advanceReceived, bill: undefined })),
+    ...bills.flatMap((bill) => (bill.payments ?? []).map((payment) => ({ key: `bill-pay-${payment.id}`, date: payment.date, type: `Payment received (${payment.mode || "Cash"})`, detail: `${bill.number} installment · ${payment.reference || payment.note || "No reference"}`, status: "Paid", amount: -payment.amount, bill: undefined }))),
+    ...attendanceRecords.filter((item) => item.vehicleDays > 0).map((item) => ({ key: `att-${item.date}`, date: item.date, type: "Campaign duty", detail: `${item.vehicleDays} vehicle(s) active on campaign`, status: "Present", amount: null, bill: undefined })),
+  ].sort((left, right) => right.date.localeCompare(left.date));
   return <Modal title={`${client.firmName} · client ledger`} close={close}><div className="op-client-ledger"><section className="op-ledger-profile"><div><b>{client.firmName}</b><span>{client.ownerName || "No owner name"} · {client.mobile} · {client.email || "No email"}</span><small>{client.address} · {bookings.length} campaign bookings</small></div><div className="op-category-list">{client.categories.map((category) => <span key={category}>{category}</span>)}</div></section><section className="op-ledger-totals"><p><span>Total billed</span><b>{money(totalBilled)}</b></p><p><span>Advance received</span><b>{money(totalAdvance)}</b></p><p><span>Installments received</span><b>{money(totalInstallments)}</b></p><p><span>Total received</span><b>{money(totalReceived)}</b></p><p><span>Outstanding balance</span><strong>{money(balance)}</strong></p><p><span>Present slot-days</span><b>{totalPresentDays}</b></p></section><div className="op-section-title"><h2>Complete client activity history</h2></div>{transactions.length ? <section className="op-ledger-list">{transactions.map((transaction) => <article key={transaction.key}><time>{fmt(transaction.date)}</time><div><b>{transaction.type}</b><small>{transaction.detail}</small></div><Status>{transaction.status}</Status><strong className={transaction.amount !== null && transaction.amount < 0 ? "credit" : ""}>{transaction.amount === null ? "—" : <>{transaction.amount < 0 ? "−" : ""}{money(Math.abs(transaction.amount))}</>}</strong>{transaction.bill && <span className="op-ledger-row-actions">{billBalance(transaction.bill) > 0 && <button title="Receive amount" onClick={() => window.dispatchEvent(new CustomEvent("fleetflow:receive-payment", { detail: transaction.bill!.id }))}><Banknote size={16}/></button>}<button title="View invoice" onClick={() => viewBill(transaction.bill!)}><Printer size={16}/></button></span>}</article>)}</section> : <div className="op-empty-state"><ReceiptText/><h2>No client activity</h2><p>Campaign attendance, bills, advances, and payments will appear here.</p></div>}<footer><Button secondary onClick={close}>Close</Button></footer></div></Modal>;
 }
 
@@ -47,7 +46,7 @@ export function EmployeeRecordModal({ store, employeeId, close }: { store: Fleet
   
   const ledger = calculateEmployeeLedger(store, employeeId);
   const payroll = store.payrollPayments.filter((item) => item.employeeId === employeeId);
-  const advances = store.advances.filter((item) => item.employeeId === employeeId);
+  const advances = getEmployeeAdvancesWithRecoveries(store, employeeId);
   const payments = (store.employeePayments ?? []).filter((item) => item.employeeId === employeeId);
   const expenses = store.employeeExpenses.filter((item) => item.employeeId === employeeId);
   const rates = store.employeeRates.filter((item) => item.employeeId === employeeId).sort((left, right) => right.effectiveFrom.localeCompare(left.effectiveFrom));
@@ -70,7 +69,7 @@ export function EmployeeAdvanceHistoryModal({ store, employeeId, close }: { stor
   const employee = store.employees.find((item) => item.id === employeeId);
   if (!employee) return null;
 
-  const advances = store.advances.filter((item) => item.employeeId === employeeId).sort((a, b) => b.date.localeCompare(a.date));
+  const advances = getEmployeeAdvancesWithRecoveries(store, employeeId).sort((a, b) => b.date.localeCompare(a.date));
   const totalAdvance = advances.reduce((sum, item) => sum + item.amount, 0);
   const totalRecovered = advances.reduce((sum, item) => sum + item.recovered, 0);
   const outstanding = Math.max(0, totalAdvance - totalRecovered);
@@ -133,32 +132,36 @@ export function EmployeeAdvanceHistoryModal({ store, employeeId, close }: { stor
         ) : (
           <div className="op-empty-state">
             <Banknote />
-            <h2>No advance records</h2>
+            <h2>No Advance Records</h2>
             <p>No advances recorded for this employee.</p>
           </div>
         )}
 
-        {payrollRecoveries.length > 0 && (
-          <>
-            <div className="op-section-title">
-              <h2>Salary Recovery Breakdown</h2>
-            </div>
-            <section className="op-ledger-list">
-              {payrollRecoveries.map((p) => (
-                <article key={p.id}>
-                  <time>{fmt(p.paidAt ?? p.payoutDate)}</time>
-                  <div>
-                    <b>Salary Period: {fmt(p.periodStart)} – {fmt(p.periodEnd)}</b>
-                    <small>Deducted from salary gross ({money(p.gross)})</small>
-                  </div>
-                  <Status>{p.status}</Status>
-                  <strong style={{ color: "#15803d" }}>
-                    −{money(p.advanceRecovery)}
-                  </strong>
-                </article>
-              ))}
-            </section>
-          </>
+        <div className="op-section-title">
+          <h2>Salary Recovery History</h2>
+        </div>
+        {payrollRecoveries.length ? (
+          <section className="op-ledger-list">
+            {payrollRecoveries.map((p) => (
+              <article key={p.id}>
+                <time>{fmt(p.paidAt ?? p.payoutDate)}</time>
+                <div>
+                  <b>Salary Advance Deduction</b>
+                  <small>
+                    Period: {fmt(p.periodStart)} – {fmt(p.periodEnd)} · Gross: {money(p.gross)} · Net Paid: {money(p.paidAmount ?? p.net)}
+                  </small>
+                </div>
+                <Status>{p.status}</Status>
+                <strong style={{ color: "#15803d" }}>−{money(p.advanceRecovery)}</strong>
+              </article>
+            ))}
+          </section>
+        ) : (
+          <div className="op-empty-state">
+            <ReceiptText />
+            <h2>No Salary Recoveries Yet</h2>
+            <p>Advance deductions will appear here when salary is paid.</p>
+          </div>
         )}
 
         <footer>

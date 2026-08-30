@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import {
   addDays, Bill, BillCharge, BillVehicleLine, BusinessExpenseCategory, CampaignBooking,
   calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange,
-  ClientCategory, FleetStore, inclusiveDays, PaymentMode,
+  ClientCategory, FleetStore, getEmployeeAdvancesWithRecoveries, inclusiveDays, PaymentMode,
   nextBillNumber, PayrollPayment, rateOnDate, weekFor,
 } from "./fleet-domain";
 import { Actions, AttendanceCalendar, Button, Row, Status, Table } from "./operations-components";
@@ -633,11 +633,12 @@ export default function OperationsApp() {
     return recordViewShell(<><PageHead title="Employee expenses" detail="Maintain reimbursements, deductions, and company-paid employee costs" action="Add expense" onAction={() => setDialog("employeeExpense")}/><section className="op-metrics three"><Metric label="Total recorded" value={money(expenseTotal)} detail={`${store.employeeExpenses.length} expense records`} icon={ReceiptText}/><Metric label="To reimburse" value={money(reimbursementTotal)} detail="Added to employee salary" icon={WalletCards}/><Metric label="Salary deductions" value={money(deductionTotal)} detail="Deducted from employee salary" icon={Banknote}/></section>{store.employeeExpenses.length ? <Table headers={["Date", "Employee", "Category", "Details", "Salary treatment", "Amount", ""]}>{[...store.employeeExpenses].sort((left, right) => right.date.localeCompare(left.date)).map((expense) => <Row key={expense.id}><span>{fmt(expense.date)}</span><b>{store.employees.find((employee) => employee.id === expense.employeeId)?.name ?? expense.employeeName ?? "Unassigned employee"}</b><span>{expense.category}</span><span>{expense.description}</span><Status>{expense.treatment}</Status><strong>{money(expense.amount)}</strong><Actions remove={() => { if (!window.confirm("Delete this employee expense?")) return; setStore((current) => ({ ...current, employeeExpenses: current.employeeExpenses.filter((item) => item.id !== expense.id) })); }}/></Row>)}</Table> : <div className="op-empty-state"><ReceiptText/><h2>No employee expenses</h2><p>Add an expense to include it in salary calculations and retain its history.</p></div>}</>);
   }
   if (view === "employeeAdvances") {
-    const advanceTotal = store.advances.reduce((sum, advance) => sum + advance.amount, 0);
-    const recoveredTotal = store.advances.reduce((sum, advance) => sum + advance.recovered, 0);
+    const allAdvancesWithRecoveries = getEmployeeAdvancesWithRecoveries(store);
+    const advanceTotal = allAdvancesWithRecoveries.reduce((sum, advance) => sum + advance.amount, 0);
+    const recoveredTotal = allAdvancesWithRecoveries.reduce((sum, advance) => sum + advance.recovered, 0);
     const advanceBalance = Math.max(0, advanceTotal - recoveredTotal);
     const normalizedAdvanceSearch = advanceSearch.trim().toLowerCase();
-    const filteredAdvances = store.advances.filter((advance) => {
+    const filteredAdvances = allAdvancesWithRecoveries.filter((advance) => {
       const empName = (store.employees.find((e) => e.id === advance.employeeId)?.name ?? advance.employeeName ?? "").toLowerCase();
       const note = (advance.note || "").toLowerCase();
       const date = fmt(advance.date).toLowerCase();
