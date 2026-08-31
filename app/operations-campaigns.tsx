@@ -5,6 +5,7 @@ import type React from "react";
 import { type FormEvent, useEffect, useState } from "react";
 import {
   addDays,
+  Bill,
   BillCharge,
   BillChargeCategory,
   CampaignBooking,
@@ -31,6 +32,7 @@ import {
   campaignChargeCategories,
   campaignSlotKey,
   campaignSlotPresentDays,
+  findCampaignBillForRange,
   fmt,
   input,
   isoToday,
@@ -558,6 +560,7 @@ function LegacyCampaignBookingCard({
   deleteBooking,
   stop,
   generateBill,
+  viewBill,
 }: {
   store: FleetStore;
   booking: CampaignBooking;
@@ -565,6 +568,7 @@ function LegacyCampaignBookingCard({
   deleteBooking: () => void;
   stop: () => void;
   generateBill: () => void;
+  viewBill?: (bill: Bill) => void;
 }) {
   const status = bookingStatus(booking),
     isOngoing =
@@ -684,7 +688,14 @@ function LegacyCampaignBookingCard({
           </Button>
         )}
         {status !== "Scheduled" && (
-          <Button onClick={generateBill}>
+          <Button onClick={() => {
+            const existingBill = (booking.generatedBillId ? store.bills.find((b) => b.id === booking.generatedBillId) : undefined) ?? findCampaignBillForRange(store, booking, booking.startDate, bookingEnd(booking));
+            if (status === "Billed" && existingBill && viewBill) {
+              viewBill(existingBill);
+            } else {
+              generateBill();
+            }
+          }}>
             <FileText size={17} />
             {status === "Billed"
               ? "View bill"
@@ -706,6 +717,7 @@ function CampaignSlotCardContent({
   deleteBooking,
   stop,
   generateBill,
+  viewBill,
 }: {
   store: FleetStore;
   booking: CampaignBooking;
@@ -714,6 +726,7 @@ function CampaignSlotCardContent({
   deleteBooking: () => void;
   stop: () => void;
   generateBill: () => void;
+  viewBill?: (bill: Bill) => void;
 }) {
   if (booking.vehiclePeriods.some((period) => period.quantity < 1))
     return (
@@ -724,6 +737,7 @@ function CampaignSlotCardContent({
         deleteBooking={deleteBooking}
         stop={stop}
         generateBill={generateBill}
+        viewBill={viewBill}
       />
     );
   const status = bookingStatus(booking);
@@ -734,39 +748,38 @@ function CampaignSlotCardContent({
   const vehicleLines = bookingVehicleLines(
     store,
     booking,
-    isoToday() < bookingEnd(booking) ? isoToday() : bookingEnd(booking),
+    isOngoing ? isoToday() : bookingEnd(booking),
   );
-  const totalPresentDays = vehicleLines.reduce(
-    (sum, line) => sum + line.advertisementDays,
-    0,
-  );
-  const totalSlotDays = vehicleLines.reduce(
-    (sum, line) => sum + line.bookedDays,
-    0,
-  );
+  const totalDays = inclusiveDays(booking.startDate, bookingEnd(booking)),
+    presentDays = vehicleLines.reduce(
+      (sum, line) => sum + line.advertisementDays,
+      0,
+    ),
+    contractedDays = booking.vehiclePeriods.reduce(
+      (sum, period) =>
+        sum +
+        period.quantity *
+          inclusiveDays(
+            period.startDate,
+            [period.endDate, bookingEnd(booking)].sort()[0],
+          ),
+      0,
+    );
   const estimateCharges: BillCharge[] = booking.facilities.map((facility) => ({
     ...facility,
     amount: facility.quantity * facility.rate,
   }));
-  const estimate = calculateBillTotal(vehicleLines, estimateCharges);
   return (
-    <article>
+    <article className="op-campaign-card">
       <header>
         <div>
-          <small>
-            {new Date(`${booking.month}-01T00:00:00`).toLocaleDateString(
-              "en-IN",
-              { month: "long", year: "numeric" },
-            )}
-          </small>
+          <small>{booking.month}</small>
           <h2>{booking.client.firmName}</h2>
-          <p>
-            {booking.client.ownerName} · {booking.client.mobile}
-          </p>
+          <span>{booking.client.mobile}</span>
         </div>
         <Status>{status}</Status>
       </header>
-      <section className="op-campaign-facts">
+      <div className="op-campaign-facts">
         <p>
           <span>Campaign period</span>
           <b>
@@ -776,59 +789,53 @@ function CampaignSlotCardContent({
         <p>
           <span>Campaign attendance</span>
           <b>
-            {totalPresentDays}/{totalSlotDays} slot-days Present
+            {presentDays}/{contractedDays} slot-days Present
           </b>
-          <small>Recorded by party and vehicle type</small>
+          <small>Recorded by wing and vehicle type</small>
         </p>
         <p>
           <span>Bill from attendance</span>
-          <b>{money(estimate)}</b>
+          <b>{money(calculateBillTotal(vehicleLines, estimateCharges))}</b>
           <small>{booking.facilities.length} other facilities</small>
         </p>
-      </section>
-      <section className="op-period-list">
+      </div>
+      <section className="op-campaign-slots">
         {booking.vehiclePeriods.flatMap((period) => {
           const effectiveEnd = [
-            period.endDate,
-            bookingEnd(booking),
-            isoToday(),
-          ].sort()[0];
-          return Array.from({ length: period.quantity }, (_, slotIndex) => {
-            const periodDays =
-                effectiveEnd < period.startDate
-                  ? 0
-                  : inclusiveDays(period.startDate, effectiveEnd),
-              presentDays =
-                effectiveEnd < period.startDate
-                  ? 0
-                  : campaignSlotPresentDays(
-                      store,
-                      booking.id,
-                      period.id,
-                      slotIndex,
-                      period.startDate,
-                      effectiveEnd,
-                      period.vehicleIds[slotIndex],
-                    );
-            return (
-              <div key={campaignSlotKey(booking.id, period.id, slotIndex)}>
-                <b>
-                  {period.type} {slotIndex + 1}
-                </b>
-                <span>
-                  {fmt(period.startDate)} to {fmt(effectiveEnd)}
-                </span>
-                <span>
-                  {presentDays}/{periodDays} days Present
-                </span>
-                <strong>{money(presentDays * period.dailyRate)}</strong>
-                <small>
-                  {booking.client.firmName} · {money(period.dailyRate)} per
-                  present day
-                </small>
-              </div>
-            );
-          });
+              period.endDate,
+              bookingEnd(booking),
+              booking.stoppedAt ?? isoToday(),
+            ].sort()[0],
+            periodDays =
+              effectiveEnd < period.startDate
+                ? 0
+                : inclusiveDays(period.startDate, effectiveEnd),
+            presentDays =
+              effectiveEnd < period.startDate
+                ? 0
+                : campaignSlotPresentDays(
+                    store,
+                    booking.id,
+                    period.id,
+                    0,
+                    period.startDate,
+                    effectiveEnd,
+                    period.vehicleIds[0],
+                  );
+          return Array.from({ length: period.quantity }, (_, slotIndex) => (
+            <div key={campaignSlotKey(booking.id, period.id, slotIndex)}>
+              <b>
+                {period.type} {slotIndex + 1}
+              </b>
+              <span>
+                {fmt(period.startDate)} to {fmt(effectiveEnd)}
+              </span>
+              <span>
+                {presentDays}/{periodDays} days Present
+              </span>
+              <strong>{money(presentDays * period.dailyRate)}</strong>
+            </div>
+          ));
         })}
       </section>
       <footer>
@@ -843,7 +850,14 @@ function CampaignSlotCardContent({
           </Button>
         )}
         {status !== "Scheduled" && (
-          <Button onClick={generateBill}>
+          <Button onClick={() => {
+            const existingBill = (booking.generatedBillId ? store.bills.find((b) => b.id === booking.generatedBillId) : undefined) ?? findCampaignBillForRange(store, booking, booking.startDate, bookingEnd(booking));
+            if (status === "Billed" && existingBill && viewBill) {
+              viewBill(existingBill);
+            } else {
+              generateBill();
+            }
+          }}>
             <FileText size={17} />
             {status === "Billed"
               ? "View bill"
@@ -865,6 +879,7 @@ export function CampaignSlotCard({
   deleteBooking,
   stop,
   generateBill,
+  viewBill,
 }: {
   store: FleetStore;
   booking: CampaignBooking;
@@ -873,6 +888,7 @@ export function CampaignSlotCard({
   deleteBooking: () => void;
   stop: () => void;
   generateBill: () => void;
+  viewBill?: (bill: Bill) => void;
 }) {
   const printQuotation = () =>
     window.dispatchEvent(
@@ -890,6 +906,7 @@ export function CampaignSlotCard({
         deleteBooking={deleteBooking}
         stop={stop}
         generateBill={generateBill}
+        viewBill={viewBill}
       />
       <div className="op-campaign-quotation-action">
         <Button secondary onClick={printQuotation}>

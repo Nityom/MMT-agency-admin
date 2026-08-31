@@ -75,6 +75,7 @@ export type CampaignsViewProps = {
   deleteBooking: (booking: CampaignBooking) => void;
   stopBooking: (booking: CampaignBooking) => void;
   generateBill: (booking: CampaignBooking) => void;
+  viewBill?: (bill: Bill) => void;
 };
 
 export function CampaignsView({
@@ -88,6 +89,7 @@ export function CampaignsView({
   deleteBooking,
   stopBooking,
   generateBill,
+  viewBill,
 }: CampaignsViewProps) {
   const [selectedMonth, setSelectedMonth] = useState<string>("All");
   const [selectedStatus, setSelectedStatus] = useState<string>("All");
@@ -215,6 +217,7 @@ export function CampaignsView({
                 deleteBooking={() => deleteBooking(booking)}
                 stop={() => stopBooking(booking)}
                 generateBill={() => generateBill(booking)}
+                viewBill={viewBill}
               />
             ))}
           </section>

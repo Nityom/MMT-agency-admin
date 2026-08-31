@@ -28,6 +28,7 @@ import {
   campaignChargeCategories,
   campaignSlotKey,
   campaignSlotPresentDays,
+  findCampaignBillForRange,
   fmt,
   input,
   isoToday,
@@ -1170,10 +1171,14 @@ export function BillPaymentModal({
 
 export function CampaignBillModeModal({
   booking,
+  store,
   close,
   generate,
+  viewBill,
+  onEditExisting,
 }: {
   booking: CampaignBooking;
+  store?: FleetStore;
   close: () => void;
   generate: (
     mode: PaymentMode,
@@ -1182,13 +1187,16 @@ export function CampaignBillModeModal({
       fromDate: string;
       toDate: string;
       billLabel?: string;
+      existingBillId?: number;
     }
   ) => void;
+  viewBill?: (bill: Bill) => void;
+  onEditExisting?: (bill: Bill) => void;
 }) {
   const endDate = bookingEnd(booking);
   
   // Calculate monthly periods for the campaign
-  const monthlyPeriods: { label: string; from: string; to: string }[] = [];
+  const monthlyPeriods: { label: string; from: string; to: string; existingBill?: Bill }[] = [];
   let cur = new Date(booking.startDate);
   const fin = new Date(endDate);
   let cycle = 1;
@@ -1200,10 +1208,12 @@ export function CampaignBillModeModal({
     const fromStr = cur.toISOString().slice(0, 10);
     const toStr = chunkEnd.toISOString().slice(0, 10);
     const mName = cur.toLocaleString("default", { month: "short", year: "numeric" });
+    const existingBill = store ? findCampaignBillForRange(store, booking, fromStr, toStr) : undefined;
     monthlyPeriods.push({
       label: `Month ${cycle} (${mName}: ${fmt(fromStr)} to ${fmt(toStr)})`,
       from: fromStr,
       to: toStr,
+      existingBill,
     });
     cur = new Date(chunkEnd);
     cur.setDate(cur.getDate() + 1);
@@ -1218,7 +1228,31 @@ export function CampaignBillModeModal({
   const [customTo, setCustomTo] = useState(endDate);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("Cash");
 
+  const effectiveFrom =
+    scope === "monthly" && monthlyPeriods[selectedPeriodIdx]
+      ? monthlyPeriods[selectedPeriodIdx].from
+      : scope === "custom"
+        ? customFrom
+        : booking.startDate;
+
+  const effectiveTo =
+    scope === "monthly" && monthlyPeriods[selectedPeriodIdx]
+      ? monthlyPeriods[selectedPeriodIdx].to
+      : scope === "custom"
+        ? customTo
+        : endDate;
+
+  const currentExistingBill = store
+    ? findCampaignBillForRange(store, booking, effectiveFrom, effectiveTo)
+    : undefined;
+
   const handleGenerate = () => {
+    if (currentExistingBill) {
+      if (onEditExisting) {
+        onEditExisting(currentExistingBill);
+        return;
+      }
+    }
     if (scope === "monthly" && monthlyPeriods[selectedPeriodIdx]) {
       const p = monthlyPeriods[selectedPeriodIdx];
       generate(paymentMode, {
@@ -1226,6 +1260,7 @@ export function CampaignBillModeModal({
         fromDate: p.from,
         toDate: p.to,
         billLabel: p.label,
+        existingBillId: currentExistingBill?.id,
       });
     } else if (scope === "custom") {
       generate(paymentMode, {
@@ -1233,12 +1268,14 @@ export function CampaignBillModeModal({
         fromDate: customFrom,
         toDate: customTo,
         billLabel: `${fmt(customFrom)} to ${fmt(customTo)}`,
+        existingBillId: currentExistingBill?.id,
       });
     } else {
       generate(paymentMode, {
         billScope: "full",
         fromDate: booking.startDate,
         toDate: endDate,
+        existingBillId: currentExistingBill?.id,
       });
     }
   };
@@ -1273,7 +1310,7 @@ export function CampaignBillModeModal({
             >
               {monthlyPeriods.map((p, idx) => (
                 <option key={idx} value={idx}>
-                  {p.label}
+                  {p.label}{p.existingBill ? ` · [Already Billed: INV-${String(p.existingBill.number).padStart(4, "0")}]` : ""}
                 </option>
               ))}
             </select>
@@ -1308,27 +1345,60 @@ export function CampaignBillModeModal({
           </>
         )}
 
-        <label className="op-field">
-          <span>Payment Mode</span>
-          <select
-            value={paymentMode}
-            onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+        {currentExistingBill && (
+          <div
+            style={{
+              padding: "12px 14px",
+              borderRadius: "8px",
+              background: "#fffbeb",
+              border: "1px solid #f59e0b",
+              color: "#92400e",
+              display: "grid",
+              gap: "4px",
+              fontSize: "13px",
+            }}
           >
-            <option>Cash</option>
-            <option>UPI</option>
-            <option>Cheque</option>
-            <option>Bank transfer</option>
-            <option>Online</option>
-          </select>
-        </label>
+            <b style={{ color: "#b45309" }}>
+              ⚠️ A bill for this period already exists: INV-{String(currentExistingBill.number).padStart(4, "0")}
+            </b>
+            <span>
+              Bill Date: <b>{fmt(currentExistingBill.billDate)}</b> · Total: <b>{money(currentExistingBill.total)}</b> · Status: <b>{currentExistingBill.status}</b>
+            </span>
+            <span style={{ fontSize: "12px", color: "#78350f" }}>
+              To prevent duplicate bills, clicking below will edit the existing bill directly.
+            </span>
+          </div>
+        )}
+
+        {!currentExistingBill && (
+          <label className="op-field">
+            <span>Payment Mode</span>
+            <select
+              value={paymentMode}
+              onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+            >
+              <option>Cash</option>
+              <option>UPI</option>
+              <option>Cheque</option>
+              <option>Bank transfer</option>
+              <option>Online</option>
+            </select>
+          </label>
+        )}
 
         <footer>
           <Button secondary onClick={close}>
             Cancel
           </Button>
+          {currentExistingBill && viewBill && (
+            <Button secondary onClick={() => viewBill(currentExistingBill)}>
+              <Printer size={17} />
+              View bill
+            </Button>
+          )}
           <Button onClick={handleGenerate}>
             <FileText size={17} />
-            Generate Bill
+            {currentExistingBill ? `Edit existing bill (INV-${String(currentExistingBill.number).padStart(4, "0")})` : "Generate Bill"}
           </Button>
         </footer>
       </div>

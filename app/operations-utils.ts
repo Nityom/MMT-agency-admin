@@ -91,3 +91,28 @@ export const bookingVehicleLines = (store: FleetStore, booking: CampaignBooking,
     return { id: periodIndex * 100 + slotIndex + 1, vehicleId: -(booking.id * 10000 + period.id * 100 + slotIndex + 1), label: `${booking.client.firmName} · ${period.type} ${slotIndex + 1}`, quantity: 1, startDate: period.startDate, endDate: effectiveEnd, bookedDays, advertisementDays: presentDays, offDays: bookedDays - presentDays, dailyRate: period.dailyRate, driverNames: [] };
   });
 });
+export const findCampaignBillForRange = (store: FleetStore, booking: CampaignBooking, fromDate: string, toDate: string): Bill | undefined => {
+  if (booking.generatedBillId) {
+    const direct = store.bills.find((b) => b.id === booking.generatedBillId);
+    if (direct) {
+      const lineMatch = direct.vehicleLines.some((l) => l.startDate === fromDate && l.endDate === toDate);
+      if (lineMatch || (fromDate === booking.startDate && toDate === bookingEnd(booking))) {
+        return direct;
+      }
+    }
+  }
+  const bookingVehicleBill = store.bills.find((bill) =>
+    bill.vehicleLines.some((line) => {
+      const isLinked = line.vehicleId < 0 && Math.floor(Math.abs(line.vehicleId) / 10000) === booking.id;
+      return isLinked && line.startDate === fromDate && line.endDate === toDate;
+    })
+  );
+  if (bookingVehicleBill) return bookingVehicleBill;
+  const actualClientId = booking.clientId;
+  const clientFirm = booking.client?.firmName?.trim().toLowerCase();
+  return store.bills.find((bill) => {
+    const isSameClient = bill.clientId === actualClientId || (clientFirm && bill.client?.firmName?.trim().toLowerCase() === clientFirm);
+    if (!isSameClient) return false;
+    return bill.vehicleLines.some((line) => line.startDate === fromDate && line.endDate === toDate);
+  });
+};
