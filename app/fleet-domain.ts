@@ -498,24 +498,23 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
   const totalPriorRecovered = Math.max(priorRecoveries, priorEarnedOffset);
   const openingAdvance = Math.max(0, totalAdvance - totalPriorRecovered);
 
-  const overlappingRecoveries = store.payrollPayments
-    .filter((p) => p.employeeId === employeeId && p.periodStart <= periodEnd && p.periodEnd >= periodStart)
-    .reduce((sum, p) => sum + (p.advanceRecovery ?? 0), 0);
-
   const exactPayment = store.payrollPayments.find(
     (p) => p.employeeId === employeeId && p.periodStart === periodStart && p.periodEnd === periodEnd
   );
 
   const maxRecoverable = Math.max(0, gross + reimbursements - deductions);
-  const autoRecovery = Math.max(Math.min(openingAdvance, maxRecoverable), Math.min(openingAdvance, overlappingRecoveries));
+  const autoRecovery = Math.min(openingAdvance, maxRecoverable);
 
   const advanceRecovery = exactPayment && exactPayment.advanceRecovery !== undefined && exactPayment.advanceRecovery > 0
-    ? Math.min(openingAdvance, exactPayment.advanceRecovery)
+    ? Math.min(openingAdvance, Math.min(maxRecoverable, exactPayment.advanceRecovery))
     : exactPayment && (exactPayment.status === "Paid" || (exactPayment.paidAmount ?? 0) >= exactPayment.net)
-    ? Math.min(openingAdvance, exactPayment.advanceRecovery ?? autoRecovery)
+    ? Math.min(openingAdvance, Math.min(maxRecoverable, exactPayment.advanceRecovery ?? autoRecovery))
     : autoRecovery;
 
-  const remainingAdvance = openingAdvance === 0 ? 0 : Math.max(0, openingAdvance - advanceRecovery);
+  const advances = getEmployeeAdvancesWithRecoveries(store, employeeId);
+  const currentTotalOutstanding = advances.reduce((sum, a) => sum + a.balance, 0);
+
+  const remainingAdvance = currentTotalOutstanding;
 
   return {
     employeeId,
@@ -609,12 +608,7 @@ export function getEmployeeAdvancesWithRecoveries(store: FleetStore, employeeId?
       }
     }
 
-    const totalCashPaid = store.payrollPayments
-      .filter((p) => p.employeeId === emp.id && p.status === "Paid")
-      .reduce((sum, p) => sum + (p.paidAmount ?? p.net), 0);
-
-    const earnedAdvanceOffset = Math.max(0, allAttendanceGross - totalCashPaid);
-    const total = Math.max(paymentRecoveries, earnedAdvanceOffset);
+    const total = Math.max(paymentRecoveries, allAttendanceGross);
     paidRecoveriesMap.set(emp.id, total);
   }
 
