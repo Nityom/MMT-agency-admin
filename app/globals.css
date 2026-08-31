@@ -305,7 +305,12 @@ button, input, select { font: inherit; letter-spacing: 0; }
 @media print {
   @page { size: A4 portrait; margin: 8mm 10mm; }
   html, body { margin: 0 !important; padding: 0 !important; height: auto !important; min-height: 0 !important; background: white !important; overflow: visible !important; }
+  .op-shell { min-height: 0 !important; height: auto !important; background: transparent !important; }
   .op-shell > aside, .shell > aside, .op-brand, .op-toolbar, .op-metrics, .op-toast, .invoice-toolbar, .op-page-head, .op-attendance-save-bottom { display: none !important; }
+  .op-shell:has(.invoice-backdrop) > main,
+  body:has(.invoice-backdrop) .op-shell > main,
+  .op-shell:has(.op-print-ledger-modal) > main,
+  body:has(.op-print-ledger-modal) .op-shell > main { display: none !important; }
   .op-shell > main, .shell > main, .op-content { display: block !important; position: static !important; padding: 0 !important; margin: 0 !important; background: transparent !important; }
   .op-shell > main > header, .op-shell > main > .op-toolbar, .op-shell > main > .op-metrics, .op-content > .op-table, .op-content > .op-empty-state, .op-content > form, .op-content > div:not(.invoice-backdrop) { display: none !important; }
   .invoice-backdrop { position: static !important; inset: auto !important; display: block !important; visibility: visible !important; padding: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; height: auto !important; min-height: 0 !important; background: white !important; overflow: visible !important; }
@@ -486,15 +491,15 @@ button, input, select { font: inherit; letter-spacing: 0; }
 .op-payment-history th:first-child { width: 25%; }.op-payment-history th:last-child { width: 25%; }.op-bill-selector { max-height: 330px; overflow-y: auto; border: 1px solid #dce4df; border-radius: 7px; }.op-bill-selector label { min-height: 65px; padding: 10px 13px; border-bottom: 1px solid #e5ebe8; display: flex; align-items: center; gap: 11px; cursor: pointer; }.op-bill-selector label:last-child { border-bottom: 0; }.op-bill-selector input { width: 18px; height: 18px; accent-color: #236c58; }.op-bill-selector span { display: grid; gap: 3px; }.op-bill-selector small { color: #687670; }.op-consolidated-summary { padding: 14px; border-radius: 7px; display: flex; justify-content: space-between; gap: 12px; color: #53635d; background: #edf3f0; }.op-consolidated-summary strong { color: #1f5f4d; }.consolidated-dialog { width: min(980px, 100%); }.op-consolidated-invoice { min-height: auto; }.op-consolidated-bill { break-inside: avoid; page-break-inside: avoid; }.op-consolidated-bill > header { padding: 10px 12px; border-top: 2px solid #222; border-bottom: 1px solid #222; display: flex; align-items: center; justify-content: space-between; background: #f1f3f2; }.op-consolidated-bill h2 { margin: 0; font-size: 18px; }.op-consolidated-bill-total { padding: 10px 14px 18px; display: flex; justify-content: flex-end; gap: 22px; }.op-consolidated-invoice > .op-invoice-total { break-inside: avoid; page-break-inside: avoid; }
 
 @media print {
-  .op-shell:has(.op-campaign-contact-card) > main,
-  .op-shell:has(.op-campaign-contact-card) .op-content,
-  .op-shell:has(.op-campaign-contact-card) .op-page-head,
-  .op-shell:has(.op-campaign-contact-card) .op-page-head-actions,
-  .op-shell:has(.op-campaign-contact-card) .op-campaign-print-title,
-  .op-shell:has(.op-campaign-contact-card) .op-campaign-list,
-  .op-shell:has(.op-campaign-contact-card) .op-campaign-contact-card,
-  .op-shell:has(.op-campaign-contact-card) .op-campaign-contact-card * { visibility: visible !important; }
-  .op-shell:has(.op-campaign-contact-card) > main { position: absolute; inset: 0; width: 100%; margin: 0; background: white; }
+  .op-shell:not(:has(.invoice-backdrop)):has(.op-campaign-contact-card) > main,
+  .op-shell:not(:has(.invoice-backdrop)):has(.op-campaign-contact-card) .op-content,
+  .op-shell:not(:has(.invoice-backdrop)):has(.op-campaign-contact-card) .op-page-head,
+  .op-shell:not(:has(.invoice-backdrop)):has(.op-campaign-contact-card) .op-page-head-actions,
+  .op-shell:not(:has(.invoice-backdrop)):has(.op-campaign-contact-card) .op-campaign-print-title,
+  .op-shell:not(:has(.invoice-backdrop)):has(.op-campaign-contact-card) .op-campaign-list,
+  .op-shell:not(:has(.invoice-backdrop)):has(.op-campaign-contact-card) .op-campaign-contact-card,
+  .op-shell:not(:has(.invoice-backdrop)):has(.op-campaign-contact-card) .op-campaign-contact-card * { visibility: visible !important; }
+  .op-shell:not(:has(.invoice-backdrop)):has(.op-campaign-contact-card) > main { position: absolute; inset: 0; width: 100%; margin: 0; background: white; }
   .op-shell:has(.op-campaign-contact-card) .op-content { padding: 0; }
   .op-shell:has(.op-campaign-contact-card) .op-mobile-head,
   .op-shell:has(.op-campaign-contact-card) .op-page-head > div,
@@ -520,8 +525,8 @@ button, input, select { font: inherit; letter-spacing: 0; }
   .op-print-ledger-modal .op-client-ledger { padding: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .op-print-ledger-modal .op-ledger-profile, .op-print-ledger-modal .op-ledger-totals p, .op-print-ledger-modal .op-ledger-list article { break-inside: avoid; page-break-inside: avoid; }
   .op-print-ledger-modal .op-ledger-list article { grid-template-columns: 85px minmax(150px, 1fr) 85px 100px; }
-  .op-shell > main:has(.op-print-page-head), .op-shell > main:has(.op-print-page-head) * { visibility: visible !important; }
-  .op-shell > main:has(.op-print-page-head) { position: absolute; inset: 0; width: 100%; min-height: 0; margin: 0; background: white; }
+  .op-shell:not(:has(.invoice-backdrop)) > main:has(.op-print-page-head), .op-shell:not(:has(.invoice-backdrop)) > main:has(.op-print-page-head) * { visibility: visible !important; }
+  .op-shell:not(:has(.invoice-backdrop)) > main:has(.op-print-page-head) { position: absolute; inset: 0; width: 100%; min-height: 0; margin: 0; background: white; }
   .op-shell > main:has(.op-print-page-head) .op-mobile-head, .op-shell > main:has(.op-print-page-head) .op-page-head-actions, .op-shell > main:has(.op-print-page-head) .op-search, .op-shell > main:has(.op-print-page-head) .op-maintenance-actions, .op-shell > main:has(.op-print-page-head) .op-icon { display: none !important; }
   .op-shell > main:has(.op-print-page-head) .op-content, .op-shell > main:has(.op-print-page-head) .op-workspace { padding: 0; }
   .op-shell > main:has(.op-print-page-head) .op-page-head { margin-bottom: 14px; }
