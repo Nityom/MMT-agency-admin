@@ -592,33 +592,40 @@ export type EmployeeLedger = {
 };
 
 export function getEmployeeAdvancesWithRecoveries(store: FleetStore, employeeId?: number) {
-  const paidRecoveriesMap = new Map<number, number>();
+  const all = store.advances.map((advance) => {
+    const advanceMonth = advance.date.slice(0, 7);
+    const emp = store.employees.find((e) => e.id === advance.employeeId);
 
-  for (const emp of store.employees) {
+    // 1. Payment recoveries on or after advance month:
     const paymentRecoveries = store.payrollPayments
-      .filter((p) => p.employeeId === emp.id && (p.status === "Paid" || (p.paidAmount ?? 0) >= p.net || (p.advanceRecovery ?? 0) > 0))
+      .filter(
+        (p) =>
+          p.employeeId === advance.employeeId &&
+          p.periodEnd >= `${advanceMonth}-01` &&
+          (p.status === "Paid" || (p.paidAmount ?? 0) >= p.net || (p.advanceRecovery ?? 0) > 0)
+      )
       .reduce((sum, p) => sum + (p.advanceRecovery ?? 0), 0);
 
-    let allAttendanceGross = 0;
+    // 2. Attendance gross earnings in/after the advance month:
+    let attendanceGrossSince = 0;
     for (const [date, dayMap] of Object.entries(store.attendance)) {
-      if (dayMap?.[emp.id] === true) {
-        const rate = rateOnDate(store.employeeRates, emp.id, date);
-        const dailyRate = rate?.dailyRate ?? (emp.monthlySalary ? Math.round(emp.monthlySalary / 30) : 0);
-        allAttendanceGross += dailyRate;
+      if (date >= `${advanceMonth}-01` && dayMap?.[advance.employeeId] === true) {
+        const rate = rateOnDate(store.employeeRates, advance.employeeId, date);
+        const dailyRate = rate?.dailyRate ?? (emp?.monthlySalary ? Math.round(emp.monthlySalary / 30) : 0);
+        attendanceGrossSince += dailyRate;
       }
     }
 
-    const total = Math.max(paymentRecoveries, allAttendanceGross);
-    paidRecoveriesMap.set(emp.id, total);
-  }
-
-  const all = store.advances.map((advance) => {
-    const totalEmpRecovery = paidRecoveriesMap.get(advance.employeeId) ?? 0;
+    // 3. Earlier advances for the same employee:
     const earlierAmount = store.advances
       .filter((item) => item.employeeId === advance.employeeId && (item.date < advance.date || (item.date === advance.date && item.id < advance.id)))
       .reduce((sum, item) => sum + item.amount, 0);
-    const recovered = Math.max(advance.recovered ?? 0, Math.min(advance.amount, Math.max(0, totalEmpRecovery - earlierAmount)));
+
+    const totalRecoveryPool = Math.max(paymentRecoveries, attendanceGrossSince);
+    const availableForThisAdvance = Math.max(0, totalRecoveryPool - earlierAmount);
+    const recovered = Math.max(advance.recovered ?? 0, Math.min(advance.amount, availableForThisAdvance));
     const balance = Math.max(0, advance.amount - recovered);
+
     return {
       ...advance,
       recovered,
