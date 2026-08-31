@@ -116,3 +116,19 @@ export const findCampaignBillForRange = (store: FleetStore, booking: CampaignBoo
     return bill.vehicleLines.some((line) => line.startDate === fromDate && line.endDate === toDate);
   });
 };
+export const findAllCampaignBills = (store: FleetStore, booking: CampaignBooking): Bill[] => {
+  const actualClientId = booking.clientId;
+  const clientFirm = booking.client?.firmName?.trim().toLowerCase();
+  const cEnd = bookingEnd(booking);
+  const matches = store.bills.filter((bill) => {
+    if (booking.generatedBillId && bill.id === booking.generatedBillId) return true;
+    const hasBookingLine = bill.vehicleLines.some((line) => {
+      return line.vehicleId < 0 && Math.floor(Math.abs(line.vehicleId) / 10000) === booking.id;
+    });
+    if (hasBookingLine) return true;
+    const isSameClient = bill.clientId === actualClientId || (clientFirm && bill.client?.firmName?.trim().toLowerCase() === clientFirm);
+    if (!isSameClient) return false;
+    return bill.vehicleLines.some((line) => (line.startDate >= booking.startDate && line.startDate <= cEnd) || (line.endDate >= booking.startDate && line.endDate <= cEnd));
+  });
+  return Array.from(new Map(matches.map((b) => [b.id, b])).values());
+};

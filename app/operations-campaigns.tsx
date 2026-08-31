@@ -32,6 +32,7 @@ import {
   campaignChargeCategories,
   campaignSlotKey,
   campaignSlotPresentDays,
+  findAllCampaignBills,
   findCampaignBillForRange,
   fmt,
   input,
@@ -557,6 +558,7 @@ function LegacyCampaignBookingCard({
   store,
   booking,
   edit,
+  renew,
   deleteBooking,
   stop,
   generateBill,
@@ -565,6 +567,7 @@ function LegacyCampaignBookingCard({
   store: FleetStore;
   booking: CampaignBooking;
   edit: () => void;
+  renew: () => void;
   deleteBooking: () => void;
   stop: () => void;
   generateBill: () => void;
@@ -677,34 +680,78 @@ function LegacyCampaignBookingCard({
           });
         })}
       </section>
-      <footer>
-        <Button secondary onClick={edit}>
-          Edit / extend / schedule stop
-        </Button>
-        <Button secondary onClick={deleteBooking}>Delete campaign</Button>
-        {isOngoing && (
-          <Button secondary onClick={stop}>
-            Stop now
-          </Button>
-        )}
-        {status !== "Scheduled" && (
-          <Button onClick={() => {
-            const existingBill = (booking.generatedBillId ? store.bills.find((b) => b.id === booking.generatedBillId) : undefined) ?? findCampaignBillForRange(store, booking, booking.startDate, bookingEnd(booking));
-            if (status === "Billed" && existingBill && viewBill) {
-              viewBill(existingBill);
-            } else {
-              generateBill();
-            }
-          }}>
-            <FileText size={17} />
-            {status === "Billed"
-              ? "View bill"
-              : status === "Active"
-                ? "Generate bill to date"
-                : "Generate final bill"}
-          </Button>
-        )}
-      </footer>
+      {(() => {
+        const campaignBills = findAllCampaignBills(store, booking);
+        return (
+          <>
+            {campaignBills.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", margin: "10px 0 14px", padding: "9px 12px", borderRadius: "6px", background: "#edf5f1", border: "1px solid #c9e0d6" }}>
+                <span style={{ fontSize: "12px", fontWeight: 700, color: "#195f4b" }}>
+                  {campaignBills.length === 1 ? "Generated Bill:" : `Generated Bills (${campaignBills.length}):`}
+                </span>
+                {campaignBills.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => viewBill ? viewBill(b) : generateBill()}
+                    style={{
+                      border: "1px solid #195f4b",
+                      borderRadius: "5px",
+                      padding: "4px 9px",
+                      background: "white",
+                      color: "#195f4b",
+                      fontWeight: 700,
+                      fontSize: "12px",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                    title={`Click to view invoice INV-${String(b.number).padStart(4, "0")}`}
+                  >
+                    <FileText size={13} />
+                    INV-{String(b.number).padStart(4, "0")} ({money(b.total)})
+                  </button>
+                ))}
+              </div>
+            )}
+            <footer>
+              <Button secondary onClick={edit}>
+                Edit / extend / schedule stop
+              </Button>
+              <Button secondary onClick={renew}>
+                Extend / Renew campaign
+              </Button>
+              <Button secondary onClick={deleteBooking}>
+                Delete campaign
+              </Button>
+              {isOngoing && (
+                <Button secondary onClick={stop}>
+                  Stop now
+                </Button>
+              )}
+              {status !== "Scheduled" && (
+                <Button onClick={() => {
+                  if (campaignBills.length === 1 && viewBill) {
+                    viewBill(campaignBills[0]);
+                  } else {
+                    generateBill();
+                  }
+                }}>
+                  <FileText size={17} />
+                  {campaignBills.length === 1
+                    ? "View bill"
+                    : campaignBills.length > 1
+                      ? `View / Manage bills (${campaignBills.length})`
+                      : status === "Active"
+                        ? "Generate bill to date"
+                        : "Generate final bill"}
+                </Button>
+              )}
+            </footer>
+          </>
+        );
+      })()}
     </article>
   );
 }
@@ -734,6 +781,7 @@ function CampaignSlotCardContent({
         store={store}
         booking={booking}
         edit={edit}
+        renew={renew}
         deleteBooking={deleteBooking}
         stop={stop}
         generateBill={generateBill}
@@ -775,7 +823,7 @@ function CampaignSlotCardContent({
         <div>
           <small>{booking.month}</small>
           <h2>{booking.client.firmName}</h2>
-          <span>{booking.client.mobile}</span>
+          <p>{booking.client.ownerName ? `${booking.client.ownerName} · ` : ""}{booking.client.mobile}</p>
         </div>
         <Status>{status}</Status>
       </header>
@@ -799,7 +847,7 @@ function CampaignSlotCardContent({
           <small>{booking.facilities.length} other facilities</small>
         </p>
       </div>
-      <section className="op-campaign-slots">
+      <section className="op-period-list">
         {booking.vehiclePeriods.flatMap((period) => {
           const effectiveEnd = [
               period.endDate,
@@ -809,64 +857,112 @@ function CampaignSlotCardContent({
             periodDays =
               effectiveEnd < period.startDate
                 ? 0
-                : inclusiveDays(period.startDate, effectiveEnd),
-            presentDays =
+                : inclusiveDays(period.startDate, effectiveEnd);
+          return Array.from({ length: period.quantity }, (_, slotIndex) => {
+            const presentDays =
               effectiveEnd < period.startDate
                 ? 0
                 : campaignSlotPresentDays(
                     store,
                     booking.id,
                     period.id,
-                    0,
+                    slotIndex,
                     period.startDate,
                     effectiveEnd,
-                    period.vehicleIds[0],
+                    period.vehicleIds[slotIndex],
                   );
-          return Array.from({ length: period.quantity }, (_, slotIndex) => (
-            <div key={campaignSlotKey(booking.id, period.id, slotIndex)}>
-              <b>
-                {period.type} {slotIndex + 1}
-              </b>
-              <span>
-                {fmt(period.startDate)} to {fmt(effectiveEnd)}
-              </span>
-              <span>
-                {presentDays}/{periodDays} days Present
-              </span>
-              <strong>{money(presentDays * period.dailyRate)}</strong>
-            </div>
-          ));
+            return (
+              <div key={campaignSlotKey(booking.id, period.id, slotIndex)}>
+                <b>
+                  {period.type} {slotIndex + 1}
+                </b>
+                <span>
+                  {fmt(period.startDate)} to {fmt(effectiveEnd)}
+                </span>
+                <span>
+                  {presentDays}/{periodDays} days Present
+                </span>
+                <strong>{money(presentDays * period.dailyRate)}</strong>
+                <small>
+                  {period.type} · {money(period.dailyRate)} per present day
+                </small>
+              </div>
+            );
+          });
         })}
       </section>
-      <footer>
-        <Button secondary onClick={edit}>
-          Edit / extend / schedule stop
-        </Button>
-        {!isOngoing && <Button secondary onClick={renew}>Renew campaign</Button>}
-        <Button secondary onClick={deleteBooking}>Delete campaign</Button>
-        {isOngoing && (
-          <Button secondary onClick={stop}>
-            Stop now
-          </Button>
-        )}
-        {status !== "Scheduled" && (
-          <Button onClick={() => {
-            const existingBill = (booking.generatedBillId ? store.bills.find((b) => b.id === booking.generatedBillId) : undefined) ?? findCampaignBillForRange(store, booking, booking.startDate, bookingEnd(booking));
-            if (status === "Billed" && existingBill && viewBill) {
-              viewBill(existingBill);
-            } else {
-              generateBill();
-            }
-          }}>
-            <FileText size={17} />
-            {status === "Billed"
-              ? "View bill"
-              : status === "Active"
-                ? "Generate bill to date"
-                : "Generate final bill"}
-          </Button>
-        )}
-      </footer>
+      {(() => {
+        const campaignBills = findAllCampaignBills(store, booking);
+        return (
+          <>
+            {campaignBills.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", margin: "10px 0 14px", padding: "9px 12px", borderRadius: "6px", background: "#edf5f1", border: "1px solid #c9e0d6" }}>
+                <span style={{ fontSize: "12px", fontWeight: 700, color: "#195f4b" }}>
+                  {campaignBills.length === 1 ? "Generated Bill:" : `Generated Bills (${campaignBills.length}):`}
+                </span>
+                {campaignBills.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => viewBill ? viewBill(b) : generateBill()}
+                    style={{
+                      border: "1px solid #195f4b",
+                      borderRadius: "5px",
+                      padding: "4px 9px",
+                      background: "white",
+                      color: "#195f4b",
+                      fontWeight: 700,
+                      fontSize: "12px",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                    title={`Click to view invoice INV-${String(b.number).padStart(4, "0")}`}
+                  >
+                    <FileText size={13} />
+                    INV-{String(b.number).padStart(4, "0")} ({money(b.total)})
+                  </button>
+                ))}
+              </div>
+            )}
+            <footer>
+              <Button secondary onClick={edit}>
+                Edit / extend / schedule stop
+              </Button>
+              <Button secondary onClick={renew}>
+                Extend / Renew campaign
+              </Button>
+              <Button secondary onClick={deleteBooking}>
+                Delete campaign
+              </Button>
+              {isOngoing && (
+                <Button secondary onClick={stop}>
+                  Stop now
+                </Button>
+              )}
+              {status !== "Scheduled" && (
+                <Button onClick={() => {
+                  if (campaignBills.length === 1 && viewBill) {
+                    viewBill(campaignBills[0]);
+                  } else {
+                    generateBill();
+                  }
+                }}>
+                  <FileText size={17} />
+                  {campaignBills.length === 1
+                    ? "View bill"
+                    : campaignBills.length > 1
+                      ? `View / Manage bills (${campaignBills.length})`
+                      : status === "Active"
+                        ? "Generate bill to date"
+                        : "Generate final bill"}
+                </Button>
+              )}
+            </footer>
+          </>
+        );
+      })()}
     </article>
   );
 }

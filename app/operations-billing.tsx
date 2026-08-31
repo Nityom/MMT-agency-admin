@@ -28,6 +28,7 @@ import {
   campaignChargeCategories,
   campaignSlotKey,
   campaignSlotPresentDays,
+  findAllCampaignBills,
   findCampaignBillForRange,
   fmt,
   input,
@@ -1280,12 +1281,77 @@ export function CampaignBillModeModal({
     }
   };
 
+  const allCampaignBills = store ? findAllCampaignBills(store, booking) : [];
+
   return (
-    <Modal title={`Generate Campaign Bill · ${booking.client.firmName}`} close={close}>
+    <Modal title={`Campaign Billing & Invoices · ${booking.client.firmName}`} close={close}>
       <div className="op-form">
         <p className="op-form-note">
           Campaign booking: <b>{fmt(booking.startDate)}</b> to <b>{fmt(endDate)}</b>
         </p>
+
+        {allCampaignBills.length > 0 && (
+          <div
+            style={{
+              padding: "12px 14px",
+              borderRadius: "8px",
+              background: "#edf7f3",
+              border: "1px solid #b8ddd0",
+              display: "grid",
+              gap: "8px",
+            }}
+          >
+            <span style={{ fontSize: "13px", fontWeight: 700, color: "#165b47" }}>
+              Existing bills for this campaign ({allCampaignBills.length}):
+            </span>
+            <div style={{ display: "grid", gap: "6px" }}>
+              {allCampaignBills.map((b) => (
+                <div
+                  key={b.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "10px",
+                    padding: "8px 12px",
+                    background: "white",
+                    borderRadius: "6px",
+                    border: "1px solid #cfe3da",
+                    fontSize: "13px",
+                  }}
+                >
+                  <div>
+                    <b style={{ color: "#165b47" }}>INV-{String(b.number).padStart(4, "0")}</b>
+                    <span style={{ color: "#54645f", margin: "0 6px" }}>·</span>
+                    <span style={{ color: "#54645f" }}>
+                      {b.vehicleLines[0]?.startDate
+                        ? `${fmt(b.vehicleLines[0].startDate)} to ${fmt(b.vehicleLines[0].endDate)}`
+                        : fmt(b.billDate)}
+                    </span>
+                    <span style={{ color: "#54645f", margin: "0 6px" }}>·</span>
+                    <b>{money(b.total)}</b>
+                    <span style={{ color: "#54645f", margin: "0 6px" }}>·</span>
+                    <span style={{ fontWeight: 600, color: b.status === "Paid" ? "#195f4b" : "#854d0e" }}>
+                      {b.status}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                    {viewBill && (
+                      <Button secondary onClick={() => viewBill(b)}>
+                        <Printer size={14} /> View
+                      </Button>
+                    )}
+                    {onEditExisting && (
+                      <Button secondary onClick={() => onEditExisting(b)}>
+                        <FileText size={14} /> Edit
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <label className="op-field">
           <span>Bill Scope</span>
