@@ -185,6 +185,7 @@ export function EntryForm({
             },
           ]
         : store.employeeRates;
+      const activeFrom = input(data, "activeFrom") || effectiveFrom || isoToday();
       updated = {
         ...store,
         employees: editingEmployee
@@ -195,6 +196,7 @@ export function EntryForm({
                     name: input(data, "name"),
                     status: input(data, "status") as "Active" | "Inactive",
                     monthlySalary: amount(data, "monthlySalary"),
+                    activeFrom,
                   }
                 : employee,
             )
@@ -205,6 +207,7 @@ export function EntryForm({
                 name: input(data, "name"),
                 status: "Active",
                 monthlySalary: amount(data, "monthlySalary"),
+                activeFrom,
               },
             ],
         employeeRates,
@@ -431,13 +434,22 @@ export function EntryForm({
                 required
               />
             </div>
-            <FormField
-              label={editingEmployee ? "Rate effective from" : "Effective from"}
-              name="effectiveFrom"
-              type="date"
-              defaultValue={editingEmployee ? isoToday() : isoToday()}
-              required
-            />
+            <div className="op-form-grid">
+              <FormField
+                label="Active from date"
+                name="activeFrom"
+                type="date"
+                defaultValue={editingEmployee?.activeFrom ?? currentEmployeeRate?.effectiveFrom ?? isoToday()}
+                required
+              />
+              <FormField
+                label={editingEmployee ? "Rate effective from" : "Rate effective from"}
+                name="effectiveFrom"
+                type="date"
+                defaultValue={editingEmployee ? (currentEmployeeRate?.effectiveFrom ?? isoToday()) : isoToday()}
+                required
+              />
+            </div>
           </>
         )}
         {dialog === "rate" && (

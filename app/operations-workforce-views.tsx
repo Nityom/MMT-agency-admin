@@ -265,6 +265,7 @@ export function EmployeesView({
           "Employee",
           "Current location",
           "Daily rate",
+          "Active from",
           "Overall balance",
           "Effective from",
           "Status",
@@ -273,6 +274,9 @@ export function EmployeesView({
       >
         {employeeRows.map(({ employee, rate }) => {
           const overallBalance = calculateEmployeeLedger(store, employee.id).remainingBalance;
+          const activeSchedule = employee.activeFrom
+            ? fmt(employee.activeFrom)
+            : "Since inception";
           return (
             <Row key={employee.id}>
               <button
@@ -283,6 +287,7 @@ export function EmployeesView({
               </button>
               <span>{rate?.location ?? "No location"}</span>
               <strong>{money(rate?.dailyRate ?? 0)}/day</strong>
+              <small style={{ color: "#314d44", fontWeight: 600 }}>{activeSchedule}</small>
               <strong style={{ color: overallBalance > 0 ? "#9a493d" : "#1f6a53" }}>
                 {money(overallBalance)}
               </strong>

@@ -13,7 +13,14 @@ export type Employee = {
   name: string;
   status: EmployeeStatus;
   monthlySalary: number;
+  activeFrom?: ISODate;
 };
+
+export function isEmployeeActiveOnDate(employee: Employee, date: ISODate): boolean {
+  if (employee.status !== "Active") return false;
+  if (employee.activeFrom && date < employee.activeFrom) return false;
+  return true;
+}
 
 export type EmployeeRate = {
   id: number;

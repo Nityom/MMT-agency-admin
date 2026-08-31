@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import {
   addDays, Bill, BillCharge, BillVehicleLine, BusinessExpenseCategory, CampaignBooking,
   calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange,
-  ClientCategory, FleetStore, getEmployeeAdvancesWithRecoveries, inclusiveDays, PaymentMode,
+  ClientCategory, FleetStore, getEmployeeAdvancesWithRecoveries, inclusiveDays, isEmployeeActiveOnDate, PaymentMode,
   nextBillNumber, PayrollPayment, rateOnDate, weekFor,
 } from "./fleet-domain";
 import { Actions, AttendanceCalendar, Button, Row, Status, Table } from "./operations-components";
@@ -149,8 +149,8 @@ export default function OperationsApp() {
   };
   const go = (next: View) => { setView(next); setMenu(false); setComposeBill(false); };
   const activeEmployees = store.employees.filter((item) => item.status === "Active");
-  const activeEmployeeIds = activeEmployees.map((employee) => employee.id);
-  const attendanceEmployees = activeEmployees;
+  const attendanceEmployees = store.employees.filter((item) => isEmployeeActiveOnDate(item, attendanceDate));
+  const activeEmployeeIds = attendanceEmployees.map((employee) => employee.id);
   const attendanceRows = attendanceEmployees.map((employee) => ({ employee, rate: rateOnDate(store.employeeRates, employee.id, attendanceDate), present: attendanceDraft[employee.id] }));
   const employeeRows = store.employees.filter((employee) => `${employee.name} ${rateOnDate(store.employeeRates, employee.id, isoToday())?.location}`.toLowerCase().includes(search.toLowerCase())).map((employee) => ({ employee, rate: rateOnDate(store.employeeRates, employee.id, isoToday()) }));
   const employeeRateHistory = [...store.employeeRates].sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
