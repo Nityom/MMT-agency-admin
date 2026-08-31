@@ -472,8 +472,9 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
   const deductions = relevantExpenses.filter((expense) => expense.treatment === "Employee deduction").reduce((sum, expense) => sum + expense.amount, 0);
   const gross = [...breakdown.values()].reduce((sum, item) => sum + item.amount, 0);
 
-  // 1. Total advances taken for this employee:
-  const empAdvances = store.advances.filter((a) => a.employeeId === employeeId);
+  // 1. Only consider advances given on or before this period's month:
+  const periodMonthEnd = `${periodEnd.slice(0, 7)}-31`;
+  const empAdvances = store.advances.filter((a) => a.employeeId === employeeId && a.date <= periodMonthEnd);
   const totalAdvance = empAdvances.reduce((sum, a) => sum + a.amount, 0);
 
   // 2. Recoveries strictly before periodStart:
@@ -511,7 +512,8 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
     ? Math.min(openingAdvance, Math.min(maxRecoverable, exactPayment.advanceRecovery ?? autoRecovery))
     : autoRecovery;
 
-  const advances = getEmployeeAdvancesWithRecoveries(store, employeeId);
+  const advances = getEmployeeAdvancesWithRecoveries(store, employeeId)
+    .filter((a) => a.date <= periodMonthEnd);
   const currentTotalOutstanding = advances.reduce((sum, a) => sum + a.balance, 0);
 
   const remainingAdvance = currentTotalOutstanding;
