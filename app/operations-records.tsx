@@ -2,7 +2,7 @@
 
 import { Banknote, CalendarDays, Printer, ReceiptText, WalletCards } from "lucide-react";
 import {
-  addDays, Bill, BillCharge, calculateBillTotal, calculateEmployeeLedger, FleetStore, getEmployeeAdvancesWithRecoveries, groupAttendanceRanges, inclusiveDays, rateOnDate,
+  addDays, Bill, BillCharge, calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange, FleetStore, getEmployeeAdvancesWithRecoveries, groupAttendanceRanges, inclusiveDays, rateOnDate,
 } from "./fleet-domain";
 import { Button, Modal, Status } from "./operations-components";
 import {
@@ -57,17 +57,21 @@ export function EmployeeRecordModal({ store, employeeId, close }: { store: Fleet
   
   const records = [
     ...payroll.map((item) => {
-      const isPaid = item.status === "Paid" || (item.paidAmount !== undefined && item.paidAmount >= item.net);
-      const isPartial = !isPaid && (item.paidAmount ?? 0) > 0;
+      const dynamicPreview = calculatePayrollRange(store, employeeId, item.periodStart, item.periodEnd);
+      const effectiveNet = dynamicPreview.net;
+      const effectiveRecovery = item.advanceRecovery !== undefined && item.advanceRecovery > 0 ? item.advanceRecovery : dynamicPreview.advanceRecovery;
+      const paidAmt = item.paidAmount !== undefined ? item.paidAmount : (item.status === "Paid" ? effectiveNet : 0);
+      const isPaid = item.status === "Paid" || paidAmt >= effectiveNet;
+      const isPartial = !isPaid && paidAmt > 0;
       const status = isPaid ? "Paid" : isPartial ? "Pending" : item.status;
       const type = isPaid ? "Salary paid" : isPartial ? "Salary partial" : "Salary pending";
       return {
         key: `payroll-${item.id}`,
         date: item.paidAt ?? item.payoutDate,
         type,
-        detail: `${fmt(item.periodStart)} to ${fmt(item.periodEnd)} · Gross ${money(item.gross)} · Extras ${money(item.reimbursements)} · Deductions ${money(item.deductions)} · Advance recovery ${money(item.advanceRecovery)}`,
+        detail: `${fmt(item.periodStart)} to ${fmt(item.periodEnd)} · Gross ${money(item.gross)} · Extras ${money(item.reimbursements)} · Deductions ${money(item.deductions)} · Advance recovery ${money(effectiveRecovery)}`,
         status,
-        amount: (item.paidAmount !== undefined && item.paidAmount > 0 ? item.paidAmount : item.net) as number | null,
+        amount: (isPaid ? Math.min(paidAmt > 0 ? paidAmt : effectiveNet, effectiveNet) : (paidAmt > 0 ? paidAmt : effectiveNet)) as number | null,
       };
     }),
     ...advances.map((item) => ({ key: `advance-${item.id}`, date: item.date, type: "Employee advance", detail: `${item.note || "No note"} · Recovered ${money(item.recovered)} · Outstanding ${money(Math.max(0, item.amount - item.recovered))}`, status: item.amount <= item.recovered ? "Recovered" : "Outstanding", amount: item.amount as number | null })),

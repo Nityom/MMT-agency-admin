@@ -497,11 +497,16 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
   const priorEarnedOffset = Math.max(0, priorAttendanceGross - priorCashPaid);
 
   const totalPriorRecovered = Math.max(priorRecoveries, priorEarnedOffset);
-  const openingAdvance = Math.max(0, totalAdvance - totalPriorRecovered);
+
+  const advances = getEmployeeAdvancesWithRecoveries(store, employeeId)
+    .filter((a) => a.date <= periodMonthEnd);
+  const currentTotalOutstanding = advances.reduce((sum, a) => sum + a.balance, 0);
 
   const exactPayment = store.payrollPayments.find(
     (p) => p.employeeId === employeeId && p.periodStart === periodStart && p.periodEnd === periodEnd
   );
+
+  const openingAdvance = Math.max(0, totalAdvance - totalPriorRecovered);
 
   const maxRecoverable = Math.max(0, gross + reimbursements - deductions);
   const autoRecovery = Math.min(openingAdvance, maxRecoverable);
@@ -511,10 +516,6 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
     : exactPayment && (exactPayment.status === "Paid" || (exactPayment.paidAmount ?? 0) >= exactPayment.net)
     ? Math.min(openingAdvance, Math.min(maxRecoverable, exactPayment.advanceRecovery ?? autoRecovery))
     : autoRecovery;
-
-  const advances = getEmployeeAdvancesWithRecoveries(store, employeeId)
-    .filter((a) => a.date <= periodMonthEnd);
-  const currentTotalOutstanding = advances.reduce((sum, a) => sum + a.balance, 0);
 
   const remainingAdvance = currentTotalOutstanding;
 
@@ -649,12 +650,20 @@ export function calculateEmployeeLedger(store: FleetStore, employeeId: number): 
   const employeePayments = (store.employeePayments ?? []).filter((p) => p.employeeId === employeeId);
 
   const pendingSalaryDues = payrollPayments.reduce((sum, p) => {
-    const paid = p.status === "Paid" ? (p.paidAmount ?? p.net) : (p.paidAmount ?? 0);
-    return sum + Math.max(0, p.net - paid);
+    if (p.status === "Paid") return sum;
+    const dynamicPreview = calculatePayrollRange(store, employeeId, p.periodStart, p.periodEnd);
+    const net = dynamicPreview.net;
+    const paid = p.paidAmount ?? 0;
+    return sum + Math.max(0, net - paid);
   }, 0);
 
-  const totalPaid = payrollPayments.reduce((sum, p) => sum + (p.paidAmount ?? (p.status === "Paid" ? p.net : 0)), 0) +
-                    employeePayments.reduce((sum, p) => sum + p.amount, 0);
+  const totalPaid = payrollPayments.reduce((sum, p) => {
+    if (p.status === "Paid") {
+      const dynamicPreview = calculatePayrollRange(store, employeeId, p.periodStart, p.periodEnd);
+      return sum + (p.paidAmount !== undefined && p.paidAmount > 0 ? p.paidAmount : dynamicPreview.net);
+    }
+    return sum + (p.paidAmount ?? 0);
+  }, 0) + employeePayments.reduce((sum, p) => sum + p.amount, 0);
 
   const totalSalaryPayable = payrollPayments.reduce((sum, p) => sum + p.gross, 0) + (employee?.monthlySalary ?? 0);
   const remainingBalance = pendingSalaryDues > 0 ? pendingSalaryDues : advanceOutstanding > 0 ? -advanceOutstanding : 0;
