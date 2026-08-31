@@ -1207,8 +1207,9 @@ button, input, select { font: inherit; letter-spacing: 0; }
 }
 
 .op-salary-paid-field {
-  width: 90px;
-  padding: 6px 8px 6px 20px;
+  min-width: 100px;
+  width: 100px;
+  padding: 6px 6px 6px 18px;
   font-size: 13px;
   font-weight: 700;
   color: #154e3f;

@@ -215,14 +215,31 @@ export default function OperationsApp() {
   const payrollPayoutDate = addDays(payrollPeriodEnd, 1);
   const payrollRemainingAdvanceTotal = Math.max(0, payrollOutstandingAdvanceTotal - payrollAdvanceRecoveryTotal);
   const payrollRows = payrollPreviews.map((preview) => {
-    const saved = store.payrollPayments.find(
+    const matchingPayments = store.payrollPayments.filter(
       (item) => item.employeeId === preview.employeeId &&
-        ((item.periodStart === payrollWeek && item.periodEnd === payrollPeriodEnd) || item.periodStart === payrollWeek)
+        item.periodStart <= payrollPeriodEnd && item.periodEnd >= payrollWeek
     );
-    const paid =
-      saved?.status === "Paid"
-        ? Math.min(saved.paidAmount ?? preview.net, preview.net)
-        : (saved?.paidAmount ?? 0);
+    const saved = matchingPayments.find(
+      (item) => item.periodStart === payrollWeek && item.periodEnd === payrollPeriodEnd
+    ) ?? matchingPayments[0];
+
+    const totalPaidInRange = matchingPayments.reduce(
+      (sum, p) => sum + (p.paidAmount ?? (p.status === "Paid" ? p.net : 0)),
+      0
+    );
+
+    const hasPaidPaymentCovering = matchingPayments.some(
+      (p) => p.status === "Paid" || (p.paidAmount !== undefined && p.paidAmount >= p.net)
+    );
+
+    const paid = saved && saved.periodStart === payrollWeek && saved.periodEnd === payrollPeriodEnd
+      ? (saved.status === "Paid" ? Math.min(saved.paidAmount ?? preview.net, preview.net) : (saved.paidAmount ?? 0))
+      : hasPaidPaymentCovering
+      ? preview.net
+      : totalPaidInRange > 0
+      ? Math.min(totalPaidInRange, preview.net)
+      : 0;
+
     const periodBalance = Math.max(0, preview.net - paid);
     const overallBalance = calculateEmployeeLedger(store, preview.employeeId).remainingBalance;
     return {
@@ -377,18 +394,33 @@ export default function OperationsApp() {
   };
   const setPayrollStatus = (preview: (typeof payrollPreviews)[number], status: "Pending" | "Paid", paidAmount?: number) => {
     setStore((current) => {
-      const existing = current.payrollPayments.find((payment) => payment.employeeId === preview.employeeId && ((payment.periodStart === preview.periodStart && payment.periodEnd === preview.periodEnd) || payment.periodStart === preview.periodStart));
+      const existing = current.payrollPayments.find((payment) =>
+        payment.employeeId === preview.employeeId &&
+        ((payment.periodStart === preview.periodStart && payment.periodEnd === preview.periodEnd) ||
+         payment.periodStart === preview.periodStart)
+      );
       const actualPaid = paidAmount !== undefined ? paidAmount : status === "Paid" ? preview.net : (existing?.paidAmount ?? 0);
       const isFullPaid = actualPaid >= preview.net;
       const payment: PayrollPayment = {
         ...preview,
         id: existing?.id ?? nextId(current.payrollPayments),
+        periodStart: preview.periodStart,
+        periodEnd: preview.periodEnd,
+        payoutDate: preview.payoutDate,
         status: isFullPaid ? "Paid" : "Pending",
         paidAmount: actualPaid,
         ...(isFullPaid ? { paidAt: existing?.paidAt ?? isoToday() } : {}),
       };
-      const payrollPayments = [...current.payrollPayments.filter((item) => item.id !== payment.id && !(item.employeeId === preview.employeeId && item.periodStart === preview.periodStart)), payment];
-      const paidRecoveries = new Map(current.employees.map((employee) => [employee.id, payrollPayments.filter((item) => item.employeeId === employee.id && item.status === "Paid").reduce((sum, item) => sum + item.advanceRecovery, 0)]));
+      const payrollPayments = [
+        ...current.payrollPayments.filter((item) => item.id !== payment.id && !(item.employeeId === preview.employeeId && ((item.periodStart === preview.periodStart && item.periodEnd === preview.periodEnd) || item.periodStart === preview.periodStart))),
+        payment
+      ];
+      const paidRecoveries = new Map(current.employees.map((employee) => [
+        employee.id,
+        payrollPayments
+          .filter((item) => item.employeeId === employee.id && (item.status === "Paid" || (item.paidAmount ?? 0) >= item.net || (item.advanceRecovery ?? 0) > 0))
+          .reduce((sum, item) => sum + item.advanceRecovery, 0)
+      ]));
       const advances = current.advances.map((advanceItem) => {
         const earlierAmount = current.advances.filter((item) => item.employeeId === advanceItem.employeeId && (item.date < advanceItem.date || (item.date === advanceItem.date && item.id < advanceItem.id))).reduce((sum, item) => sum + item.amount, 0);
         return { ...advanceItem, recovered: Math.min(advanceItem.amount, Math.max(0, (paidRecoveries.get(advanceItem.employeeId) ?? 0) - earlierAmount)) };

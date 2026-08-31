@@ -416,9 +416,11 @@ export function PayrollView({
     const paid =
       row.saved?.status === "Paid"
         ? Math.min(row.saved.paidAmount ?? row.preview.net, row.preview.net)
-        : (row.saved?.paidAmount ?? 0);
+        : (row.saved?.paidAmount !== undefined ? row.saved.paidAmount : (row.paid ?? 0));
     const periodBalance = Math.max(0, row.preview.net - paid);
-    const overallBalance = calculateEmployeeLedger(store, row.preview.employeeId).remainingBalance;
+    const ledger = calculateEmployeeLedger(store, row.preview.employeeId);
+    const overallBalance = ledger.remainingBalance;
+    const advanceOutstanding = ledger.advanceOutstanding;
     const status =
       periodBalance === 0 && (paid > 0 || row.preview.net === 0)
         ? "Paid"
@@ -429,6 +431,7 @@ export function PayrollView({
       ...row,
       paid,
       balance: overallBalance,
+      advanceOutstanding,
       periodBalance,
       status,
     };
@@ -655,7 +658,7 @@ export function PayrollView({
               "Salary Slip",
             ]}
           >
-            {filteredRows.map(({ preview, employee, saved, paid, balance, periodBalance, status }) => (
+            {filteredRows.map(({ preview, employee, saved, paid, balance, advanceOutstanding, periodBalance, status }) => (
               <Row key={preview.employeeId}>
                 <div>
                   <button
@@ -749,7 +752,7 @@ export function PayrollView({
                       onChange={(e) => {
                         const val = Number(e.target.value) || 0;
                         setPayrollStatus(
-                          preview,
+                           preview,
                           val >= preview.net ? "Paid" : "Pending",
                           val
                         );
@@ -786,7 +789,7 @@ export function PayrollView({
                         −{money(preview.remainingAdvance)} Advance Due
                       </span>
                       <small className="op-subtext">
-                        {money(preview.remainingAdvance)} forwarded to next period
+                        {money(preview.remainingAdvance)} remaining advance
                       </small>
                     </>
                   ) : (
@@ -797,7 +800,7 @@ export function PayrollView({
                       <small className="op-subtext">
                         {preview.advanceRecovery > 0
                           ? "Advance fully recovered"
-                          : "All dues paid"}
+                          : "All dues settled"}
                       </small>
                     </>
                   )}

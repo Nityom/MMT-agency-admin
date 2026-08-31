@@ -56,7 +56,20 @@ export function EmployeeRecordModal({ store, employeeId, close }: { store: Fleet
   const presentDays = attendanceRanges.filter((r) => r.status === "Present").reduce((sum, r) => sum + r.days, 0);
   
   const records = [
-    ...payroll.map((item) => ({ key: `payroll-${item.id}`, date: item.paidAt ?? item.payoutDate, type: item.status === "Paid" ? "Salary paid" : "Salary pending", detail: `${fmt(item.periodStart)} to ${fmt(item.periodEnd)} · Gross ${money(item.gross)} · Extras ${money(item.reimbursements)} · Deductions ${money(item.deductions)} · Advance recovery ${money(item.advanceRecovery)}`, status: item.status, amount: item.net as number | null })),
+    ...payroll.map((item) => {
+      const isPaid = item.status === "Paid" || (item.paidAmount !== undefined && item.paidAmount >= item.net);
+      const isPartial = !isPaid && (item.paidAmount ?? 0) > 0;
+      const status = isPaid ? "Paid" : isPartial ? "Pending" : item.status;
+      const type = isPaid ? "Salary paid" : isPartial ? "Salary partial" : "Salary pending";
+      return {
+        key: `payroll-${item.id}`,
+        date: item.paidAt ?? item.payoutDate,
+        type,
+        detail: `${fmt(item.periodStart)} to ${fmt(item.periodEnd)} · Gross ${money(item.gross)} · Extras ${money(item.reimbursements)} · Deductions ${money(item.deductions)} · Advance recovery ${money(item.advanceRecovery)}`,
+        status,
+        amount: (item.paidAmount !== undefined && item.paidAmount > 0 ? item.paidAmount : item.net) as number | null,
+      };
+    }),
     ...advances.map((item) => ({ key: `advance-${item.id}`, date: item.date, type: "Employee advance", detail: `${item.note || "No note"} · Recovered ${money(item.recovered)} · Outstanding ${money(Math.max(0, item.amount - item.recovered))}`, status: item.amount <= item.recovered ? "Recovered" : "Outstanding", amount: item.amount as number | null })),
     ...payments.map((item) => ({ key: `payment-${item.id}`, date: item.date, type: `Payment: ${item.paymentType}`, detail: `${item.note || item.reference || "No note"}`, status: "Paid", amount: item.amount as number | null })),
     ...expenses.map((item) => ({ key: `expense-${item.id}`, date: item.date, type: item.category, detail: `${item.description} · ${item.treatment}`, status: item.treatment, amount: item.amount as number | null })),
