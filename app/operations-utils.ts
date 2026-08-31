@@ -5,10 +5,13 @@ import {
   BillVehicleLine,
   BusinessExpenseCategory,
   CampaignBooking,
+  CampaignFacility,
+  CampaignVehiclePeriod,
   ClientCategory,
   FleetStore,
   inclusiveDays,
   OtherBill,
+  VehicleType,
 } from "./fleet-domain";
 
 export const isoToday = () => new Date().toISOString().slice(0, 10);
@@ -131,4 +134,89 @@ export const findAllCampaignBills = (store: FleetStore, booking: CampaignBooking
     return bill.vehicleLines.some((line) => (line.startDate >= booking.startDate && line.startDate <= cEnd) || (line.endDate >= booking.startDate && line.endDate <= cEnd));
   });
   return Array.from(new Map(matches.map((b) => [b.id, b])).values());
+};
+
+export const consolidateCampaignBookings = (bookings: CampaignBooking[]): CampaignBooking[] => {
+  const byClient = new Map<string, CampaignBooking[]>();
+  for (const b of bookings) {
+    const key = b.clientId ? `id_${b.clientId}` : `name_${b.client?.firmName?.trim().toLowerCase()}`;
+    const list = byClient.get(key) ?? [];
+    list.push(b);
+    byClient.set(key, list);
+  }
+
+  const result: CampaignBooking[] = [];
+  for (const clientBookings of byClient.values()) {
+    if (clientBookings.length === 1) {
+      result.push(clientBookings[0]);
+      continue;
+    }
+
+    const sorted = [...clientBookings].sort((a, b) => a.startDate.localeCompare(b.startDate));
+    const earliest = sorted[0];
+    const latest = sorted[sorted.length - 1];
+
+    const allStarts = sorted.map((b) => b.startDate);
+    const allEnds = sorted.map((b) => bookingEnd(b));
+    const minStart = [...allStarts].sort()[0];
+    const maxEnd = [...allEnds].sort().slice(-1)[0];
+
+    const mergedPeriods: CampaignVehiclePeriod[] = [];
+    const periodsByType = new Map<VehicleType, CampaignVehiclePeriod[]>();
+    for (const b of sorted) {
+      for (const vp of b.vehiclePeriods) {
+        const typeKey: VehicleType = vp.type || "Rickshaw";
+        const list = periodsByType.get(typeKey) ?? [];
+        list.push(vp);
+        periodsByType.set(typeKey, list);
+      }
+    }
+
+    let pIndex = 1;
+    for (const [type, vps] of periodsByType.entries()) {
+      const maxQuantity = Math.max(...vps.map((p) => p.quantity || 1));
+      const latestRate = vps[vps.length - 1]?.dailyRate ?? 0;
+      const allVehIds = Array.from(new Set(vps.flatMap((p) => p.vehicleIds || [])));
+      mergedPeriods.push({
+        id: pIndex++,
+        type,
+        startDate: minStart,
+        endDate: maxEnd,
+        quantity: maxQuantity,
+        dailyRate: latestRate,
+        vehicleIds: allVehIds,
+      });
+    }
+
+    const facilityKeys = new Set<string>();
+    const mergedFacilities: CampaignFacility[] = [];
+    let fIndex = 1;
+    for (const b of sorted) {
+      for (const f of b.facilities || []) {
+        const fKey = `${f.category}_${f.description}`;
+        if (!facilityKeys.has(fKey)) {
+          facilityKeys.add(fKey);
+          mergedFacilities.push({ ...f, id: fIndex++ });
+        }
+      }
+    }
+
+    const isAnyActive = sorted.some((b) => !b.stoppedAt);
+    const stoppedAt = isAnyActive ? undefined : latest.stoppedAt;
+    const month = earliest.month || minStart.slice(0, 7);
+
+    result.push({
+      ...earliest,
+      id: earliest.id,
+      month,
+      startDate: minStart,
+      endDate: maxEnd,
+      stoppedAt,
+      generatedBillId: latest.generatedBillId ?? earliest.generatedBillId,
+      vehiclePeriods: mergedPeriods.length > 0 ? mergedPeriods : earliest.vehiclePeriods,
+      facilities: mergedFacilities,
+    });
+  }
+
+  return result.sort((a, b) => b.startDate.localeCompare(a.startDate));
 };
