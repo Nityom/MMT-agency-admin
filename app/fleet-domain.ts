@@ -471,56 +471,17 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
   const reimbursements = relevantExpenses.filter((expense) => expense.treatment === "Employee reimbursement").reduce((sum, expense) => sum + expense.amount, 0);
   const deductions = relevantExpenses.filter((expense) => expense.treatment === "Employee deduction").reduce((sum, expense) => sum + expense.amount, 0);
   const gross = [...breakdown.values()].reduce((sum, item) => sum + item.amount, 0);
+  const totalEarned = Math.max(0, gross + reimbursements - deductions);
 
-  // 1. Only consider advances given on or before this period's month:
-  const periodMonthEnd = `${periodEnd.slice(0, 7)}-31`;
-  const empAdvances = store.advances.filter((a) => a.employeeId === employeeId && a.date <= periodMonthEnd);
-  const totalAdvance = empAdvances.reduce((sum, a) => sum + a.amount, 0);
+  // Total advances given to this employee up to periodEnd
+  const totalAdvances = store.advances
+    .filter((a) => a.employeeId === employeeId && a.date <= periodEnd)
+    .reduce((sum, a) => sum + a.amount, 0);
 
-  // 2. Recoveries strictly before periodStart:
-  const priorRecoveries = store.payrollPayments
-    .filter((p) => p.employeeId === employeeId && p.periodEnd < periodStart && (p.status === "Paid" || (p.paidAmount ?? 0) > 0 || (p.advanceRecovery ?? 0) > 0))
-    .reduce((sum, p) => sum + (p.advanceRecovery ?? 0), 0);
-
-  // Unpaid prior attendance earnings that offset advance before periodStart:
-  let priorAttendanceGross = 0;
-  for (const [date, dayMap] of Object.entries(store.attendance)) {
-    if (date < periodStart && dayMap?.[employeeId] === true) {
-      const rate = rateOnDate(store.employeeRates, employeeId, date);
-      const dailyRate = rate?.dailyRate ?? (emp?.monthlySalary ? Math.round(emp.monthlySalary / 30) : 0);
-      priorAttendanceGross += dailyRate;
-    }
-  }
-  const priorCashPaid = store.payrollPayments
-    .filter((p) => p.employeeId === employeeId && p.periodEnd < periodStart && p.status === "Paid")
-    .reduce((sum, p) => sum + (p.paidAmount ?? p.net), 0);
-  const priorEarnedOffset = Math.max(0, priorAttendanceGross - priorCashPaid);
-
-  const totalPriorRecovered = Math.max(priorRecoveries, priorEarnedOffset);
-
-  const advances = getEmployeeAdvancesWithRecoveries(store, employeeId)
-    .filter((a) => a.date <= periodMonthEnd);
-  const currentTotalOutstanding = advances.reduce((sum, a) => sum + a.balance, 0);
-
-  const exactPayment = store.payrollPayments.find(
-    (p) => p.employeeId === employeeId && p.periodStart === periodStart && p.periodEnd === periodEnd
-  );
-
-  const openingAdvance = Math.min(
-    currentTotalOutstanding,
-    Math.max(0, totalAdvance - totalPriorRecovered)
-  );
-
-  const maxRecoverable = Math.max(0, gross + reimbursements - deductions);
-  const autoRecovery = Math.min(openingAdvance, maxRecoverable);
-
-  const advanceRecovery = exactPayment && exactPayment.advanceRecovery !== undefined && exactPayment.advanceRecovery > 0
-    ? Math.min(maxRecoverable, exactPayment.advanceRecovery)
-    : exactPayment && (exactPayment.status === "Paid" || (exactPayment.paidAmount ?? 0) >= exactPayment.net)
-    ? Math.min(openingAdvance, Math.min(maxRecoverable, exactPayment.advanceRecovery ?? autoRecovery))
-    : autoRecovery;
-
-  const remainingAdvance = currentTotalOutstanding;
+  // Salary earned is deducted directly from advances:
+  const advanceRecovery = Math.min(totalAdvances, totalEarned);
+  const remainingAdvance = Math.max(0, totalAdvances - totalEarned);
+  const net = Math.max(0, totalEarned - totalAdvances);
 
   return {
     employeeId,
@@ -536,10 +497,10 @@ export function calculatePayrollRange(store: FleetStore, employeeId: number, per
     reimbursements,
     deductions,
     advanceRecovery,
-    totalAdvance: openingAdvance,
+    totalAdvance: totalAdvances,
     remainingAdvance,
-    carryForward: 0,
-    net: Math.max(0, gross + reimbursements - deductions - advanceRecovery),
+    carryForward: remainingAdvance,
+    net,
   };
 }
 
@@ -597,83 +558,78 @@ export type EmployeeLedger = {
   advanceOutstanding: number;
 };
 
-export function getEmployeeAdvancesWithRecoveries(store: FleetStore, employeeId?: number) {
-  const all = store.advances.map((advance) => {
-    const advanceMonth = advance.date.slice(0, 7);
-    const emp = store.employees.find((e) => e.id === advance.employeeId);
+export function getEmployeeAdvancesWithRecoveries(store: FleetStore, employeeId?: number, throughDate?: ISODate) {
+  const all = store.advances
+    .filter((a) => !throughDate || a.date <= throughDate)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
 
-    // 1. Payment recoveries on or after advance month:
-    const paymentRecoveries = store.payrollPayments
-      .filter(
-        (p) =>
-          p.employeeId === advance.employeeId &&
-          p.periodEnd >= `${advanceMonth}-01` &&
-          (p.status === "Paid" || (p.paidAmount ?? 0) >= p.net || (p.advanceRecovery ?? 0) > 0)
-      )
-      .reduce((sum, p) => sum + (p.advanceRecovery ?? 0), 0);
+  const advancesByEmployee = new Map<number, typeof all>();
+  for (const adv of all) {
+    const list = advancesByEmployee.get(adv.employeeId) ?? [];
+    list.push(adv);
+    advancesByEmployee.set(adv.employeeId, list);
+  }
 
-    // 2. Attendance gross earnings in/after the advance month:
-    let attendanceGrossSince = 0;
-    for (const [date, dayMap] of Object.entries(store.attendance)) {
-      if (date >= `${advanceMonth}-01` && dayMap?.[advance.employeeId] === true) {
-        const rate = rateOnDate(store.employeeRates, advance.employeeId, date);
-        const dailyRate = rate?.dailyRate ?? (emp?.monthlySalary ? Math.round(emp.monthlySalary / 30) : 0);
-        attendanceGrossSince += dailyRate;
-      }
+  const result: (Advance & { recovered: number; balance: number })[] = [];
+  for (const [empId, empAdvances] of advancesByEmployee.entries()) {
+    let earnedPool = getEmployeeGrossEarned(store, empId, undefined, throughDate);
+    for (const adv of empAdvances) {
+      const recovered = Math.min(adv.amount, Math.max(0, earnedPool));
+      earnedPool = Math.max(0, earnedPool - recovered);
+      const balance = Math.max(0, adv.amount - recovered);
+      result.push({ ...adv, recovered, balance });
     }
+  }
 
-    // 3. Earlier advances for the same employee:
-    const earlierAmount = store.advances
-      .filter((item) => item.employeeId === advance.employeeId && (item.date < advance.date || (item.date === advance.date && item.id < advance.id)))
-      .reduce((sum, item) => sum + item.amount, 0);
+  return employeeId !== undefined ? result.filter((a) => a.employeeId === employeeId) : result;
+}
 
-    const totalRecoveryPool = Math.max(paymentRecoveries, attendanceGrossSince);
-    const availableForThisAdvance = Math.max(0, totalRecoveryPool - earlierAmount);
-    const recovered = Math.max(advance.recovered ?? 0, Math.min(advance.amount, availableForThisAdvance));
-    const balance = Math.max(0, advance.amount - recovered);
+// Calculate total gross attendance earnings (plus reimbursements minus deductions) for an employee in an optional date range
+export function getEmployeeGrossEarned(store: FleetStore, employeeId: number, fromDate?: ISODate, toDate?: ISODate): number {
+  const emp = store.employees.find((e) => e.id === employeeId);
+  let gross = 0;
+  for (const [date, dayMap] of Object.entries(store.attendance)) {
+    if (fromDate && date < fromDate) continue;
+    if (toDate && date > toDate) continue;
+    if (dayMap?.[employeeId] === true) {
+      const rate = rateOnDate(store.employeeRates, employeeId, date);
+      const dailyRate = rate?.dailyRate ?? (emp?.monthlySalary ? Math.round(emp.monthlySalary / 30) : 0);
+      gross += dailyRate;
+    }
+  }
+  const relevantExpenses = store.employeeExpenses.filter(
+    (exp) => exp.employeeId === employeeId && (!fromDate || exp.date >= fromDate) && (!toDate || exp.date <= toDate)
+  );
+  const reimbursements = relevantExpenses.filter((e) => e.treatment === "Employee reimbursement").reduce((sum, e) => sum + e.amount, 0);
+  const deductions = relevantExpenses.filter((e) => e.treatment === "Employee deduction").reduce((sum, e) => sum + e.amount, 0);
+  return Math.max(0, gross + reimbursements - deductions);
+}
 
-    return {
-      ...advance,
-      recovered,
-      balance,
-    };
-  });
-
-  return employeeId !== undefined ? all.filter((a) => a.employeeId === employeeId) : all;
+// Compute total advance outstanding for an employee up to an optional date (Pure Plus & Minus)
+export function getAdvanceOutstanding(store: FleetStore, employeeId: number, throughDate?: ISODate): number {
+  const totalAdvances = store.advances
+    .filter((a) => a.employeeId === employeeId && (!throughDate || a.date <= throughDate))
+    .reduce((sum, a) => sum + a.amount, 0);
+  const totalEarned = getEmployeeGrossEarned(store, employeeId, undefined, throughDate);
+  return Math.max(0, totalAdvances - totalEarned);
 }
 
 export function calculateEmployeeLedger(store: FleetStore, employeeId: number): EmployeeLedger {
-  const employee = store.employees.find((e) => e.id === employeeId);
-  const advances = getEmployeeAdvancesWithRecoveries(store, employeeId);
-  const totalAdvance = advances.reduce((sum, a) => sum + a.amount, 0);
-  const advanceRecovered = advances.reduce((sum, a) => sum + a.recovered, 0);
-  const advanceOutstanding = Math.max(0, totalAdvance - advanceRecovered);
+  const totalEarned = getEmployeeGrossEarned(store, employeeId);
+  const totalAdvance = store.advances
+    .filter((a) => a.employeeId === employeeId)
+    .reduce((sum, a) => sum + a.amount, 0);
 
-  const payrollPayments = store.payrollPayments.filter((p) => p.employeeId === employeeId);
-  const employeePayments = (store.employeePayments ?? []).filter((p) => p.employeeId === employeeId);
-
-  const pendingSalaryDues = payrollPayments.reduce((sum, p) => {
-    if (p.status === "Paid") return sum;
-    const dynamicPreview = calculatePayrollRange(store, employeeId, p.periodStart, p.periodEnd);
-    const net = dynamicPreview.net;
-    const paid = p.paidAmount ?? 0;
-    return sum + Math.max(0, net - paid);
-  }, 0);
-
-  const totalPaid = payrollPayments.reduce((sum, p) => {
-    if (p.status === "Paid") {
-      const dynamicPreview = calculatePayrollRange(store, employeeId, p.periodStart, p.periodEnd);
-      return sum + (p.paidAmount !== undefined && p.paidAmount > 0 ? p.paidAmount : dynamicPreview.net);
-    }
-    return sum + (p.paidAmount ?? 0);
-  }, 0) + employeePayments.reduce((sum, p) => sum + p.amount, 0);
-
-  const totalSalaryPayable = payrollPayments.reduce((sum, p) => sum + p.gross, 0) + (employee?.monthlySalary ?? 0);
-  const remainingBalance = pendingSalaryDues > 0 ? pendingSalaryDues : advanceOutstanding > 0 ? -advanceOutstanding : 0;
+  // Pure plus and minus:
+  // If totalAdvance > totalEarned: employee has advance due (remainingBalance is negative or carry forward)
+  // If totalEarned > totalAdvance: company owes employee salary (remainingBalance is positive)
+  const advanceOutstanding = Math.max(0, totalAdvance - totalEarned);
+  const salaryPayableDue = Math.max(0, totalEarned - totalAdvance);
+  const remainingBalance = salaryPayableDue > 0 ? salaryPayableDue : (advanceOutstanding > 0 ? -advanceOutstanding : 0);
 
   return {
-    totalSalaryPayable,
-    totalPaid,
+    totalSalaryPayable: totalEarned,
+    totalPaid: totalAdvance,
     remainingBalance,
     totalAdvance,
     advanceOutstanding,

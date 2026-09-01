@@ -2,7 +2,7 @@
 
 import { Banknote, CalendarDays, Printer, ReceiptText, WalletCards } from "lucide-react";
 import {
-  addDays, Bill, BillCharge, calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange, FleetStore, getEmployeeAdvancesWithRecoveries, groupAttendanceRanges, inclusiveDays, rateOnDate,
+  addDays, Bill, BillCharge, calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange, FleetStore, getAdvanceOutstanding, getEmployeeAdvancesWithRecoveries, groupAttendanceRanges, inclusiveDays, rateOnDate,
 } from "./fleet-domain";
 import { Button, Modal, Status } from "./operations-components";
 import {
@@ -45,7 +45,6 @@ export function EmployeeRecordModal({ store, employeeId, close }: { store: Fleet
   if (!employee) return null;
   
   const ledger = calculateEmployeeLedger(store, employeeId);
-  const payroll = store.payrollPayments.filter((item) => item.employeeId === employeeId);
   const advances = getEmployeeAdvancesWithRecoveries(store, employeeId);
   const payments = (store.employeePayments ?? []).filter((item) => item.employeeId === employeeId);
   const expenses = store.employeeExpenses.filter((item) => item.employeeId === employeeId);
@@ -56,25 +55,16 @@ export function EmployeeRecordModal({ store, employeeId, close }: { store: Fleet
   const presentDays = attendanceRanges.filter((r) => r.status === "Present").reduce((sum, r) => sum + r.days, 0);
   
   const records = [
-    ...payroll.map((item) => {
-      const dynamicPreview = calculatePayrollRange(store, employeeId, item.periodStart, item.periodEnd);
-      const effectiveNet = dynamicPreview.net;
-      const effectiveRecovery = item.advanceRecovery !== undefined && item.advanceRecovery > 0 ? item.advanceRecovery : dynamicPreview.advanceRecovery;
-      const paidAmt = item.paidAmount !== undefined ? item.paidAmount : (item.status === "Paid" ? effectiveNet : 0);
-      const isPaid = item.status === "Paid" || paidAmt >= effectiveNet;
-      const isPartial = !isPaid && paidAmt > 0;
-      const status = isPaid ? "Paid" : isPartial ? "Pending" : item.status;
-      const type = isPaid ? "Salary paid" : isPartial ? "Salary partial" : "Salary pending";
+    ...advances.map((item) => {
       return {
-        key: `payroll-${item.id}`,
-        date: item.paidAt ?? item.payoutDate,
-        type,
-        detail: `${fmt(item.periodStart)} to ${fmt(item.periodEnd)} · Gross ${money(item.gross)} · Extras ${money(item.reimbursements)} · Deductions ${money(item.deductions)} · Advance recovery ${money(effectiveRecovery)}`,
-        status,
-        amount: (isPaid ? Math.min(paidAmt > 0 ? paidAmt : effectiveNet, effectiveNet) : (paidAmt > 0 ? paidAmt : effectiveNet)) as number | null,
+        key: `advance-${item.id}`,
+        date: item.date,
+        type: "Employee advance paid",
+        detail: `${item.note || "Advance payment"} · Recovered: ${money(item.recovered)} · Remaining: ${money(item.balance)}`,
+        status: item.balance === 0 ? "Recovered" : "Outstanding",
+        amount: item.amount as number | null,
       };
     }),
-    ...advances.map((item) => ({ key: `advance-${item.id}`, date: item.date, type: "Employee advance", detail: `${item.note || "No note"} · Recovered ${money(item.recovered)} · Outstanding ${money(Math.max(0, item.amount - item.recovered))}`, status: item.amount <= item.recovered ? "Recovered" : "Outstanding", amount: item.amount as number | null })),
     ...payments.map((item) => ({ key: `payment-${item.id}`, date: item.date, type: `Payment: ${item.paymentType}`, detail: `${item.note || item.reference || "No note"}`, status: "Paid", amount: item.amount as number | null })),
     ...expenses.map((item) => ({ key: `expense-${item.id}`, date: item.date, type: item.category, detail: `${item.description} · ${item.treatment}`, status: item.treatment, amount: item.amount as number | null })),
   ].sort((left, right) => right.date.localeCompare(left.date));
@@ -83,7 +73,115 @@ export function EmployeeRecordModal({ store, employeeId, close }: { store: Fleet
     ? `Active from: ${fmt(employee.activeFrom)}`
     : "Active from: Since inception";
 
-  return <Modal title={`${employee.name} · complete record`} close={close}><div className="op-client-ledger op-employee-record"><section className="op-ledger-profile"><div><b>{employee.name}</b><span>{currentRate?.location ?? "No current location"} · {money(currentRate?.dailyRate ?? 0)}/day · Monthly: {money(employee.monthlySalary)}</span><small>{employee.status} · {presentDays} present days · {activeRangeText}</small></div><Status>{employee.status}</Status></section><section className="op-ledger-totals"><p><span>Total payable</span><b>{money(ledger.totalSalaryPayable)}</b></p><p><span>Total paid</span><b>{money(ledger.totalPaid)}</b></p><p><span>Remaining balance</span><strong>{money(ledger.remainingBalance)}</strong></p><p><span>Total advance</span><b>{money(ledger.totalAdvance)}</b></p><p><span>Advance outstanding</span><strong>{money(ledger.advanceOutstanding)}</strong></p></section><div className="op-section-title"><h2>Attendance summary</h2></div>{attendanceRanges.length ? <section className="op-history">{attendanceRanges.map((range, idx) => <p key={idx}><b>{range.startDate === range.endDate ? fmt(range.startDate) : `${fmt(range.startDate)} – ${fmt(range.endDate)}`}</b><span>{range.status}</span><small>{range.days} {range.days === 1 ? "day" : "days"}</small></p>)}</section> : <div className="op-empty-state"><CalendarDays/><h2>No attendance records</h2></div>}<div className="op-section-title"><h2>Payment & expense history</h2></div>{records.length ? <section className="op-ledger-list">{records.map((record) => <article key={record.key}><time>{fmt(record.date)}</time><div><b>{record.type}</b><small>{record.detail}</small></div><Status>{record.status}</Status><strong>{record.amount === null ? "—" : money(record.amount)}</strong></article>)}</section> : <div className="op-empty-state"><ReceiptText/><h2>No payment records</h2><p>Salary, advances, expenses, and payments will appear here.</p></div>}<div className="op-section-title"><h2>Rate and location history</h2></div>{rates.length ? <section className="op-history op-employee-rate-history">{rates.map((rate) => <p key={rate.id}><b>{rate.location}</b><span>{money(rate.dailyRate)}/day</span><small>{fmt(rate.effectiveFrom)} to {rate.effectiveTo ? fmt(rate.effectiveTo) : "Current"}</small></p>)}</section> : <div className="op-empty-state"><WalletCards/><h2>No rate history</h2><p>Add a rate or transfer record for this employee.</p></div>}<footer><Button secondary onClick={close}>Close</Button></footer></div></Modal>;
+  return (
+    <Modal title={`${employee.name} · complete record`} close={close}>
+      <div className="op-client-ledger op-employee-record">
+        <section className="op-ledger-profile">
+          <div>
+            <b>{employee.name}</b>
+            <span>{currentRate?.location ?? "No current location"} · {money(currentRate?.dailyRate ?? 0)}/day · Monthly base: {money(employee.monthlySalary)}</span>
+            <small>{employee.status} · {presentDays} present days · {activeRangeText}</small>
+          </div>
+          <Status>{employee.status}</Status>
+        </section>
+
+        <section className="op-ledger-totals">
+          <p>
+            <span>Total salary earned</span>
+            <b style={{ color: "#15803d" }}>+{money(ledger.totalSalaryPayable)}</b>
+          </p>
+          <p>
+            <span>Total advances paid</span>
+            <b style={{ color: "#b91c1c" }}>−{money(ledger.totalAdvance)}</b>
+          </p>
+          <p>
+            <span>Deducted from advance</span>
+            <b>{money(Math.min(ledger.totalAdvance, ledger.totalSalaryPayable))}</b>
+          </p>
+          <p>
+            <span>Remaining balance</span>
+            <strong style={{ color: ledger.remainingBalance > 0 ? "#15803d" : ledger.remainingBalance < 0 ? "#b45309" : "#1f6a53" }}>
+              {ledger.remainingBalance > 0
+                ? `+${money(ledger.remainingBalance)} (Salary Due)`
+                : ledger.remainingBalance < 0
+                ? `−${money(Math.abs(ledger.remainingBalance))} (Advance Due)`
+                : `✓ ${money(0)} (Settled)`}
+            </strong>
+          </p>
+        </section>
+
+        <div className="op-section-title">
+          <h2>Attendance summary</h2>
+        </div>
+        {attendanceRanges.length ? (
+          <section className="op-history">
+            {attendanceRanges.map((range, idx) => (
+              <p key={idx}>
+                <b>{range.startDate === range.endDate ? fmt(range.startDate) : `${fmt(range.startDate)} – ${fmt(range.endDate)}`}</b>
+                <span>{range.status}</span>
+                <small>{range.days} {range.days === 1 ? "day" : "days"}</small>
+              </p>
+            ))}
+          </section>
+        ) : (
+          <div className="op-empty-state">
+            <CalendarDays/>
+            <h2>No attendance records</h2>
+          </div>
+        )}
+
+        <div className="op-section-title">
+          <h2>Advance & expense history</h2>
+        </div>
+        {records.length ? (
+          <section className="op-ledger-list">
+            {records.map((record) => (
+              <article key={record.key}>
+                <time>{fmt(record.date)}</time>
+                <div>
+                  <b>{record.type}</b>
+                  <small>{record.detail}</small>
+                </div>
+                <Status>{record.status}</Status>
+                <strong>{record.amount === null ? "—" : money(record.amount)}</strong>
+              </article>
+            ))}
+          </section>
+        ) : (
+          <div className="op-empty-state">
+            <ReceiptText/>
+            <h2>No advance or payment records</h2>
+            <p>Advances and expenses will appear here.</p>
+          </div>
+        )}
+
+        <div className="op-section-title">
+          <h2>Rate and location history</h2>
+        </div>
+        {rates.length ? (
+          <section className="op-history op-employee-rate-history">
+            {rates.map((rate) => (
+              <p key={rate.id}>
+                <b>{rate.location}</b>
+                <span>{money(rate.dailyRate)}/day</span>
+                <small>{fmt(rate.effectiveFrom)} to {rate.effectiveTo ? fmt(rate.effectiveTo) : "Current"}</small>
+              </p>
+            ))}
+          </section>
+        ) : (
+          <div className="op-empty-state">
+            <WalletCards/>
+            <h2>No rate history</h2>
+            <p>Add a rate or transfer record for this employee.</p>
+          </div>
+        )}
+
+        <footer>
+          <Button secondary onClick={close}>Close</Button>
+        </footer>
+      </div>
+    </Modal>
+  );
 }
 
 export function EmployeeAdvanceHistoryModal({ store, employeeId, close }: { store: FleetStore; employeeId: number; close: () => void }) {
@@ -92,12 +190,8 @@ export function EmployeeAdvanceHistoryModal({ store, employeeId, close }: { stor
 
   const advances = getEmployeeAdvancesWithRecoveries(store, employeeId).sort((a, b) => b.date.localeCompare(a.date));
   const totalAdvance = advances.reduce((sum, item) => sum + item.amount, 0);
-  const totalRecovered = advances.reduce((sum, item) => sum + item.recovered, 0);
-  const outstanding = Math.max(0, totalAdvance - totalRecovered);
-
-  const payrollRecoveries = store.payrollPayments
-    .filter((p) => p.employeeId === employeeId && p.advanceRecovery > 0)
-    .sort((a, b) => b.periodStart.localeCompare(a.periodStart));
+  const outstanding = getAdvanceOutstanding(store, employeeId);
+  const totalRecovered = Math.max(0, totalAdvance - outstanding);
 
   return (
     <Modal title={`${employee.name} · Advance History`} close={close}>
@@ -117,7 +211,7 @@ export function EmployeeAdvanceHistoryModal({ store, employeeId, close }: { stor
             <b>{money(totalAdvance)}</b>
           </p>
           <p>
-            <span>Total Recovered</span>
+            <span>Salary Deducted</span>
             <b style={{ color: "#15803d" }}>{money(totalRecovered)}</b>
           </p>
           <p>
@@ -131,57 +225,27 @@ export function EmployeeAdvanceHistoryModal({ store, employeeId, close }: { stor
         </div>
         {advances.length ? (
           <section className="op-ledger-list">
-            {advances.map((advance) => {
-              const bal = Math.max(0, advance.amount - advance.recovered);
-              return (
-                <article key={advance.id}>
-                  <time>{fmt(advance.date)}</time>
-                  <div>
-                    <b>{advance.note || "Employee Advance"}</b>
-                    <small>
-                      Taken: {money(advance.amount)} · Recovered: {money(advance.recovered)} · Remaining: {money(bal)}
-                    </small>
-                  </div>
-                  <Status>{bal === 0 ? "Recovered" : "Outstanding"}</Status>
-                  <strong className={bal > 0 ? "" : "credit"}>
-                    {money(advance.amount)}
-                  </strong>
-                </article>
-              );
-            })}
+            {advances.map((advance) => (
+              <article key={advance.id}>
+                <time>{fmt(advance.date)}</time>
+                <div>
+                  <b>{advance.note || "Employee Advance"}</b>
+                  <small>
+                    Taken: {money(advance.amount)} · Recovered: {money(advance.recovered)} · Remaining: {money(advance.balance)}
+                  </small>
+                </div>
+                <Status>{advance.balance === 0 ? "Recovered" : "Outstanding"}</Status>
+                <strong className={advance.balance > 0 ? "" : "credit"}>
+                  {money(advance.amount)}
+                </strong>
+              </article>
+            ))}
           </section>
         ) : (
           <div className="op-empty-state">
             <Banknote />
             <h2>No Advance Records</h2>
             <p>No advances recorded for this employee.</p>
-          </div>
-        )}
-
-        <div className="op-section-title">
-          <h2>Salary Recovery History</h2>
-        </div>
-        {payrollRecoveries.length ? (
-          <section className="op-ledger-list">
-            {payrollRecoveries.map((p) => (
-              <article key={p.id}>
-                <time>{fmt(p.paidAt ?? p.payoutDate)}</time>
-                <div>
-                  <b>Salary Advance Deduction</b>
-                  <small>
-                    Period: {fmt(p.periodStart)} – {fmt(p.periodEnd)} · Gross: {money(p.gross)} · Net Paid: {money(p.paidAmount ?? p.net)}
-                  </small>
-                </div>
-                <Status>{p.status}</Status>
-                <strong style={{ color: "#15803d" }}>−{money(p.advanceRecovery)}</strong>
-              </article>
-            ))}
-          </section>
-        ) : (
-          <div className="op-empty-state">
-            <ReceiptText />
-            <h2>No Salary Recoveries Yet</h2>
-            <p>Advance deductions will appear here when salary is paid.</p>
           </div>
         )}
 

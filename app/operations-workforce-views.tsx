@@ -23,6 +23,9 @@ import {
 import {
   addDays,
   calculateEmployeeLedger,
+  getAdvanceOutstanding,
+  getEmployeeAdvancesWithRecoveries,
+  getEmployeeGrossEarned,
   inclusiveDays,
   weekFor,
   type Employee,
@@ -323,7 +326,7 @@ export function EmployeesView({
 export type PayrollRow = {
   preview: PayrollPreview;
   employee: Employee | undefined;
-  saved: PayrollPayment | undefined;
+  saved?: PayrollPayment | undefined;
   paid?: number;
   balance?: number;
 };
@@ -343,42 +346,35 @@ export type PayrollViewProps = {
   setPayrollWeek: (week: string) => void;
   setPayrollPeriodEnd?: (end: string) => void;
   setPayrollRange?: (start: string, end: string) => void;
-  releasePayroll: () => void;
-  setPayrollStatus: (
+  releasePayroll?: () => void;
+  setPayrollStatus?: (
     preview: PayrollPreview,
     status: "Pending" | "Paid",
     paidAmount?: number
   ) => void;
   exportPayroll: () => void;
   openEmployeeRecord?: (employeeId: number) => void;
+  addEmployeeAdvance?: (employeeId?: number) => void;
 };
 
 export function PayrollView({
   store,
   payrollWeek,
   payrollPeriodEnd,
-  payrollPayoutDate,
   payrollRows,
   payrollGrossTotal,
-  payrollAdvanceRecoveryTotal,
-  payrollRemainingAdvanceTotal,
-  payrollNetTotal,
-  payrollPaidTotal,
-  payrollRemainingBalanceTotal,
   setPayrollWeek,
   setPayrollPeriodEnd,
   setPayrollRange,
-  releasePayroll,
-  setPayrollStatus,
   exportPayroll,
   openEmployeeRecord,
+  addEmployeeAdvance,
 }: PayrollViewProps) {
   const [search, setSearch] = useState("");
-  const [filterTab, setFilterTab] = useState<"All" | "Pending" | "Paid">("All");
+  const [filterTab, setFilterTab] = useState<"All" | "Pending" | "AdvanceOwed" | "Settled">("All");
   const [selectedSlip, setSelectedSlip] = useState<{
     preview: PayrollPreview;
     employee: Employee | undefined;
-    saved: PayrollPayment | undefined;
   } | null>(null);
 
   const today = isoToday();
@@ -394,7 +390,7 @@ export function PayrollView({
     }
   };
 
-  const setPreset = (preset: "thisMonth" | "lastMonth" | "thisWeek" | "lastWeek") => {
+  const setPreset = (preset: "thisMonth" | "lastMonth" | "last30Days" | "allTime") => {
     if (preset === "thisMonth") {
       const yearMonth = today.slice(0, 7);
       const parts = yearMonth.split("-").map(Number);
@@ -407,58 +403,65 @@ export function PayrollView({
       const m = String(prevDate.getMonth() + 1).padStart(2, "0");
       const lastDay = new Date(y, prevDate.getMonth() + 1, 0).getDate();
       applyRange(`${y}-${m}-01`, `${y}-${m}-${String(lastDay).padStart(2, "0")}`);
-    } else if (preset === "thisWeek") {
-      const current = weekFor(today);
-      applyRange(current.start, current.end);
-    } else if (preset === "lastWeek") {
-      const current = weekFor(today);
-      applyRange(addDays(current.start, -7), addDays(current.start, -1));
+    } else if (preset === "last30Days") {
+      applyRange(addDays(today, -29), today);
+    } else if (preset === "allTime") {
+      applyRange("2026-01-01", today);
     }
   };
 
-  // Compute calculated values for each row
+  // Pure Plus & Minus calculation per employee:
+  // 1. Earned = Gross attendance salary + reimbursements - deductions
+  // 2. Advance = Total advances given up to period end
+  // 3. Deducted from Advance = min(Earned, Advance)
+  // 4. Carry Forward Balance:
+  //    - If Advance > Earned: - (Advance - Earned) [Advance Due / Carried forward]
+  //    - If Earned > Advance: + (Earned - Advance) [Salary Due to employee]
+  //    - If equal: 0 Settled
   const calculatedRows = payrollRows.map((row) => {
-    const paid =
-      row.saved?.status === "Paid"
-        ? Math.min(row.saved.paidAmount ?? row.preview.net, row.preview.net)
-        : (row.saved?.paidAmount !== undefined ? row.saved.paidAmount : (row.paid ?? 0));
-    const periodBalance = Math.max(0, row.preview.net - paid);
-    const ledger = calculateEmployeeLedger(store, row.preview.employeeId);
-    const overallBalance = ledger.remainingBalance;
-    const advanceOutstanding = ledger.advanceOutstanding;
+    const employeeId = row.preview.employeeId;
+    const empEarned = Math.max(0, row.preview.gross + row.preview.reimbursements - row.preview.deductions);
+    const empAdvances = store.advances
+      .filter((a) => a.employeeId === employeeId && a.date <= payrollPeriodEnd)
+      .reduce((sum, a) => sum + a.amount, 0);
+
+    const deductedFromAdvance = Math.min(empAdvances, empEarned);
+    const advanceRemaining = Math.max(0, empAdvances - empEarned);
+    const salaryPayable = Math.max(0, empEarned - empAdvances);
+    const balance = salaryPayable > 0 ? salaryPayable : (advanceRemaining > 0 ? -advanceRemaining : 0);
+
     const status =
-      periodBalance === 0 && (paid > 0 || row.preview.net === 0)
-        ? "Paid"
-        : periodBalance > 0
-        ? "Pending"
-        : "No dues";
+      balance > 0
+        ? "Payable"
+        : balance < 0
+        ? "Advance Due"
+        : "Settled";
+
     return {
       ...row,
-      paid,
-      balance: overallBalance,
-      advanceOutstanding,
-      periodBalance,
+      empEarned,
+      empAdvances,
+      deductedFromAdvance,
+      advanceRemaining,
+      salaryPayable,
+      balance,
       status,
     };
   });
 
   const totalGross = payrollGrossTotal;
-  const totalReimbursements = payrollRows.reduce(
-    (sum, r) => sum + r.preview.reimbursements,
-    0
-  );
-  const totalDeductions = payrollRows.reduce(
-    (sum, r) => sum + r.preview.deductions,
-    0
-  );
-  const totalAdvanceRecovery = payrollAdvanceRecoveryTotal;
-  const totalNet = payrollNetTotal;
-  const totalPaid =
-    payrollPaidTotal ?? calculatedRows.reduce((sum, r) => sum + r.paid, 0);
-  const totalRemaining = calculatedRows.reduce(
-    (sum, r) => sum + r.periodBalance,
-    0
-  );
+  const totalAdvancesIssued = store.advances
+    .filter((a) => a.date <= payrollPeriodEnd)
+    .reduce((sum, a) => sum + a.amount, 0);
+
+  const totalDeductedFromAdvance = calculatedRows.reduce((sum, r) => sum + r.deductedFromAdvance, 0);
+  const totalPayableSalary = calculatedRows
+    .filter((r) => r.salaryPayable > 0)
+    .reduce((sum, r) => sum + r.salaryPayable, 0);
+
+  const totalAdvanceSurplus = calculatedRows
+    .filter((r) => r.advanceRemaining > 0)
+    .reduce((sum, r) => sum + r.advanceRemaining, 0);
 
   // Filter rows
   const normalizedSearch = search.trim().toLowerCase();
@@ -472,21 +475,23 @@ export function PayrollView({
       );
 
     if (!matchesSearch) return false;
-    if (filterTab === "Pending") return row.periodBalance > 0;
-    if (filterTab === "Paid") return row.periodBalance === 0 && (row.paid > 0 || row.preview.net === 0);
+    if (filterTab === "Pending") return row.salaryPayable > 0;
+    if (filterTab === "AdvanceOwed") return row.advanceRemaining > 0;
+    if (filterTab === "Settled") return row.balance === 0;
     return true;
   });
 
-  const pendingCount = calculatedRows.filter((r) => r.periodBalance > 0).length;
-  const paidCount = calculatedRows.filter((r) => r.periodBalance === 0 && (r.paid > 0 || r.preview.net === 0)).length;
+  const payableCount = calculatedRows.filter((r) => r.salaryPayable > 0).length;
+  const advanceOwedCount = calculatedRows.filter((r) => r.advanceRemaining > 0).length;
+  const settledCount = calculatedRows.filter((r) => r.balance === 0).length;
 
   return (
     <div className="op-salary-workspace">
       <PageHead
-        title="Employee Salaries"
-        detail="Calculate attendance, earnings, extras, advances, and track paid vs remaining dues for any date range."
-        action="Pay All (Full Salary)"
-        onAction={releasePayroll}
+        title="Employee Salaries & Advance Ledger"
+        detail="Daily attendance salary deducted directly from advance payments with transparent carry-forward balances."
+        action={addEmployeeAdvance ? "+ Give Employee Advance" : undefined}
+        onAction={addEmployeeAdvance ? () => addEmployeeAdvance() : undefined}
       />
 
       {/* Date Range & Filter Bar */}
@@ -513,22 +518,22 @@ export function PayrollView({
             <button
               type="button"
               className="op-preset-btn"
-              onClick={() => setPreset("thisWeek")}
+              onClick={() => setPreset("last30Days")}
             >
-              This Week
+              Last 30 Days
             </button>
             <button
               type="button"
               className="op-preset-btn"
-              onClick={() => setPreset("lastWeek")}
+              onClick={() => setPreset("allTime")}
             >
-              Last Week
+              All Time
             </button>
           </div>
 
           <div className="op-salary-range-inputs">
             <label className="op-date-box">
-              <span>Salary From</span>
+              <span>From Date</span>
               <input
                 type="date"
                 value={payrollWeek}
@@ -537,7 +542,7 @@ export function PayrollView({
             </label>
             <span className="op-range-arrow">→</span>
             <label className="op-date-box">
-              <span>Salary To</span>
+              <span>To Date</span>
               <input
                 type="date"
                 value={payrollPeriodEnd}
@@ -570,21 +575,28 @@ export function PayrollView({
               className={filterTab === "All" ? "active" : ""}
               onClick={() => setFilterTab("All")}
             >
-              All Employees ({calculatedRows.length})
+              All Workforce ({calculatedRows.length})
             </button>
             <button
               type="button"
               className={filterTab === "Pending" ? "active" : ""}
               onClick={() => setFilterTab("Pending")}
             >
-              Pending Dues ({pendingCount})
+              Salary Due ({payableCount})
             </button>
             <button
               type="button"
-              className={filterTab === "Paid" ? "active" : ""}
-              onClick={() => setFilterTab("Paid")}
+              className={filterTab === "AdvanceOwed" ? "active" : ""}
+              onClick={() => setFilterTab("AdvanceOwed")}
             >
-              Fully Settled ({paidCount})
+              Advance Remaining ({advanceOwedCount})
+            </button>
+            <button
+              type="button"
+              className={filterTab === "Settled" ? "active" : ""}
+              onClick={() => setFilterTab("Settled")}
+            >
+              Settled ({settledCount})
             </button>
           </div>
 
@@ -598,72 +610,58 @@ export function PayrollView({
       {/* Summary Metrics */}
       <section className="op-metrics op-salary-metrics">
         <Metric
-          label="Gross Earned"
+          label="Total Salary Earned"
           value={money(totalGross)}
-          detail={`${calculatedRows.reduce(
-            (sum, r) => sum + r.preview.presentDays,
-            0
-          )} total present days`}
+          detail={`${calculatedRows.reduce((sum, r) => sum + r.preview.presentDays, 0)} present days in period`}
           icon={Banknote}
         />
         <Metric
-          label="Adjustments"
-          value={`${
-            totalReimbursements - totalDeductions - totalAdvanceRecovery >= 0
-              ? "+"
-              : "−"
-          }${money(
-            Math.abs(
-              totalReimbursements - totalDeductions - totalAdvanceRecovery
-            )
-          )}`}
-          detail={`+${money(totalReimbursements)} reimb · −${money(
-            totalDeductions
-          )} deduct · −${money(totalAdvanceRecovery)} adv`}
+          label="Total Advances Given"
+          value={money(totalAdvancesIssued)}
+          detail="Advances distributed to date"
           icon={WalletCards}
         />
-        <Metric
-          label="Total Net Salary"
-          value={money(totalNet)}
-          detail="Total payable for period"
-          icon={Sparkles}
-        />
-        <Metric
-          label="Total Paid"
-          value={money(totalPaid)}
-          detail={`${paidCount} of ${calculatedRows.length} employees paid`}
-          icon={CheckCircle2}
-        />
-        <div className={`op-metric op-balance-highlight-metric ${totalRemaining > 0 ? "has-due" : "all-settled"}`}>
+        <div className={`op-metric op-balance-highlight-metric ${totalPayableSalary > 0 ? "has-due" : "all-settled"}`}>
           <header>
-            <span>Remaining Balance Due</span>
-            <WalletCards size={20} />
+            <span>Net Salary Payable</span>
+            <Sparkles size={20} />
           </header>
-          <b>{money(totalRemaining)}</b>
+          <b>{money(totalPayableSalary)}</b>
           <small>
-            {totalRemaining > 0
-              ? `${pendingCount} employee(s) pending payment`
-              : "All employee salaries settled"}
+            {totalPayableSalary > 0
+              ? `${payableCount} employee(s) with salary due`
+              : "No outstanding salary payable"}
+          </small>
+        </div>
+        <div className={`op-metric op-balance-highlight-metric ${totalAdvanceSurplus > 0 ? "has-due" : "all-settled"}`}>
+          <header>
+            <span>Advance Balance Due</span>
+            <CheckCircle2 size={20} />
+          </header>
+          <b>{money(totalAdvanceSurplus)}</b>
+          <small>
+            {totalAdvanceSurplus > 0
+              ? `${advanceOwedCount} employee(s) with advance carried forward`
+              : "All employee advances settled"}
           </small>
         </div>
       </section>
 
-      {/* Salary Table */}
+      {/* Salary & Advance Table */}
       {filteredRows.length ? (
         <div className="op-salary-table-wrap">
           <Table
             headers={[
               "Employee",
               "Attendance",
-              "Daily rate & Gross",
-              "Adjustments",
-              "Net Salary",
-              "Paid Amount",
-              "Remaining Balance",
-              "Salary Slip",
+              "Salary Earned (+)",
+              "Advance Paid (−)",
+              "Deducted from Advance",
+              "Carry Forward Balance",
+              "Actions",
             ]}
           >
-            {filteredRows.map(({ preview, employee, saved, paid, balance, advanceOutstanding, periodBalance, status }) => (
+            {filteredRows.map(({ preview, employee, empEarned, empAdvances, deductedFromAdvance, advanceRemaining, salaryPayable, balance }) => (
               <Row key={preview.employeeId}>
                 <div>
                   <button
@@ -671,14 +669,14 @@ export function PayrollView({
                     onClick={() =>
                       openEmployeeRecord
                         ? openEmployeeRecord(preview.employeeId)
-                        : setSelectedSlip({ preview, employee, saved })
+                        : setSelectedSlip({ preview, employee })
                     }
-                    title="Click to view details"
+                    title="Click to view complete record"
                   >
                     {employee?.name ?? "Unknown"}
                   </button>
                   <small className="op-subtext">
-                    Monthly: {money(employee?.monthlySalary ?? 0)}
+                    Monthly base: {money(employee?.monthlySalary ?? 0)}
                   </small>
                 </div>
 
@@ -693,7 +691,7 @@ export function PayrollView({
                 </div>
 
                 <div className="op-daily-rate-cell">
-                  <strong className="op-gross-val">{money(preview.gross)}</strong>
+                  <strong className="op-gross-val" style={{ color: "#15803d" }}>+{money(empEarned)}</strong>
                   <small className="op-subtext">
                     {preview.rateBreakdown
                       .map(
@@ -703,98 +701,46 @@ export function PayrollView({
                           }`
                       )
                       .join(" + ") || `${preview.presentDays}d × ₹0`}
+                    {preview.reimbursements > 0 ? ` (+${money(preview.reimbursements)} reimb)` : ""}
+                    {preview.deductions > 0 ? ` (−${money(preview.deductions)} deduct)` : ""}
+                  </small>
+                </div>
+
+                <div className="op-advance-cell">
+                  <strong className="op-adv-val" style={{ color: "#b91c1c" }}>{empAdvances > 0 ? `−${money(empAdvances)}` : "₹0"}</strong>
+                  <small className="op-subtext">
+                    {empAdvances > 0 ? `${money(empAdvances)} given` : "No advances"}
                   </small>
                 </div>
 
                 <div className="op-adjustments-cell">
-                  {preview.advanceRecovery > 0 && (
-                    <span
-                      className="op-adj-tag adv"
-                      title={`Advance recovery: ${money(preview.advanceRecovery)} deducted from this salary (Total advance: ${money(preview.totalAdvance)}${preview.remainingAdvance > 0 ? `, Remaining balance: ${money(preview.remainingAdvance)}` : ""})`}
-                    >
-                      −{money(preview.advanceRecovery)} adv
-                      {preview.totalAdvance > preview.advanceRecovery && (
-                        <small style={{ marginLeft: 3, opacity: 0.85 }}>({money(preview.totalAdvance)} total)</small>
-                      )}
-                    </span>
-                  )}
-                  {preview.reimbursements > 0 && (
-                    <span className="op-adj-tag reimb" title="Reimbursement / Extras">
-                      +{money(preview.reimbursements)}
-                    </span>
-                  )}
-                  {preview.deductions > 0 && (
-                    <span className="op-adj-tag deduct" title="Salary Deduction">
-                      −{money(preview.deductions)}
-                    </span>
-                  )}
-                  {preview.reimbursements === 0 &&
-                    preview.deductions === 0 &&
-                    preview.advanceRecovery === 0 && (
-                      <span className="op-text-muted">—</span>
-                    )}
-                </div>
-
-                <div>
-                  <strong className="op-net-salary-val">{money(preview.net)}</strong>
-                </div>
-
-                <div className="op-paid-input-cell">
-                  <div className="op-paid-input-wrap">
-                    <span className="op-currency-prefix">₹</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      className={`op-salary-paid-field ${
-                        (saved?.status === "Paid" || paid >= preview.net)
-                          ? "is-paid"
-                          : ""
-                      }`}
-                      aria-label={`Paid amount for ${employee?.name}`}
-                      value={paid === 0 && !saved ? "" : paid}
-                      placeholder="0"
-                      onChange={(e) => {
-                        const val = Number(e.target.value) || 0;
-                        setPayrollStatus(
-                           preview,
-                          val >= preview.net ? "Paid" : "Pending",
-                          val
-                        );
-                      }}
-                    />
-                  </div>
-                  {(saved?.status === "Paid" || paid >= preview.net) ? (
-                    <span className="op-paid-badge-pill" title="Fully settled for this period">
-                      <Check size={13} /> Paid
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="op-quick-pay-full-btn"
-                      title={`Pay full ${money(preview.net)}`}
-                      onClick={() => setPayrollStatus(preview, "Paid", preview.net)}
-                    >
-                      Pay Full
-                    </button>
-                  )}
+                  <strong style={{ color: deductedFromAdvance > 0 ? "#b45309" : "#687670" }}>
+                    {deductedFromAdvance > 0 ? `−${money(deductedFromAdvance)}` : "₹0"}
+                  </strong>
+                  <small className="op-subtext">
+                    {deductedFromAdvance >= empEarned && empEarned > 0
+                      ? "Fully absorbed"
+                      : deductedFromAdvance > 0
+                      ? "Partially absorbed"
+                      : "No deduction"}
+                  </small>
                 </div>
 
                 <div className="op-balance-cell">
-                  {periodBalance > 0 ? (
+                  {salaryPayable > 0 ? (
                     <>
                       <span className="op-balance-badge due">
-                        {money(periodBalance)} Due
+                        +{money(salaryPayable)} Payable
                       </span>
-                      <small className="op-subtext">{paid > 0 ? `Paid ${money(paid)} of ${money(preview.net)}` : "Pending"}</small>
+                      <small className="op-subtext">Salary due to employee</small>
                     </>
-                  ) : preview.remainingAdvance > 0 ? (
+                  ) : advanceRemaining > 0 ? (
                     <>
                       <span className="op-balance-badge advance-owed">
-                        −{money(preview.remainingAdvance)} Advance Due
+                        −{money(advanceRemaining)} Advance Due
                       </span>
                       <small className="op-subtext">
-                        {money(preview.remainingAdvance)} remaining advance
+                        Advance carried forward
                       </small>
                     </>
                   ) : (
@@ -803,21 +749,42 @@ export function PayrollView({
                         ✓ {money(0)} Settled
                       </span>
                       <small className="op-subtext">
-                        {preview.advanceRecovery > 0
-                          ? "Advance fully recovered"
-                          : "All dues settled"}
+                        All dues settled
                       </small>
                     </>
                   )}
                 </div>
 
-                <div>
+                <div className="op-actions-cell" style={{ display: "flex", gap: "6px" }}>
+                  {addEmployeeAdvance && (
+                    <button
+                      type="button"
+                      className="op-name-button"
+                      style={{
+                        background: "#edf5f1",
+                        color: "#1a5b47",
+                        border: "1px solid #c8ded5",
+                        borderRadius: "6px",
+                        padding: "5px 9px",
+                        fontSize: "12.5px",
+                        fontWeight: "600",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        cursor: "pointer",
+                      }}
+                      title={`Give advance to ${employee?.name}`}
+                      onClick={() => addEmployeeAdvance(preview.employeeId)}
+                    >
+                      <Banknote size={14} /> + Pay Adv
+                    </button>
+                  )}
                   <Button
                     secondary
-                    onClick={() => setSelectedSlip({ preview, employee, saved })}
+                    onClick={() => setSelectedSlip({ preview, employee })}
                   >
-                    <FileText size={15} />
-                    Slip / Details
+                    <FileText size={14} />
+                    Statement
                   </Button>
                 </div>
               </Row>
@@ -842,18 +809,12 @@ export function PayrollView({
           store={store}
           employee={selectedSlip.employee}
           preview={selectedSlip.preview}
-          saved={selectedSlip.saved}
           close={() => setSelectedSlip(null)}
-          onSavePayment={(amount) => {
-            setPayrollStatus(
-              selectedSlip.preview,
-              amount >= selectedSlip.preview.net && selectedSlip.preview.net > 0
-                ? "Paid"
-                : "Pending",
-              amount
-            );
+          onAddAdvance={addEmployeeAdvance ? () => {
+            const empId = selectedSlip.preview.employeeId;
             setSelectedSlip(null);
-          }}
+            addEmployeeAdvance(empId);
+          } : undefined}
         />
       )}
     </div>
@@ -864,22 +825,25 @@ export function SalarySlipModal({
   store,
   employee,
   preview,
-  saved,
   close,
-  onSavePayment,
+  onAddAdvance,
 }: {
   store: FleetStore;
   employee: Employee | undefined;
   preview: PayrollPreview;
-  saved: PayrollPayment | undefined;
   close: () => void;
-  onSavePayment: (amount: number) => void;
+  onAddAdvance?: () => void;
 }) {
-  const currentPaid =
-    saved?.paidAmount ?? (saved?.status === "Paid" ? preview.net : 0);
-  const [paymentDraft, setPaymentDraft] = useState<number>(currentPaid);
+  // Pure Plus & Minus calculation:
+  const empEarned = Math.max(0, preview.gross + preview.reimbursements - preview.deductions);
+  const employeeAdvances = store.advances
+    .filter((adv) => adv.employeeId === preview.employeeId && adv.date <= preview.periodEnd)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const totalAdvancesIssued = employeeAdvances.reduce((sum, a) => sum + a.amount, 0);
 
-  const balance = Math.max(0, preview.net - paymentDraft);
+  const deductedFromAdvance = Math.min(totalAdvancesIssued, empEarned);
+  const advanceRemaining = Math.max(0, totalAdvancesIssued - empEarned);
+  const salaryPayable = Math.max(0, empEarned - totalAdvancesIssued);
 
   // Relevant itemized expenses
   const relevantExpenses = store.employeeExpenses.filter(
@@ -895,23 +859,6 @@ export function SalarySlipModal({
     (e) => e.treatment === "Employee deduction"
   );
 
-  // Outstanding advances
-  const employeeAdvances = store.advances.filter(
-    (adv) => adv.employeeId === preview.employeeId
-  );
-  const totalAdvanceIssued = employeeAdvances.reduce((sum, a) => sum + a.amount, 0);
-  const totalAdvanceRecovered = employeeAdvances.reduce(
-    (sum, a) => sum + a.recovered,
-    0
-  );
-  const currentOutstandingAdvance = Math.max(
-    0,
-    totalAdvanceIssued - totalAdvanceRecovered
-  );
-
-  const totalEarnings = preview.gross + preview.reimbursements + preview.carryForward;
-  const totalDeductions = preview.deductions + preview.advanceRecovery;
-
   return (
     <div className="invoice-backdrop">
       <div className="invoice-dialog op-salary-slip-dialog">
@@ -920,9 +867,15 @@ export function SalarySlipModal({
             <X size={17} />
             Close
           </Button>
+          {onAddAdvance && (
+            <Button secondary onClick={onAddAdvance}>
+              <Banknote size={17} />
+              + Pay Advance
+            </Button>
+          )}
           <Button onClick={() => window.print()}>
             <Printer size={17} />
-            Print / PDF Salary Slip
+            Print / PDF Statement
           </Button>
         </div>
 
@@ -934,7 +887,7 @@ export function SalarySlipModal({
             </div>
           </header>
 
-          <h1>EMPLOYEE SALARY SLIP</h1>
+          <h1>EMPLOYEE SALARY & ADVANCE STATEMENT</h1>
 
           <section className="invoice-company">
             <p>{store.company.address}</p>
@@ -953,10 +906,10 @@ export function SalarySlipModal({
               </span>
             </p>
             <p>
-              <b>Pay Period:</b> {fmt(preview.periodStart)} to {fmt(preview.periodEnd)}
+              <b>Period:</b> {fmt(preview.periodStart)} to {fmt(preview.periodEnd)}
               <br />
               <span>
-                {preview.totalDays} calendar days · Payout: {fmt(preview.payoutDate)}
+                {preview.totalDays} calendar days · Statement Date: {fmt(isoToday())}
               </span>
             </p>
           </section>
@@ -996,27 +949,27 @@ export function SalarySlipModal({
                 </tr>
               )}
               <tr className="invoice-total">
-                <th colSpan={3}>Base Attendance Gross:</th>
-                <th>{money(preview.gross)}</th>
+                <th colSpan={3}>Attendance Gross Salary:</th>
+                <th>+{money(preview.gross)}</th>
               </tr>
             </tbody>
           </table>
 
-          {/* Itemized Earnings vs Deductions Summary Table */}
+          {/* Itemized Plus & Minus Statement Table */}
           <table className="invoice-expenses op-slip-calc-table">
             <thead>
               <tr>
-                <th style={{ width: "65%" }}>Particulars / Salary Adjustments</th>
+                <th style={{ width: "65%" }}>Particulars / Plus & Minus Ledger</th>
                 <th style={{ width: "35%", textAlign: "center" }}>Amount (₹)</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td>
-                  <b>Basic Attendance Gross Pay</b> ({preview.presentDays} days worked)
+                  <b>Attendance Gross Salary</b> ({preview.presentDays} present days)
                 </td>
-                <td style={{ textAlign: "center" }}>
-                  <b>+{money(preview.gross)}</b>
+                <td style={{ textAlign: "center", color: "#15803d", fontWeight: "700" }}>
+                  +{money(preview.gross)}
                 </td>
               </tr>
 
@@ -1025,7 +978,7 @@ export function SalarySlipModal({
                   <td>
                     <b>Reimbursement / Extra:</b> {item.category} ({item.description})
                   </td>
-                  <td style={{ textAlign: "center", color: "#15803d" }}>
+                  <td style={{ textAlign: "center", color: "#15803d", fontWeight: "700" }}>
                     +{money(item.amount)}
                   </td>
                 </tr>
@@ -1036,104 +989,110 @@ export function SalarySlipModal({
                   <td>
                     <b>Salary Deduction:</b> {item.category} ({item.description})
                   </td>
-                  <td style={{ textAlign: "center", color: "#b91c1c" }}>
+                  <td style={{ textAlign: "center", color: "#b91c1c", fontWeight: "700" }}>
                     −{money(item.amount)}
                   </td>
                 </tr>
               ))}
 
-              {preview.advanceRecovery > 0 && (
-                <tr>
-                  <td>
-                    <b>Advance Recovery / Deduction</b>
-                    <small style={{ display: "block", color: "#666" }}>
-                      Total advance taken: {money(preview.totalAdvance)}
-                      {preview.remainingAdvance > 0 ? (
-                        <span style={{ color: "#b91c1c", fontWeight: 700 }}>
-                          {" "}· Remaining balance to recover later: {money(preview.remainingAdvance)}
-                        </span>
-                      ) : (
-                        <span style={{ color: "#15803d", fontWeight: 600 }}>
-                          {" "}· Fully recovered
-                        </span>
-                      )}
-                    </small>
-                  </td>
-                  <td style={{ textAlign: "center", color: "#b91c1c" }}>
-                    −{money(preview.advanceRecovery)}
-                  </td>
-                </tr>
-              )}
-
-              <tr className="invoice-grand">
-                <th>Total Net Salary Payable:</th>
-                <td style={{ textAlign: "center", fontWeight: "800", fontSize: "16px" }}>
-                  {money(preview.net)}
+              <tr className="invoice-total" style={{ background: "#f8fafc" }}>
+                <th>Total Salary Earned in Period:</th>
+                <td style={{ textAlign: "center", fontWeight: "800", color: "#15803d" }}>
+                  +{money(empEarned)}
                 </td>
               </tr>
 
               <tr>
-                <th>Amount Paid / Disbursed:</th>
-                <td style={{ textAlign: "center", fontWeight: "700", color: "#047857" }}>
-                  {money(paymentDraft)}
+                <td>
+                  <b>Total Advances Paid / Given to Employee</b> ({employeeAdvances.length} advance records)
+                </td>
+                <td style={{ textAlign: "center", color: "#b91c1c", fontWeight: "700" }}>
+                  {totalAdvancesIssued > 0 ? `−${money(totalAdvancesIssued)}` : "₹0"}
                 </td>
               </tr>
 
-              <tr className="invoice-grand" style={{ background: balance > 0 ? "#ffe6d5" : "#e6f9ed" }}>
-                <th>Period Balance Due:</th>
+              {deductedFromAdvance > 0 && (
+                <tr style={{ background: "#fdf8f6" }}>
+                  <td>
+                    <b>Salary Deducted Directly from Advance</b>
+                    <small style={{ display: "block", color: "#666" }}>
+                      Absorbed {money(deductedFromAdvance)} of advance against earned salary
+                    </small>
+                  </td>
+                  <td style={{ textAlign: "center", color: "#b45309", fontWeight: "700" }}>
+                    −{money(deductedFromAdvance)}
+                  </td>
+                </tr>
+              )}
+
+              <tr
+                className="invoice-grand"
+                style={{
+                  background: salaryPayable > 0 ? "#e6f9ed" : advanceRemaining > 0 ? "#ffe6d5" : "#f1f5f9",
+                }}
+              >
+                <th>Remaining Carry-Forward Balance:</th>
                 <td
                   style={{
                     textAlign: "center",
                     fontWeight: "800",
                     fontSize: "17px",
-                    color: balance > 0 ? "#c2410c" : "#15803d",
+                    color: salaryPayable > 0 ? "#15803d" : advanceRemaining > 0 ? "#b45309" : "#1f6a53",
                   }}
                 >
-                  {balance > 0 ? `${money(balance)} (Pending)` : `✓ ${money(0)} (Settled)`}
-                </td>
-              </tr>
-
-              <tr className="invoice-grand" style={{ background: "#f1f5f9" }}>
-                <th>Employee Overall Remaining Balance:</th>
-                <td
-                  style={{
-                    textAlign: "center",
-                    fontWeight: "800",
-                    fontSize: "17px",
-                    color:
-                      calculateEmployeeLedger(store, preview.employeeId).remainingBalance > 0
-                        ? "#9a493d"
-                        : calculateEmployeeLedger(store, preview.employeeId).remainingBalance < 0
-                        ? "#b45309"
-                        : "#1f6a53",
-                  }}
-                >
-                  {calculateEmployeeLedger(store, preview.employeeId).remainingBalance < 0
-                    ? `−${money(Math.abs(calculateEmployeeLedger(store, preview.employeeId).remainingBalance))} (Advance Due)`
-                    : calculateEmployeeLedger(store, preview.employeeId).remainingBalance > 0
-                    ? `${money(calculateEmployeeLedger(store, preview.employeeId).remainingBalance)} (Pending)`
+                  {salaryPayable > 0
+                    ? `+${money(salaryPayable)} (Salary Payable)`
+                    : advanceRemaining > 0
+                    ? `−${money(advanceRemaining)} (Advance Due)`
                     : `✓ ${money(0)} (Settled)`}
                 </td>
               </tr>
             </tbody>
           </table>
 
+          {/* Advance History Details */}
+          {employeeAdvances.length > 0 && (
+            <div style={{ marginTop: "16px" }}>
+              <h3 style={{ fontSize: "14px", fontWeight: "700", marginBottom: "8px", color: "#1e293b" }}>
+                Advance Payment Records
+              </h3>
+              <table className="invoice-table" style={{ fontSize: "13px" }}>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Reason / Note</th>
+                    <th>Advance Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employeeAdvances.map((adv) => (
+                    <tr key={adv.id}>
+                      <td>{fmt(adv.date)}</td>
+                      <td>{adv.note || "Employee Advance"}</td>
+                      <td style={{ fontWeight: "700", color: "#b91c1c" }}>{money(adv.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <footer className="invoice-footer">
             <div>
-              <h3>Payment Notes</h3>
+              <h3>Statement Notes</h3>
               <p>
                 <b>Status:</b>{" "}
-                {balance === 0 && paymentDraft > 0
-                  ? "Fully Paid & Settled"
-                  : paymentDraft > 0
-                  ? "Partially Paid"
-                  : "Payment Pending"}
+                {salaryPayable > 0
+                  ? `Salary due to employee: ${money(salaryPayable)}`
+                  : advanceRemaining > 0
+                  ? `Advance balance carried forward: ${money(advanceRemaining)}`
+                  : "All salary and advance dues are fully settled."}
               </p>
               <p>
-                <b>Slip Generated:</b> {fmt(isoToday())}
+                <b>Generated on:</b> {fmt(isoToday())}
               </p>
               <p>
-                This salary statement is a computer-generated voucher and reflects complete attendance, addition, and deduction records.
+                This statement reflects direct plus and minus settlement between attendance earnings and advance payments.
               </p>
             </div>
             <div className="invoice-signature">
@@ -1150,40 +1109,6 @@ export function SalarySlipModal({
             </div>
           </footer>
         </article>
-
-        {/* Screen-Only Payment Recorder Card */}
-        <section className="op-slip-screen-payment-card">
-          <h4>Record or Update Payment Amount</h4>
-          <div className="op-slip-payment-controls">
-            <label className="op-field">
-              <span>Amount Paid (₹)</span>
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={paymentDraft === 0 && !saved ? "" : paymentDraft}
-                placeholder="Enter paid amount"
-                onChange={(e) => setPaymentDraft(Number(e.target.value) || 0)}
-              />
-            </label>
-            <Button
-              secondary
-              onClick={() => setPaymentDraft(preview.net)}
-              type="button"
-            >
-              Pay Full ({money(preview.net)})
-            </Button>
-            <Button
-              onClick={() => {
-                onSavePayment(paymentDraft);
-                close();
-              }}
-            >
-              <Check size={16} />
-              Save Payment & Close
-            </Button>
-          </div>
-        </section>
       </div>
     </div>
   );

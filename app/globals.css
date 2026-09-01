@@ -1158,21 +1158,20 @@ button, input, select { font: inherit; letter-spacing: 0; }
 }
 
 .op-salary-table-wrap .op-table {
-  min-width: 1240px;
+  min-width: 1080px;
 }
 
 .op-salary-table-wrap .op-table > header,
 .op-salary-table-wrap .op-row {
   display: grid;
   grid-template-columns:
-    minmax(160px, 1.4fr)
-    minmax(175px, 1.3fr)
+    minmax(180px, 1.4fr)
+    minmax(160px, 1.2fr)
     minmax(160px, 1.3fr)
-    minmax(115px, 0.9fr)
-    minmax(110px, 0.9fr)
-    minmax(185px, 1.4fr)
-    minmax(170px, 1.3fr)
-    minmax(140px, 1.1fr);
+    minmax(140px, 1.1fr)
+    minmax(150px, 1.1fr)
+    minmax(180px, 1.4fr)
+    minmax(170px, 1.2fr);
   align-items: center;
   gap: 16px;
   padding: 10px 16px;

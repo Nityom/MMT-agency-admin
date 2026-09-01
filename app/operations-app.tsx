@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import {
   addDays, Bill, BillCharge, BillVehicleLine, BusinessExpenseCategory, CampaignBooking,
   calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange,
-  ClientCategory, FleetStore, getEmployeeAdvancesWithRecoveries, inclusiveDays, isEmployeeActiveOnDate, PaymentMode,
+  ClientCategory, EmployeeRate, FleetStore, getEmployeeAdvancesWithRecoveries, inclusiveDays, isEmployeeActiveOnDate, PaymentMode,
   nextBillNumber, PayrollPayment, rateOnDate, weekFor,
 } from "./fleet-domain";
 import { Actions, AttendanceCalendar, Button, Row, Status, Table } from "./operations-components";
@@ -97,6 +97,50 @@ export default function OperationsApp() {
   const [vehicleAttendanceDirty, setVehicleAttendanceDirty] = useState(false);
   const [advanceSearch, setAdvanceSearch] = useState("");
   const [advanceHistoryEmployeeId, setAdvanceHistoryEmployeeId] = useState<number | null>(null);
+  useEffect(() => {
+    if (!storageReady) return;
+    const wipeKey = "fleet_salary_advance_reset_v1";
+    if (!localStorage.getItem(wipeKey)) {
+      localStorage.setItem(wipeKey, "true");
+      setStore((current) => ({
+        ...current,
+        payrollPayments: [],
+        advances: [],
+        employeePayments: [],
+      }));
+    }
+  }, [storageReady, setStore]);
+  useEffect(() => {
+    if (!storageReady) return;
+    const sudhakarRateKey = "fleet_sudhakar_rate_split_v1";
+    if (!localStorage.getItem(sudhakarRateKey)) {
+      localStorage.setItem(sudhakarRateKey, "true");
+      setStore((current) => {
+        const sudhakar = current.employees.find((e) => e.name.toLowerCase().includes("sudhakar"));
+        if (!sudhakar) return current;
+        const otherRates = current.employeeRates.filter((r) => r.employeeId !== sudhakar.id);
+        const aprilRate: EmployeeRate = {
+          id: nextId(otherRates),
+          employeeId: sudhakar.id,
+          location: "Wardha",
+          dailyRate: 300,
+          effectiveFrom: "2026-04-01",
+          effectiveTo: "2026-04-30",
+        };
+        const mayRate: EmployeeRate = {
+          id: aprilRate.id + 1,
+          employeeId: sudhakar.id,
+          location: "Wardha",
+          dailyRate: 350,
+          effectiveFrom: "2026-05-01",
+        };
+        return {
+          ...current,
+          employeeRates: [...otherRates, aprilRate, mayRate],
+        };
+      });
+    }
+  }, [storageReady, setStore]);
   useEffect(() => {
     if (!storageReady) return;
     let cancelled = false;
@@ -208,54 +252,19 @@ export default function OperationsApp() {
   });
   const currentWeek = weekFor(isoToday());
   const payrollPreviews = store.employees.map((employee) => calculatePayrollRange(store, employee.id, payrollWeek, payrollPeriodEnd));
-  const payrollGrossTotal = payrollPreviews.reduce((sum, preview) => sum + preview.gross, 0);
+  const payrollGrossTotal = payrollPreviews.reduce((sum, preview) => sum + Math.max(0, preview.gross + preview.reimbursements - preview.deductions), 0);
   const payrollAdvanceRecoveryTotal = payrollPreviews.reduce((sum, preview) => sum + preview.advanceRecovery, 0);
-  const payrollOutstandingAdvanceTotal = store.advances.filter((advance) => advance.date <= addDays(payrollPeriodEnd, 1)).reduce((sum, advance) => sum + Math.max(0, advance.amount - advance.recovered), 0);
   const payrollNetTotal = payrollPreviews.reduce((sum, preview) => sum + preview.net, 0);
   const payrollPayoutDate = addDays(payrollPeriodEnd, 1);
-  const payrollRemainingAdvanceTotal = Math.max(0, payrollOutstandingAdvanceTotal - payrollAdvanceRecoveryTotal);
+  const payrollRemainingAdvanceTotal = store.advances.filter((a) => a.date <= payrollPeriodEnd).reduce((sum, a) => sum + a.amount, 0) - payrollAdvanceRecoveryTotal;
   const payrollRows = payrollPreviews.map((preview) => {
-    const matchingPayments = store.payrollPayments.filter(
-      (item) => item.employeeId === preview.employeeId &&
-        item.periodStart <= payrollPeriodEnd && item.periodEnd >= payrollWeek
-    );
-    const saved = matchingPayments.find(
-      (item) => item.periodStart === payrollWeek && item.periodEnd === payrollPeriodEnd
-    ) ?? matchingPayments[0];
-
-    const totalPaidInRange = matchingPayments.reduce(
-      (sum, p) => sum + (p.paidAmount ?? (p.status === "Paid" ? p.net : 0)),
-      0
-    );
-
-    const hasPaidPaymentCovering = matchingPayments.some(
-      (p) => p.status === "Paid" || (p.paidAmount !== undefined && p.paidAmount >= p.net)
-    );
-
-    const paid = saved && saved.periodStart === payrollWeek && saved.periodEnd === payrollPeriodEnd
-      ? (saved.status === "Paid" ? Math.min(saved.paidAmount ?? preview.net, preview.net) : (saved.paidAmount ?? 0))
-      : hasPaidPaymentCovering
-      ? preview.net
-      : totalPaidInRange > 0
-      ? Math.min(totalPaidInRange, preview.net)
-      : 0;
-
-    const periodBalance = Math.max(0, preview.net - paid);
     const overallBalance = calculateEmployeeLedger(store, preview.employeeId).remainingBalance;
     return {
       preview,
       employee: store.employees.find((item) => item.id === preview.employeeId),
-      saved,
-      paid,
       balance: overallBalance,
-      periodBalance,
     };
   });
-  const payrollPaidTotal = payrollRows.reduce((sum, row) => sum + row.paid, 0);
-  const payrollRemainingBalanceTotal = payrollRows.reduce(
-    (sum, row) => sum + row.periodBalance,
-    0
-  );
   const selectPayrollWeek = (date: string) => setPayrollWeek(date);
   const setPayrollRange = (start: string, end: string) => {
     setPayrollWeek(start);
@@ -430,11 +439,46 @@ export default function OperationsApp() {
     notify(`Salary ${paidAmount !== undefined ? `payment of ${money(paidAmount)} saved` : `marked ${status.toLowerCase()}`}`);
   };
   const exportPayroll = () => {
-    const rows = [["Employee", "Period from", "Period to", "Days in Period", "Present days", "Absent days", "Gross Earned", "Extras / Reimb", "Deductions", "Advance Recovery", "Net Salary", "Paid Amount", "Remaining Balance", "Status"], ...payrollRows.map(({ preview, employee, saved, paid, balance }) => [employee?.name ?? "", preview.periodStart, preview.periodEnd, String(preview.totalDays), String(preview.presentDays), String(preview.absentDays), String(preview.gross), String(preview.reimbursements), String(preview.deductions), String(preview.advanceRecovery), String(preview.net), String(paid), String(balance), preview.net === 0 ? "No dues" : balance === 0 && paid > 0 ? "Paid" : paid > 0 ? "Partial" : "Pending"])];
+    const rows = [
+      [
+        "Employee",
+        "Period from",
+        "Period to",
+        "Days in Period",
+        "Present days",
+        "Absent days",
+        "Gross Salary Earned",
+        "Advances Given",
+        "Deducted from Advance",
+        "Carry Forward Balance",
+        "Status",
+      ],
+      ...payrollRows.map(({ preview, employee, balance }) => {
+        const empEarned = Math.max(0, preview.gross + preview.reimbursements - preview.deductions);
+        const empAdvances = store.advances
+          .filter((a) => a.employeeId === preview.employeeId && a.date <= payrollPeriodEnd)
+          .reduce((sum, a) => sum + a.amount, 0);
+        const deducted = Math.min(empAdvances, empEarned);
+        const bal = empEarned - empAdvances;
+        return [
+          employee?.name ?? "",
+          preview.periodStart,
+          preview.periodEnd,
+          String(preview.totalDays),
+          String(preview.presentDays),
+          String(preview.absentDays),
+          String(empEarned),
+          String(empAdvances),
+          String(deducted),
+          String(bal),
+          bal > 0 ? "Salary Due" : bal < 0 ? "Advance Due" : "Settled",
+        ];
+      }),
+    ];
     const csv = rows.map((row) => row.map((value) => `"${value.replaceAll('"', '""')}"`).join(",")).join("\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    link.download = `salary-${payrollWeek}-to-${payrollPeriodEnd}.csv`;
+    link.download = `salary-advance-${payrollWeek}-to-${payrollPeriodEnd}.csv`;
     link.click();
     URL.revokeObjectURL(link.href);
   };
@@ -708,10 +752,9 @@ export default function OperationsApp() {
           onAction={() => setDialog("advance")}
         />
         <section className="op-metrics">
-          <Metric label="Advances issued" value={money(advanceTotal)} detail={`${store.advances.length} advance records`} icon={Banknote} />
-          <Metric label="Recovered" value={money(recoveredTotal)} detail="Recovered through paid salary" icon={Check} />
-          <Metric label="Scheduled recovery" value={money(payrollAdvanceRecoveryTotal)} detail={`Salary payout ${fmt(addDays(payrollWeek, 7))}`} icon={CircleDollarSign} />
-          <Metric label="Outstanding" value={money(advanceBalance)} detail="Remaining employee balance" icon={WalletCards} />
+          <Metric label="Total Advances Given" value={money(advanceTotal)} detail={`${store.advances.length} advance records`} icon={Banknote} />
+          <Metric label="Salary Deducted" value={money(recoveredTotal)} detail="Deducted from attendance earnings" icon={Check} />
+          <Metric label="Advance Remaining" value={money(advanceBalance)} detail="Carried forward balance" icon={WalletCards} />
         </section>
 
         <div className="op-toolbar" style={{ marginBottom: 14 }}>
@@ -826,15 +869,15 @@ export default function OperationsApp() {
         payrollAdvanceRecoveryTotal={payrollAdvanceRecoveryTotal}
         payrollRemainingAdvanceTotal={payrollRemainingAdvanceTotal}
         payrollNetTotal={payrollNetTotal}
-        payrollPaidTotal={payrollPaidTotal}
-        payrollRemainingBalanceTotal={payrollRemainingBalanceTotal}
         setPayrollWeek={selectPayrollWeek}
         setPayrollPeriodEnd={setPayrollPeriodEnd}
         setPayrollRange={setPayrollRange}
-        releasePayroll={releasePayroll}
-        setPayrollStatus={setPayrollStatus}
         exportPayroll={exportPayroll}
         openEmployeeRecord={setEmployeeRecordId}
+        addEmployeeAdvance={(empId) => {
+          setEditingEmployeeId(empId ?? null);
+          setDialog("advance");
+        }}
       />
     )} 
     {view === "billing" && <BillingView store={store} billingSearch={billingSearch} filteredBills={filteredBills} totalBusiness={totalBusiness} outstanding={outstanding} setBillingSearch={setBillingSearch} generateBill={() => { setEditingBill(null); setComposeBill(true); }} openCompanyDetails={() => setDialog("company")} combineClientBills={() => setConsolidateOpen(true)} editBill={(bill) => { setEditingBill(bill); setBillingClientId(bill.clientId); setComposeBill(true); }} recordPayment={setPaymentBill} viewBill={setInvoice} removeBill={removeBill}/>}

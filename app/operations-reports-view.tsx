@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Banknote,
   BarChart3,
   CalendarDays,
   CircleDollarSign,
@@ -64,7 +65,7 @@ type ReportsViewProps = {
   reportTotalExpenses: number;
   reportExpenses: FleetStore["businessExpenses"];
   reportEmployeeExpenses: FleetStore["employeeExpenses"];
-  reportPayroll: FleetStore["payrollPayments"];
+  reportPayroll?: FleetStore["payrollPayments"];
   outstanding: number;
 };
 
@@ -106,6 +107,7 @@ export function ReportsView({
 }: ReportsViewProps) {
   const currentYear = Number(isoToday().slice(0, 4));
   const currentMonthStr = isoToday().slice(0, 7);
+  const reportAdvances = store.advances.filter((a) => a.date >= reportStart && a.date <= reportEnd);
 
   return (
     <>
@@ -362,18 +364,84 @@ export function ReportsView({
           </div>
         )}
       </div>
-      <ReportProfitSection
-        category={reportProfitCategory}
-        supplierCost={reportCategorySupplierCost}
-        clientBilling={reportCategoryClientBilling}
-        profit={reportCategoryProfit}
-        recordCount={reportCategoryRecordCount}
-        breakdown={reportProfitBreakdown}
-        select={setReportProfitCategory}
-      />
-      <section className="op-report-charts">
-        <TrendGraph items={reportTrend} />
-        <ClientDonut items={reportClientChart} />
+
+      {/* Category Profitability Breakdown */}
+      <section className="op-section-title">
+        <h2>Category Profitability ({fmt(reportStart)} to {fmt(reportEnd)})</h2>
+      </section>
+      <div className="op-metrics">
+        <Metric
+          label="Category Billing (Revenue)"
+          value={money(reportCategoryClientBilling)}
+          detail={`${reportProfitCategory} client billed amount`}
+          icon={CircleDollarSign}
+        />
+        <Metric
+          label="Category Supplier / Direct Cost"
+          value={money(reportCategorySupplierCost)}
+          detail={`${reportProfitCategory} expenses`}
+          icon={WalletCards}
+        />
+        <Metric
+          label="Category Net Margin"
+          value={money(reportCategoryProfit)}
+          detail={`${reportProfitCategory} margin in period`}
+          icon={Banknote}
+        />
+        <Metric
+          label="Record Count"
+          value={`${reportCategoryRecordCount} items`}
+          detail={`Related ${reportProfitCategory.toLowerCase()} transactions`}
+          icon={ReceiptText}
+        />
+      </div>
+
+      <div className="op-dashboard-grid">
+        <article className="op-panel">
+          <h2>All Categories Profit Margin</h2>
+          <div className="op-profit-category-list">
+            {reportProfitBreakdown.map((item) => (
+              <div
+                key={item.value}
+                className={`op-profit-category-row ${reportProfitCategory === item.value ? "active" : ""}`}
+                onClick={() => setReportProfitCategory(item.value)}
+                style={{ cursor: "pointer" }}
+              >
+                <b>{item.label}</b>
+                <strong style={{ color: item.profit >= 0 ? "#1f6a53" : "#9a493d" }}>
+                  {money(item.profit)}
+                </strong>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="op-panel">
+          <h2>Monthly Revenue vs Expenses Trend</h2>
+          <div className="op-trend-chart">
+            {reportTrend.map((point) => (
+              <div key={point.label} className="op-trend-col">
+                <div className="op-trend-bars">
+                  <div
+                    className="op-trend-bar rev"
+                    style={{ height: `${Math.min(100, Math.max(10, point.revenue / 2000))}%` }}
+                    title={`Revenue: ${money(point.revenue)}`}
+                  />
+                  <div
+                    className="op-trend-bar exp"
+                    style={{ height: `${Math.min(100, Math.max(10, point.expenses / 2000))}%` }}
+                    title={`Expenses: ${money(point.expenses)}`}
+                  />
+                </div>
+                <small>{point.label}</small>
+              </div>
+            ))}
+          </div>
+        </article>
+      </div>
+
+      <section className="op-section-title">
+        <h2>Overall Period Financial Summary</h2>
       </section>
       <section className="op-metrics">
         <Metric
@@ -391,7 +459,7 @@ export function ReportsView({
         <Metric
           label="Total expenses in period"
           value={money(reportTotalExpenses)}
-          detail={`${reportExpenses.length} business · ${reportEmployeeExpenses.length} employee · ${reportPayroll.length} payroll`}
+          detail={`${reportExpenses.length} business · ${reportEmployeeExpenses.length} employee · ${reportAdvances.length} advances`}
           icon={ReceiptText}
         />
         <Metric
@@ -447,10 +515,10 @@ export function ReportsView({
             </span>
           </p>
           <p>
-            <b>Payroll paid</b>
+            <b>Employee advances paid</b>
             <span>
               {money(
-                reportPayroll.reduce((sum, item) => sum + item.net, 0),
+                reportAdvances.reduce((sum, item) => sum + item.amount, 0),
               )}
             </span>
           </p>
