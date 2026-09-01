@@ -7,6 +7,7 @@ import {
   FileText,
   Plus,
   Printer,
+  RotateCcw,
   Search,
   Trash2,
   X,
@@ -638,6 +639,95 @@ export function QuotationsView({
     notify("Quotation deleted");
   };
 
+  const restoreDeletedQuotation = () => {
+    const akGandhiClient = store.clients.find((c) =>
+      c.firmName.toLowerCase().includes("gandhi"),
+    ) || {
+      id: 999,
+      firmName: "A. k. Gandhi Tvs, Bhandara",
+      ownerName: "Shri Manindra Panhire",
+      mobile: "+919859061000",
+      email: "",
+      address: "Jilha parishad chouk, bhandara",
+      categories: ["Automobile"],
+    };
+
+    const restoredQtn: Quotation = {
+      id: 2,
+      number: 2,
+      quotationDate: "2026-09-01",
+      clientId: akGandhiClient.id,
+      client: {
+        firmName: akGandhiClient.firmName,
+        ownerName: akGandhiClient.ownerName,
+        address: akGandhiClient.address,
+        mobile: akGandhiClient.mobile,
+        email: akGandhiClient.email,
+      },
+      vehicleLines: [
+        {
+          id: 1,
+          vehicleId: 0,
+          label: "Rickshaw",
+          quantity: 1,
+          startDate: "2026-09-01",
+          endDate: "2026-09-30",
+          bookedDays: 30,
+          advertisementDays: 30,
+          offDays: 0,
+          dailyRate: 800,
+          driverNames: [],
+        },
+      ],
+      charges: [
+        {
+          id: 1,
+          category: "Banner / printing",
+          description: "Ricksha banner",
+          quantity: 1,
+          rate: 3100,
+          amount: 3100,
+        },
+        {
+          id: 2,
+          category: "Pasting",
+          description: "",
+          quantity: 1,
+          rate: 900,
+          amount: 900,
+        },
+        {
+          id: 3,
+          category: "Municipal tax",
+          description: "",
+          quantity: 1,
+          rate: 300,
+          amount: 300,
+        },
+        {
+          id: 4,
+          category: "Miscellaneous",
+          description: "Lunch and dinner",
+          quantity: 1,
+          rate: 2500,
+          amount: 2500,
+        },
+      ],
+      total: 30800,
+      status: "Draft",
+    };
+
+    setStore((current) => {
+      const list = (current.quotations || []).filter((q) => q.number !== 2);
+      return {
+        ...current,
+        quotations: [restoredQtn, ...list].sort((a, b) => b.number - a.number),
+        nextQuotationNumber: Math.max(current.nextQuotationNumber || 1, 4),
+      };
+    });
+    notify("Quotation QTN-0002 (₹30,800) restored successfully!");
+  };
+
   const convertToCampaign = (q: Quotation) => {
     if (
       !window.confirm(
@@ -751,6 +841,12 @@ export function QuotationsView({
         <p>
           {filtered.length} of {quotations.length} quotations
         </p>
+        {!quotations.some((q) => q.number === 2) && (
+          <Button secondary onClick={restoreDeletedQuotation}>
+            <RotateCcw size={15} />
+            Restore QTN-0002 (₹30,800)
+          </Button>
+        )}
       </div>
 
       <section className="op-metrics three">
