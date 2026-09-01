@@ -40,6 +40,7 @@ import {
   fmt,
   isoToday,
   money,
+  otherBillBalance,
   supplierBalance,
   supplierPaid,
   type ReportProfitCategory,
@@ -48,6 +49,7 @@ import {
 type ReportPeriod = "Month" | "Quarter" | "Year" | "Date range";
 
 const monthPresets = [
+  { value: "all", label: "All Time" },
   { value: "2026-04", label: "April 2026" },
   { value: "2026-05", label: "May 2026" },
   { value: "2026-06", label: "June 2026" },
@@ -161,15 +163,16 @@ export function ReportsView({
     setActiveReportTab(tab);
     onTabChange?.(tab);
   };
-  const [employeeReportMonth, setEmployeeReportMonth] = useState<string>(reportMonth || isoToday().slice(0, 7));
+  const [employeeReportMonth, setEmployeeReportMonth] = useState<string>("all");
   const [employeeSearch, setEmployeeSearch] = useState<string>("");
   const [selectedEmployeeRecordId, setSelectedEmployeeRecordId] = useState<number | null>(null);
 
+  const [clientReportMonth, setClientReportMonth] = useState<string>("all");
   const [clientSearch, setClientSearch] = useState<string>("");
   const [clientCategoryFilter, setClientCategoryFilter] = useState<ClientCategory | "All">("All");
   const [selectedClientLedgerId, setSelectedClientLedgerId] = useState<number | null>(null);
 
-  const [maintenanceMonth, setMaintenanceMonth] = useState<string>(reportMonth || isoToday().slice(0, 7));
+  const [maintenanceMonth, setMaintenanceMonth] = useState<string>("all");
   const [maintenanceSearch, setMaintenanceSearch] = useState<string>("");
   const [maintenanceCategoryFilter, setMaintenanceCategoryFilter] = useState<BusinessExpenseCategory | "All">("All");
 
@@ -178,32 +181,48 @@ export function ReportsView({
   const reportAdvances = store.advances.filter((a) => a.date >= reportStart && a.date <= reportEnd);
 
   // -------------------------------------------------------------
-  // Employee Report Computations for employeeReportMonth
+  // Employee Report Computations (Supports All Time and Monthly)
   // -------------------------------------------------------------
-  const [empY, empM] = employeeReportMonth.split("-").map(Number);
-  const daysInEmpMonth = new Date(empY, empM, 0).getDate();
-  const empMonthStart = `${employeeReportMonth}-01`;
-  const empMonthEnd = `${employeeReportMonth}-${String(daysInEmpMonth).padStart(2, "0")}`;
+  const isEmpAllTime = employeeReportMonth === "all";
+  const [empY, empM] = isEmpAllTime ? [currentYear, 1] : employeeReportMonth.split("-").map(Number);
+  const daysInEmpMonth = isEmpAllTime ? 30 : new Date(empY, empM, 0).getDate();
+  const empMonthStart = isEmpAllTime ? "2020-01-01" : `${employeeReportMonth}-01`;
+  const empMonthEnd = isEmpAllTime ? "2099-12-31" : `${employeeReportMonth}-${String(daysInEmpMonth).padStart(2, "0")}`;
 
   const employeeRows = store.employees.map((employee) => {
-    const status = getEmployeeCurrentStatus(employee, empMonthEnd);
-    const midMonthDate = `${employeeReportMonth}-15`;
+    const status = getEmployeeCurrentStatus(employee, isEmpAllTime ? isoToday() : empMonthEnd);
+    const midMonthDate = isEmpAllTime ? isoToday() : `${employeeReportMonth}-15`;
     const rateInfo = rateOnDate(store.employeeRates, employee.id, midMonthDate) ?? store.employeeRates.find((r) => r.employeeId === employee.id);
     const dailyRate = rateInfo?.dailyRate ?? 0;
     const location = rateInfo?.location ?? "Unassigned";
 
     let presentDays = 0;
-    for (let day = 1; day <= daysInEmpMonth; day++) {
-      const dateStr = `${employeeReportMonth}-${String(day).padStart(2, "0")}`;
-      if (store.attendance[dateStr]?.[employee.id] === true) {
-        presentDays++;
-      }
-    }
+    let attendanceEarned = 0;
+    let monthlyBaseEarned = 0;
 
-    const attendanceEarned = presentDays * dailyRate;
-    const monthlyBaseEarned = employee.monthlySalary > 0
-      ? Math.round((employee.monthlySalary / daysInEmpMonth) * presentDays)
-      : 0;
+    if (isEmpAllTime) {
+      for (const dateStr of Object.keys(store.attendance)) {
+        if (store.attendance[dateStr]?.[employee.id] === true) {
+          presentDays++;
+          const dayRateInfo = rateOnDate(store.employeeRates, employee.id, dateStr) ?? store.employeeRates.find((r) => r.employeeId === employee.id);
+          const dayRate = dayRateInfo?.dailyRate ?? dailyRate;
+          const [y, m] = dateStr.split("-").map(Number);
+          const daysInMonth = new Date(y, m, 0).getDate();
+          const dayBase = employee.monthlySalary > 0 ? Math.round(employee.monthlySalary / daysInMonth) : 0;
+          attendanceEarned += dayRate;
+          monthlyBaseEarned += dayBase;
+        }
+      }
+    } else {
+      for (let day = 1; day <= daysInEmpMonth; day++) {
+        const dateStr = `${employeeReportMonth}-${String(day).padStart(2, "0")}`;
+        if (store.attendance[dateStr]?.[employee.id] === true) {
+          presentDays++;
+        }
+      }
+      attendanceEarned = presentDays * dailyRate;
+      monthlyBaseEarned = employee.monthlySalary > 0 ? Math.round((employee.monthlySalary / daysInEmpMonth) * presentDays) : 0;
+    }
 
     const reimbursements = store.employeeExpenses
       .filter((e) => e.employeeId === employee.id && e.date >= empMonthStart && e.date <= empMonthEnd && e.treatment === "Employee reimbursement")
@@ -215,9 +234,11 @@ export function ReportsView({
 
     const grossEarned = attendanceEarned + monthlyBaseEarned + reimbursements - deductions;
 
-    const advancesInMonth = store.advances
-      .filter((a) => a.employeeId === employee.id && a.date >= empMonthStart && a.date <= empMonthEnd)
-      .reduce((sum, a) => sum + a.amount, 0);
+    const advancesInMonth = isEmpAllTime
+      ? store.advances.filter((a) => a.employeeId === employee.id).reduce((sum, a) => sum + a.amount, 0)
+      : store.advances
+          .filter((a) => a.employeeId === employee.id && a.date >= empMonthStart && a.date <= empMonthEnd)
+          .reduce((sum, a) => sum + a.amount, 0);
 
     const totalAdvancesUpToMonth = store.advances
       .filter((a) => a.employeeId === employee.id && a.date <= empMonthEnd)
@@ -259,8 +280,14 @@ export function ReportsView({
   const empTotalAttendanceDays = employeeRows.reduce((sum, r) => sum + r.presentDays, 0);
 
   // -------------------------------------------------------------
-  // Client Report Computations (Only Campaign Clients, not all raw contacts)
+  // Client Report Computations (Supports All Time and Monthly)
   // -------------------------------------------------------------
+  const isClientAllTime = clientReportMonth === "all";
+  const [cY, cM] = isClientAllTime ? [currentYear, 1] : clientReportMonth.split("-").map(Number);
+  const daysInClientMonth = isClientAllTime ? 30 : new Date(cY, cM, 0).getDate();
+  const clientMonthStart = isClientAllTime ? "2020-01-01" : `${clientReportMonth}-01`;
+  const clientMonthEnd = isClientAllTime ? "2099-12-31" : `${clientReportMonth}-${String(daysInClientMonth).padStart(2, "0")}`;
+
   const campaignClients = store.clients.filter((client) => {
     const targetName = client.firmName.toLowerCase().trim();
     const isBaba = targetName.includes("baba") && targetName.includes("son");
@@ -289,31 +316,45 @@ export function ReportsView({
     const targetName = client.firmName.toLowerCase().trim();
     const isBaba = targetName.includes("baba") && targetName.includes("son");
     const overall = clientOverallBalance(store, client.id);
-    const campaignsCount = store.campaignBookings.filter(
+
+    const matchedCampaigns = store.campaignBookings.filter(
       (b) =>
         b.clientId === client.id ||
         (b.client?.firmName && b.client.firmName.toLowerCase().trim() === targetName) ||
         (isBaba && (b.client?.firmName?.toLowerCase().includes("baba") ?? false))
-    ).length;
-    const invoicesCount =
-      store.bills.filter(
-        (b) =>
-          b.clientId === client.id ||
-          (b.client?.firmName && b.client.firmName.toLowerCase().trim() === targetName) ||
-          (isBaba && (b.client?.firmName?.toLowerCase().includes("baba") ?? false))
-      ).length +
-      store.otherBills.filter(
-        (b) =>
-          b.clientId === client.id ||
-          (b.client?.firmName && b.client.firmName.toLowerCase().trim() === targetName) ||
-          (isBaba && (b.client?.firmName?.toLowerCase().includes("baba") ?? false))
-      ).length;
+    );
+
+    const matchedBills = store.bills.filter(
+      (b) =>
+        b.clientId === client.id ||
+        (b.client?.firmName && b.client.firmName.toLowerCase().trim() === targetName) ||
+        (isBaba && (b.client?.firmName?.toLowerCase().includes("baba") ?? false))
+    );
+
+    const matchedOtherBills = store.otherBills.filter(
+      (b) =>
+        b.clientId === client.id ||
+        (b.client?.firmName && b.client.firmName.toLowerCase().trim() === targetName) ||
+        (isBaba && (b.client?.firmName?.toLowerCase().includes("baba") ?? false))
+    );
+
+    const periodBills = isClientAllTime
+      ? matchedBills
+      : matchedBills.filter((b) => b.billDate >= clientMonthStart && b.billDate <= clientMonthEnd);
+
+    const periodOtherBills = isClientAllTime
+      ? matchedOtherBills
+      : matchedOtherBills.filter((b) => b.billDate >= clientMonthStart && b.billDate <= clientMonthEnd);
+
+    const periodBilled = periodBills.reduce((sum, b) => sum + b.total, 0) + periodOtherBills.reduce((sum, b) => sum + b.total, 0);
+    const periodReceived = periodBills.reduce((sum, b) => sum + (b.total - billBalance(b)), 0) + periodOtherBills.reduce((sum, b) => sum + (b.total - otherBillBalance(b)), 0);
+    const periodBalance = periodBilled - periodReceived;
 
     return {
       client,
-      overall,
-      campaignsCount,
-      invoicesCount,
+      overall: isClientAllTime ? overall : { billed: periodBilled, received: periodReceived, outstanding: Math.max(0, periodBalance), balance: periodBalance },
+      campaignsCount: matchedCampaigns.length,
+      invoicesCount: isClientAllTime ? matchedBills.length + matchedOtherBills.length : periodBills.length + periodOtherBills.length,
     };
   });
 
@@ -339,16 +380,17 @@ export function ReportsView({
   });
 
   // -------------------------------------------------------------
-  // Maintenance Report Computations
+  // Maintenance Report Computations (Supports All Time and Monthly)
   // -------------------------------------------------------------
-  const [maintY, maintM] = maintenanceMonth.split("-").map(Number);
-  const daysInMaintMonth = new Date(maintY, maintM, 0).getDate();
-  const maintMonthStart = `${maintenanceMonth}-01`;
-  const maintMonthEnd = `${maintenanceMonth}-${String(daysInMaintMonth).padStart(2, "0")}`;
+  const isMaintAllTime = maintenanceMonth === "all";
+  const [maintY, maintM] = isMaintAllTime ? [currentYear, 1] : maintenanceMonth.split("-").map(Number);
+  const daysInMaintMonth = isMaintAllTime ? 30 : new Date(maintY, maintM, 0).getDate();
+  const maintMonthStart = isMaintAllTime ? "2020-01-01" : `${maintenanceMonth}-01`;
+  const maintMonthEnd = isMaintAllTime ? "2099-12-31" : `${maintenanceMonth}-${String(daysInMaintMonth).padStart(2, "0")}`;
 
   const allMaintenanceExpenses = store.businessExpenses.filter((expense) => {
-    // Check date range
-    if (expense.date < maintMonthStart || expense.date > maintMonthEnd) return false;
+    // Check date range if not all time
+    if (!isMaintAllTime && (expense.date < maintMonthStart || expense.date > maintMonthEnd)) return false;
     // Check category filter
     if (maintenanceCategoryFilter !== "All" && expense.category !== maintenanceCategoryFilter) return false;
     // Check search query
@@ -826,8 +868,8 @@ export function ReportsView({
                 <span>Select Month</span>
                 <input
                   type="month"
-                  value={employeeReportMonth}
-                  onChange={(e) => setEmployeeReportMonth(e.target.value || currentMonthStr)}
+                  value={employeeReportMonth === "all" ? "" : employeeReportMonth}
+                  onChange={(e) => setEmployeeReportMonth(e.target.value || "all")}
                 />
               </label>
 
@@ -835,7 +877,8 @@ export function ReportsView({
                 <button
                   type="button"
                   onClick={() => {
-                    const [y, m] = employeeReportMonth.split("-").map(Number);
+                    const baseMonth = employeeReportMonth === "all" ? currentMonthStr : employeeReportMonth;
+                    const [y, m] = baseMonth.split("-").map(Number);
                     const prev = new Date(y, m - 2, 1);
                     setEmployeeReportMonth(
                       `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
@@ -854,7 +897,8 @@ export function ReportsView({
                 <button
                   type="button"
                   onClick={() => {
-                    const [y, m] = employeeReportMonth.split("-").map(Number);
+                    const baseMonth = employeeReportMonth === "all" ? currentMonthStr : employeeReportMonth;
+                    const [y, m] = baseMonth.split("-").map(Number);
                     const next = new Date(y, m, 1);
                     setEmployeeReportMonth(
                       `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`,
@@ -867,37 +911,38 @@ export function ReportsView({
 
               <p style={{ marginLeft: "auto" }}>
                 <CalendarDays size={17} />
-                {new Date(`${empMonthStart}T00:00:00`).toLocaleDateString("en-IN", {
-                  month: "long",
-                  year: "numeric",
-                })}{" "}
-                ({fmt(empMonthStart)} to {fmt(empMonthEnd)})
+                {isEmpAllTime
+                  ? "All Time Records"
+                  : `${new Date(`${empMonthStart}T00:00:00`).toLocaleDateString("en-IN", {
+                      month: "long",
+                      year: "numeric",
+                    })} (${fmt(empMonthStart)} to ${fmt(empMonthEnd)})`}
               </p>
             </div>
           </div>
 
-          {/* Workforce Summary KPIs for Selected Month */}
+          {/* Workforce Summary KPIs for Selected Period */}
           <section className="op-metrics" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
             <Metric
-              label="Workforce Gross Earned"
+              label={isEmpAllTime ? "All-Time Workforce Earned" : "Workforce Gross Earned"}
               value={money(empTotalGross)}
               detail={`${empTotalAttendanceDays} present days across staff`}
               icon={CircleDollarSign}
             />
             <Metric
-              label="Advances in Month"
+              label={isEmpAllTime ? "All-Time Advances Issued" : "Advances in Month"}
               value={money(empTotalAdvancesInMonth)}
-              detail="Total advances taken in period"
+              detail={isEmpAllTime ? "Total lifetime advances issued" : "Total advances taken in period"}
               icon={WalletCards}
             />
             <Metric
-              label="Deducted from Advances"
+              label={isEmpAllTime ? "All-Time Advances Settled" : "Deducted from Advances"}
               value={money(empTotalDeducted)}
               detail="Settled against salary earnings"
               icon={Check}
             />
             <Metric
-              label="Net Salary Due"
+              label={isEmpAllTime ? "All-Time Net Salary Due" : "Net Salary Due"}
               value={money(empTotalCarryForward)}
               detail="Carry forward balance due"
               icon={TrendingUp}
@@ -915,7 +960,7 @@ export function ReportsView({
               />
             </label>
             <p>
-              Showing <b>{filteredEmployeeRows.length}</b> of <b>{employeeRows.length}</b> employees
+              Showing <b>{filteredEmployeeRows.length}</b> of <b>{employeeRows.length}</b> employees ({isEmpAllTime ? "All Time" : employeeReportMonth})
             </p>
           </div>
 
@@ -925,7 +970,7 @@ export function ReportsView({
               headers={[
                 "Employee",
                 "Location & Rate",
-                "Month Attendance",
+                isEmpAllTime ? "Total Attendance" : "Month Attendance",
                 "Salary Earned",
                 "Advance Paid",
                 "Deducted",
@@ -952,7 +997,7 @@ export function ReportsView({
                     <small>{money(row.dailyRate)}/day</small>
                   </span>
                   <span>
-                    <b>{row.presentDays} / {row.daysInEmpMonth} days</b>
+                    <b>{row.presentDays} {isEmpAllTime ? "days present" : `/ ${row.daysInEmpMonth} days`}</b>
                     <small>{row.presentDays > 0 ? `${row.presentDays}d × ${money(row.dailyRate)}` : "No attendance"}</small>
                   </span>
                   <strong style={{ color: "#1f6a53" }}>
@@ -996,22 +1041,108 @@ export function ReportsView({
       {/* ========================================================================= */}
       {activeReportTab === "clients" && (
         <>
+          {/* Period & Month Selector for Client Report */}
+          <div className="op-report-period">
+            <div
+              className="op-report-range"
+              style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
+            >
+              {/* Quick Month Filter Pills */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", width: "100%", marginBottom: "6px" }}>
+                {monthPresets.map((m) => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    className={`op-button ${clientReportMonth === m.value ? "" : "secondary"}`}
+                    style={{
+                      padding: "5px 12px",
+                      fontSize: "12px",
+                      borderRadius: "20px",
+                      fontWeight: 600,
+                      backgroundColor: clientReportMonth === m.value ? "#2b765f" : "#ffffff",
+                      color: clientReportMonth === m.value ? "#ffffff" : "#32443e",
+                      border: clientReportMonth === m.value ? "1px solid #2b765f" : "1px solid #dce4df",
+                    }}
+                    onClick={() => setClientReportMonth(m.value)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              <label className="op-field" style={{ width: "170px" }}>
+                <span>Select Month</span>
+                <input
+                  type="month"
+                  value={clientReportMonth === "all" ? "" : clientReportMonth}
+                  onChange={(e) => setClientReportMonth(e.target.value || "all")}
+                />
+              </label>
+
+              <div className="op-salary-tabs" style={{ margin: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const baseMonth = clientReportMonth === "all" ? currentMonthStr : clientReportMonth;
+                    const [y, m] = baseMonth.split("-").map(Number);
+                    const prev = new Date(y, m - 2, 1);
+                    setClientReportMonth(
+                      `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
+                    );
+                  }}
+                >
+                  ← Prev Month
+                </button>
+                <button
+                  type="button"
+                  className={clientReportMonth === currentMonthStr ? "active" : ""}
+                  onClick={() => setClientReportMonth(currentMonthStr)}
+                >
+                  Current Month
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const baseMonth = clientReportMonth === "all" ? currentMonthStr : clientReportMonth;
+                    const [y, m] = baseMonth.split("-").map(Number);
+                    const next = new Date(y, m, 1);
+                    setClientReportMonth(
+                      `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`,
+                    );
+                  }}
+                >
+                  Next Month →
+                </button>
+              </div>
+
+              <p style={{ marginLeft: "auto" }}>
+                <CalendarDays size={17} />
+                {isClientAllTime
+                  ? "All Time Records"
+                  : `${new Date(`${clientMonthStart}T00:00:00`).toLocaleDateString("en-IN", {
+                      month: "long",
+                      year: "numeric",
+                    })} (${fmt(clientMonthStart)} to ${fmt(clientMonthEnd)})`}
+              </p>
+            </div>
+          </div>
+
           {/* Summary KPIs */}
           <section className="op-metrics" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
             <Metric
-              label="Total Client Billed"
+              label={isClientAllTime ? "Total Client Billed (All Time)" : "Total Client Billed"}
               value={money(clientTotalBilled)}
-              detail="Total across all invoices & vouchers"
+              detail={isClientAllTime ? "Lifetime total across all invoices & vouchers" : "Total billed in selected period"}
               icon={CircleDollarSign}
             />
             <Metric
-              label="Total Collections Received"
+              label={isClientAllTime ? "Total Collections Received" : "Collections in Period"}
               value={money(clientTotalReceived)}
               detail="Total advances and installments received"
               icon={Check}
             />
             <Metric
-              label="Total Outstanding Receivables"
+              label={isClientAllTime ? "Total Outstanding Receivables" : "Outstanding Balance"}
               value={money(clientTotalOutstanding)}
               detail="Pending collection balance"
               icon={WalletCards}
@@ -1158,8 +1289,8 @@ export function ReportsView({
                 <span>Select Month</span>
                 <input
                   type="month"
-                  value={maintenanceMonth}
-                  onChange={(e) => setMaintenanceMonth(e.target.value || currentMonthStr)}
+                  value={maintenanceMonth === "all" ? "" : maintenanceMonth}
+                  onChange={(e) => setMaintenanceMonth(e.target.value || "all")}
                 />
               </label>
 
@@ -1167,7 +1298,8 @@ export function ReportsView({
                 <button
                   type="button"
                   onClick={() => {
-                    const [y, m] = maintenanceMonth.split("-").map(Number);
+                    const baseMonth = maintenanceMonth === "all" ? currentMonthStr : maintenanceMonth;
+                    const [y, m] = baseMonth.split("-").map(Number);
                     const prev = new Date(y, m - 2, 1);
                     setMaintenanceMonth(
                       `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
@@ -1186,7 +1318,8 @@ export function ReportsView({
                 <button
                   type="button"
                   onClick={() => {
-                    const [y, m] = maintenanceMonth.split("-").map(Number);
+                    const baseMonth = maintenanceMonth === "all" ? currentMonthStr : maintenanceMonth;
+                    const [y, m] = baseMonth.split("-").map(Number);
                     const next = new Date(y, m, 1);
                     setMaintenanceMonth(
                       `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`,
@@ -1199,11 +1332,12 @@ export function ReportsView({
 
               <p style={{ marginLeft: "auto" }}>
                 <CalendarDays size={17} />
-                {new Date(`${maintMonthStart}T00:00:00`).toLocaleDateString("en-IN", {
-                  month: "long",
-                  year: "numeric",
-                })}{" "}
-                ({fmt(maintMonthStart)} to {fmt(maintMonthEnd)})
+                {isMaintAllTime
+                  ? "All Time Records"
+                  : `${new Date(`${maintMonthStart}T00:00:00`).toLocaleDateString("en-IN", {
+                      month: "long",
+                      year: "numeric",
+                    })} (${fmt(maintMonthStart)} to ${fmt(maintMonthEnd)})`}
               </p>
             </div>
           </div>
