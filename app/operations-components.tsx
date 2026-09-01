@@ -1,4 +1,4 @@
-import { Banknote, ChevronLeft, ChevronRight, Printer, ReceiptText, Trash2, X } from "lucide-react";
+import { Banknote, ChevronLeft, ChevronRight, Pencil, Printer, ReceiptText, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { FleetStore, PaymentMode } from "./fleet-domain";
 import { fmt, money } from "./operations-utils";
@@ -149,7 +149,7 @@ export function Table({ headers, children }: { headers: string[]; children: Reac
 
 export function Row({ children }: { children: React.ReactNode }) { return <div className="op-row">{children}</div>; }
 export function Status({ children }: { children: string }) { return <span className={`op-status ${children.toLowerCase()}`}>{children}</span>; }
-export function Actions({ edit, payment, view, remove }: { edit?: () => void; payment?: () => void; view?: () => void; remove?: () => void }) { return <span className="op-actions">{edit && <button title="Edit" onClick={edit}><ChevronRight size={17}/></button>}{payment && <button title="Record payment" onClick={payment}><Banknote size={16}/></button>}{view && <button title="Print / preview" onClick={view}><Printer size={16}/></button>}{remove && <button className="delete" title="Delete" onClick={remove}><Trash2 size={16}/></button>}</span>; }
+export function Actions({ edit, payment, view, remove }: { edit?: () => void; payment?: () => void; view?: () => void; remove?: () => void }) { return <span className="op-actions">{edit && <button title="Edit" onClick={edit}><Pencil size={15}/></button>}{payment && <button title="Record payment" onClick={payment}><Banknote size={16}/></button>}{view && <button title="Print / preview" onClick={view}><Printer size={16}/></button>}{remove && <button className="delete" title="Delete" onClick={remove}><Trash2 size={16}/></button>}</span>; }
 
 export function FormField({ label, name, type = "text", defaultValue, required = false, min, placeholder, autoFocus }: { label: string; name: string; type?: string; defaultValue?: string | number; required?: boolean; min?: number; placeholder?: string; autoFocus?: boolean }) {
   return <label className="op-field"><span>{label}</span><input name={name} type={type} defaultValue={defaultValue} required={required} min={min ?? (type === "number" ? 0 : undefined)} placeholder={placeholder} autoFocus={autoFocus}/></label>;

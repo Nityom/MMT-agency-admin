@@ -47,6 +47,7 @@ export function EntryForm({
   employeeId,
   clientId,
   vehicleId,
+  advanceId,
   close,
   commit,
 }: {
@@ -55,9 +56,14 @@ export function EntryForm({
   employeeId?: number | null;
   clientId?: number | null;
   vehicleId?: number | null;
+  advanceId?: number | null;
   close: () => void;
   commit: (store: FleetStore, message: string) => void;
 }) {
+  const editingAdvance =
+    dialog === "advance"
+      ? store.advances.find((item) => item.id === advanceId)
+      : undefined;
   const editingBusinessExpense =
     dialog === "businessExpense"
       ? store.businessExpenses.find((item) => item.id === clientId)
@@ -140,7 +146,7 @@ export function EntryForm({
     vehicle: editingVehicle ? "Edit vehicle" : "Add vehicle",
     client: editingClient ? "Edit client profile" : "Add client",
     employeeExpense: "Record employee expense",
-    advance: "Record employee advance",
+    advance: editingAdvance ? "Edit employee advance" : "Record employee advance",
     businessExpense: editingBusinessExpense
       ? "Edit business expense"
       : "Add business expense",
@@ -335,22 +341,29 @@ export function EntryForm({
     }
     if (dialog === "advance") {
       const employeeId = amount(data, "employeeId");
+      const advanceData = {
+        employeeId,
+        employeeName:
+          store.employees.find((employee) => employee.id === employeeId)
+            ?.name ?? "Unassigned employee",
+        date: input(data, "date"),
+        amount: amount(data, "amount"),
+        recovered: editingAdvance ? editingAdvance.recovered : 0,
+        note: input(data, "note"),
+      };
       updated = {
         ...store,
-        advances: [
-          ...store.advances,
-          {
-            id: nextId(store.advances),
-            employeeId,
-            employeeName:
-              store.employees.find((employee) => employee.id === employeeId)
-                ?.name ?? "Unassigned employee",
-            date: input(data, "date"),
-            amount: amount(data, "amount"),
-            recovered: 0,
-            note: input(data, "note"),
-          },
-        ],
+        advances: editingAdvance
+          ? store.advances.map((item) =>
+              item.id === editingAdvance.id ? { ...item, ...advanceData } : item,
+            )
+          : [
+              ...store.advances,
+              {
+                id: nextId(store.advances),
+                ...advanceData,
+              },
+            ],
       };
     }
     if (dialog === "businessExpense") {
@@ -684,14 +697,14 @@ export function EntryForm({
         {dialog === "advance" && (
           <>
             <p className="op-form-note">
-              This amount is recorded against the driver and recovered
+              This amount is recorded against the employee and recovered
               automatically from upcoming salary without reducing pay below
               zero.
             </p>
             <FormSelect
-              label="Driver"
+              label="Employee"
               name="employeeId"
-              defaultValue={employeeId ?? undefined}
+              defaultValue={editingAdvance ? editingAdvance.employeeId : (employeeId ?? undefined)}
               options={employeeOptions}
               required
             />
@@ -700,7 +713,7 @@ export function EntryForm({
                 label="Advance date"
                 name="date"
                 type="date"
-                defaultValue={isoToday()}
+                defaultValue={editingAdvance ? editingAdvance.date : isoToday()}
                 required
               />
               <FormField
@@ -708,10 +721,15 @@ export function EntryForm({
                 name="amount"
                 type="number"
                 min={1}
+                defaultValue={editingAdvance ? editingAdvance.amount : undefined}
                 required
               />
             </div>
-            <FormField label="Reason / note" name="note" />
+            <FormField
+              label="Reason / note"
+              name="note"
+              defaultValue={editingAdvance ? editingAdvance.note : undefined}
+            />
           </>
         )}
         {dialog === "businessExpense" && (

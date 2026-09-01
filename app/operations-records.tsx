@@ -1,6 +1,6 @@
 "use client";
 
-import { Banknote, CalendarDays, Printer, ReceiptText, WalletCards } from "lucide-react";
+import { Banknote, CalendarDays, Pencil, Printer, ReceiptText, WalletCards } from "lucide-react";
 import {
   addDays, Bill, BillCharge, calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange, FleetStore, getAdvanceOutstanding, getEmployeeAdvancesWithRecoveries, getEmployeeCurrentStatus, groupAttendanceRanges, inclusiveDays, rateOnDate,
 } from "./fleet-domain";
@@ -191,7 +191,17 @@ export function EmployeeRecordModal({ store, employeeId, close }: { store: Fleet
   );
 }
 
-export function EmployeeAdvanceHistoryModal({ store, employeeId, close }: { store: FleetStore; employeeId: number; close: () => void }) {
+export function EmployeeAdvanceHistoryModal({
+  store,
+  employeeId,
+  close,
+  editAdvance,
+}: {
+  store: FleetStore;
+  employeeId: number;
+  close: () => void;
+  editAdvance?: (advanceId: number) => void;
+}) {
   const employee = store.employees.find((item) => item.id === employeeId);
   if (!employee) return null;
 
@@ -233,9 +243,9 @@ export function EmployeeAdvanceHistoryModal({ store, employeeId, close }: { stor
         {advances.length ? (
           <section className="op-ledger-list">
             {advances.map((advance) => (
-              <article key={advance.id}>
+              <article key={advance.id} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 <time>{fmt(advance.date)}</time>
-                <div>
+                <div style={{ flex: 1 }}>
                   <b>{advance.note || "Employee Advance"}</b>
                   <small>
                     Taken: {money(advance.amount)} · Recovered: {money(advance.recovered)} · Remaining: {money(advance.balance)}
@@ -245,6 +255,29 @@ export function EmployeeAdvanceHistoryModal({ store, employeeId, close }: { stor
                 <strong className={advance.balance > 0 ? "" : "credit"}>
                   {money(advance.amount)}
                 </strong>
+                {editAdvance && (
+                  <button
+                    type="button"
+                    className="op-icon"
+                    title="Edit advance"
+                    style={{
+                      background: "#f1f5f3",
+                      border: "1px solid #dce4df",
+                      borderRadius: "6px",
+                      padding: "6px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      color: "#14493a",
+                    }}
+                    onClick={() => {
+                      editAdvance(advance.id);
+                      close();
+                    }}
+                  >
+                    <Pencil size={15} />
+                  </button>
+                )}
               </article>
             ))}
           </section>
