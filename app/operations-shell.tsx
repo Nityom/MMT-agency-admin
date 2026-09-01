@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 
-export type View = "overview" | "attendance" | "employees" | "employeeExpenses" | "employeeAdvances" | "vehicles" | "vehicleAttendance" | "clients" | "quotations" | "ledgers" | "campaigns" | "payroll" | "billing" | "otherBilling" | "otherBillLedgers" | "expenses" | "selfExpenses" | "maintenance" | "maintenanceLedger" | "maintenanceProfile" | "supplierProfiles" | "bannerPrinting" | "pasting" | "recording" | "purchase" | "labourCharges" | "reports";
+export type View = "overview" | "attendance" | "employees" | "employeeExpenses" | "employeeAdvances" | "vehicles" | "vehicleAttendance" | "clients" | "quotations" | "ledgers" | "campaigns" | "payroll" | "billing" | "otherBilling" | "otherBillLedgers" | "expenses" | "selfExpenses" | "maintenance" | "maintenanceLedger" | "maintenanceProfile" | "supplierProfiles" | "bannerPrinting" | "pasting" | "recording" | "purchase" | "labourCharges" | "reports" | "employeeReports" | "clientReports" | "maintenanceReports";
 
 const navSections = [
   { label: "Dashboard", icon: Gauge, items: [{ key: "overview", label: "Overview", icon: Gauge, view: "overview" }] },
@@ -15,7 +15,16 @@ const navSections = [
   { label: "My other bills", icon: FileText, items: [{ key: "other-billing", label: "Paper & calendar bills", icon: FileText, view: "otherBilling" }, { key: "other-bill-ledgers", label: "Ledger", icon: ReceiptText, view: "otherBillLedgers" }] },
   { label: "Self expenses", icon: ReceiptText, items: [{ key: "self-expenses", label: "Travel & stay", icon: ReceiptText, view: "selfExpenses" }] },
   { label: "Maintenance", icon: Wrench, items: [{ key: "maintenance-profile", label: "Profile", icon: UserRound, view: "supplierProfiles" }] },
-  { label: "Reports", icon: BarChart3, items: [{ key: "reports", label: "Business reports", icon: BarChart3, view: "reports" }] },
+  {
+    label: "Reports",
+    icon: BarChart3,
+    items: [
+      { key: "business-reports", label: "Business report", icon: BarChart3, view: "reports" },
+      { key: "employee-reports", label: "Employee report", icon: UsersRound, view: "employeeReports" },
+      { key: "client-reports", label: "Client report", icon: ReceiptText, view: "clientReports" },
+      { key: "maintenance-reports", label: "Maintenance report", icon: Wrench, view: "maintenanceReports" },
+    ],
+  },
 ] as const;
 
 export function OperationsShell({

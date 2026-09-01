@@ -35,8 +35,24 @@ export const otherBillBalance = (bill: OtherBill) => Math.max(0, bill.total - ot
 export const otherBillCost = (bill: OtherBill) => bill.items.reduce((sum, item) => sum + (item.costAmount ?? item.quantity * (item.costRate ?? 0)), 0);
 
 export const clientOverallBalance = (store: FleetStore, clientId: number) => {
-  const clientBills = store.bills.filter((bill) => bill.clientId === clientId);
-  const clientOtherBills = store.otherBills.filter((bill) => bill.clientId === clientId);
+  const targetClient = store.clients.find((c) => c.id === clientId);
+  const targetName = targetClient?.firmName?.toLowerCase().trim() ?? "";
+  const isBabaTarget = targetName.includes("baba") && targetName.includes("son");
+
+  const clientBills = store.bills.filter(
+    (bill) =>
+      bill.clientId === clientId ||
+      (targetName &&
+        (bill.client?.firmName?.toLowerCase().trim() === targetName ||
+         (isBabaTarget && (bill.client?.firmName?.toLowerCase().includes("baba") ?? false))))
+  );
+  const clientOtherBills = store.otherBills.filter(
+    (bill) =>
+      bill.clientId === clientId ||
+      (targetName &&
+        (bill.client?.firmName?.toLowerCase().trim() === targetName ||
+         (isBabaTarget && (bill.client?.firmName?.toLowerCase().includes("baba") ?? false))))
+  );
   const billed =
     clientBills.reduce((sum, bill) => sum + bill.total, 0) +
     clientOtherBills.reduce((sum, bill) => sum + bill.total, 0);

@@ -14,12 +14,29 @@ export type Employee = {
   status: EmployeeStatus;
   monthlySalary: number;
   activeFrom?: ISODate;
+  inactiveFrom?: ISODate;
 };
 
 export function isEmployeeActiveOnDate(employee: Employee, date: ISODate): boolean {
-  if (employee.status !== "Active") return false;
   if (employee.activeFrom && date < employee.activeFrom) return false;
+  if (employee.inactiveFrom && date >= employee.inactiveFrom) return false;
+  if (employee.status === "Inactive" && !employee.activeFrom) return false;
+  if (employee.status === "Inactive" && (!employee.inactiveFrom || date >= employee.inactiveFrom)) return false;
   return true;
+}
+
+export function getEmployeeCurrentStatus(employee: Employee, asOfDate?: ISODate): EmployeeStatus {
+  const date = asOfDate || (typeof window !== "undefined" ? new Date().toISOString().slice(0, 10) : "2026-09-01");
+  if (employee.inactiveFrom && date >= employee.inactiveFrom) {
+    return "Inactive";
+  }
+  if (employee.status === "Inactive") {
+    return "Inactive";
+  }
+  if (employee.activeFrom && date < employee.activeFrom) {
+    return "Inactive";
+  }
+  return "Active";
 }
 
 export type EmployeeRate = {

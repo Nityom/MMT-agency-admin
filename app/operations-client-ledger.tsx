@@ -15,6 +15,8 @@ import {
   fmt,
   isoToday,
   money,
+  otherBillBalance,
+  otherBillPaid,
 } from "./operations-utils";
 
 export function ClientLedgerPrintModal({
@@ -195,11 +197,11 @@ export function ClientLedgerModal({
   store: FleetStore;
   clientId: number;
   close: () => void;
-  viewBill: (bill: Bill) => void;
+  viewBill?: (bill: Bill) => void;
 }) {
   const client = store.clients.find((item) => item.id === clientId);
-  const [from, setFrom] = useState(`${isoToday().slice(0, 7)}-01`);
-  const [to, setTo] = useState(isoToday());
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [activeReceipt, setActiveReceipt] = useState<{ bill: Bill; payment?: Bill["payments"][number] | null } | null>(null);
   const [printModalOpen, setPrintModalOpen] = useState(false);
 
@@ -208,17 +210,41 @@ export function ClientLedgerModal({
   // Overall financial position across all-time (consistent across all screens)
   const overall = clientOverallBalance(store, clientId);
 
-  const clientBills = store.bills.filter((bill) => bill.clientId === clientId);
-  const clientBookings = store.campaignBookings.filter((booking) => booking.clientId === clientId);
+  const targetName = client.firmName.toLowerCase().trim();
+  const isBaba = targetName.includes("baba") && targetName.includes("son");
+
+  const clientBills = store.bills.filter(
+    (bill) =>
+      bill.clientId === clientId ||
+      (bill.client?.firmName && bill.client.firmName.toLowerCase().trim() === targetName) ||
+      (isBaba && (bill.client?.firmName?.toLowerCase().includes("baba") ?? false))
+  );
+
+  const clientOtherBills = store.otherBills.filter(
+    (bill) =>
+      bill.clientId === clientId ||
+      (bill.client?.firmName && bill.client.firmName.toLowerCase().trim() === targetName) ||
+      (isBaba && (bill.client?.firmName?.toLowerCase().includes("baba") ?? false))
+  );
+
+  const clientBookings = store.campaignBookings.filter(
+    (booking) =>
+      booking.clientId === clientId ||
+      (booking.client?.firmName && booking.client.firmName.toLowerCase().trim() === targetName) ||
+      (isBaba && (booking.client?.firmName?.toLowerCase().includes("baba") ?? false))
+  );
+
+  const inRange = (d: string) => (!from || d >= from) && (!to || d <= to);
 
   // Filtered dataset for chronological display in selected date range
-  const filteredBills = clientBills.filter((bill) => bill.billDate >= from && bill.billDate <= to);
-  const filteredBookings = clientBookings.filter((booking) => booking.startDate <= to && bookingEnd(booking) >= from);
+  const filteredBills = clientBills.filter((bill) => inRange(bill.billDate));
+  const filteredOtherBills = clientOtherBills.filter((bill) => inRange(bill.billDate));
+  const filteredBookings = clientBookings.filter((booking) => (!to || booking.startDate <= to) && (!from || bookingEnd(booking) >= from));
 
   // Present attendance slots for the client
   const attendanceRecords = filteredBookings.flatMap((booking) => {
-    const start = booking.startDate > from ? booking.startDate : from;
-    const end = bookingEnd(booking) < to ? bookingEnd(booking) : to;
+    const start = from && booking.startDate < from ? from : booking.startDate;
+    const end = to && bookingEnd(booking) > to ? to : bookingEnd(booking);
     if (end < start) return [];
 
     return Array.from({ length: inclusiveDays(start, end) }, (_, offset) => addDays(start, offset)).flatMap((date) => {
@@ -284,6 +310,19 @@ export function ClientLedgerModal({
     isAdvance: false,
   }));
 
+  const otherBillRows = filteredOtherBills.map((bill) => ({
+    key: `otherbill-${bill.id}`,
+    date: bill.billDate,
+    type: `Other Bill #${String(bill.number).padStart(4, "0")} (${bill.category})`,
+    detail: `${bill.items.length} items · Billed ${money(bill.total)} · Balance ${money(otherBillBalance(bill))}`,
+    status: otherBillBalance(bill) === 0 ? "Paid" : "Pending",
+    amount: bill.total,
+    isCredit: false,
+    bill: undefined as Bill | undefined,
+    payment: null as Bill["payments"][number] | null,
+    isAdvance: false,
+  }));
+
   const paymentRows = filteredBills.flatMap((bill) => [
     ...(bill.advanceReceived > 0
       ? [{
@@ -332,6 +371,7 @@ export function ClientLedgerModal({
 
   const timeline = [
     ...billRows,
+    ...otherBillRows,
     ...paymentRows,
     ...attendanceRecords.map((a) => ({
       key: a.key,
@@ -463,7 +503,7 @@ export function ClientLedgerModal({
                       <button
                         className="op-icon"
                         title="View invoice"
-                        onClick={() => viewBill(item.bill!)}
+                        onClick={() => viewBill?.(item.bill!)}
                       >
                         <FileText size={16} />
                       </button>

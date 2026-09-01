@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import {
   addDays, Bill, BillCharge, BillVehicleLine, BusinessExpenseCategory, CampaignBooking,
   calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange,
-  ClientCategory, EmployeeRate, FleetStore, getEmployeeAdvancesWithRecoveries, inclusiveDays, isEmployeeActiveOnDate, PaymentMode,
+  Client, ClientCategory, EmployeeRate, FleetStore, getEmployeeAdvancesWithRecoveries, inclusiveDays, isEmployeeActiveOnDate, PaymentMode,
   nextBillNumber, PayrollPayment, rateOnDate, weekFor,
 } from "./fleet-domain";
 import { Actions, AttendanceCalendar, Button, Row, Status, Table } from "./operations-components";
@@ -151,7 +151,128 @@ export default function OperationsApp() {
         const existingPhones = new Set(current.clients.flatMap((client) => [client.mobile, client.alternatePhone].filter(Boolean)));
         const existingNames = new Set(current.clients.map((client) => client.firmName.trim().toLowerCase()));
         const imported = contacts.filter((contact) => !existingIds.has(contact.id) && !(contact.mobile ? existingPhones.has(contact.mobile) : existingNames.has(contact.firmName.trim().toLowerCase()))).map((contact) => ({ ...contact, ownerName: "", address: "", dateOfBirth: "" as const, email: "", categories: [] as ClientCategory[], status: "Active" as const }));
-        return imported.length ? { ...current, clients: [...current.clients, ...imported] } : current;
+        let updatedClients = imported.length ? [...current.clients, ...imported] : current.clients;
+        
+        let babaSon = updatedClients.find((c) => c.firmName.toLowerCase().includes("baba") && c.firmName.toLowerCase().includes("son"));
+        if (!babaSon) {
+          babaSon = {
+            id: nextId(updatedClients),
+            firmName: "Baba Son",
+            ownerName: "Baba Son",
+            address: "Wardha",
+            mobile: "+919850545111",
+            dateOfBirth: "",
+            email: "",
+            categories: ["Other"],
+            status: "Active",
+          };
+          updatedClients = [babaSon, ...updatedClients];
+        }
+
+        let updatedBills = current.bills;
+        const hasBabaBill = updatedBills.some((b) => b.clientId === babaSon!.id || b.client.firmName.toLowerCase().includes("baba"));
+        if (!hasBabaBill) {
+          const nextNum = nextBillNumber(updatedBills, current.nextBillNumber || 1);
+          const babaBill: Bill = {
+            id: nextId(updatedBills),
+            number: nextNum,
+            billDate: "2026-08-01",
+            clientId: babaSon.id,
+            client: {
+              firmName: babaSon.firmName,
+              ownerName: babaSon.ownerName || "Baba Son",
+              address: babaSon.address || "Wardha",
+              mobile: babaSon.mobile || "+919850545111",
+              email: babaSon.email || "",
+            },
+            vehicleLines: [
+              {
+                id: 1,
+                vehicleId: 0,
+                startDate: "2026-08-01",
+                endDate: "2026-08-30",
+                bookedDays: 30,
+                advertisementDays: 30,
+                offDays: 0,
+                dailyRate: 800,
+                driverNames: [],
+              },
+            ],
+            charges: [
+              {
+                id: 1,
+                category: "Banner / printing",
+                description: "Rickshaw banner printing",
+                quantity: 1,
+                rate: 3000,
+                amount: 3000,
+              },
+              {
+                id: 2,
+                category: "Pasting",
+                description: "Banner pasting",
+                quantity: 1,
+                rate: 1000,
+                amount: 1000,
+              },
+            ],
+            advanceReceived: 5000,
+            paymentMode: "Cash",
+            payments: [],
+            total: 28000,
+            status: "Pending",
+          };
+          updatedBills = [babaBill, ...updatedBills];
+        }
+
+        let updatedBookings = current.campaignBookings;
+        const hasBabaBooking = updatedBookings.some((b) => b.clientId === babaSon!.id || b.client.firmName.toLowerCase().includes("baba"));
+        if (!hasBabaBooking) {
+          const babaBooking: CampaignBooking = {
+            id: nextId(updatedBookings),
+            month: "2026-08",
+            clientId: babaSon.id,
+            client: {
+              firmName: babaSon.firmName,
+              ownerName: babaSon.ownerName || "Baba Son",
+              address: babaSon.address || "Wardha",
+              mobile: babaSon.mobile || "+919850545111",
+              email: babaSon.email || "",
+            },
+            startDate: "2026-08-01",
+            endDate: "2026-08-30",
+            vehiclePeriods: [
+              {
+                id: 1,
+                type: "Rickshaw",
+                vehicleIds: [],
+                startDate: "2026-08-01",
+                endDate: "2026-08-30",
+                quantity: 1,
+                dailyRate: 800,
+              },
+            ],
+            facilities: [
+              {
+                id: 1,
+                category: "Banner / printing",
+                description: "Rickshaw banner printing",
+                quantity: 1,
+                rate: 3000,
+              },
+              {
+                id: 2,
+                category: "Pasting",
+                description: "Banner pasting",
+                quantity: 1,
+                rate: 1000,
+              },
+            ],
+          };
+          updatedBookings = [babaBooking, ...updatedBookings];
+        }
+
+        return { ...current, clients: updatedClients, bills: updatedBills, campaignBookings: updatedBookings };
       });
     }).catch(() => undefined);
     return () => { cancelled = true; };
@@ -239,12 +360,14 @@ export default function OperationsApp() {
   const filteredCampaignBookings = consolidateCampaignBookings(matchingCampaignBookings);
   const normalizedLedgerSearch = ledgerSearch.trim().toLowerCase();
   const ledgerClients = store.clients.filter((client) => {
-    const hasCampaign = store.campaignBookings.some((booking) => booking.clientId === client.id);
-    if (!hasCampaign) return false;
-    if (!normalizedLedgerSearch) return true;
+    if (!normalizedLedgerSearch) {
+      const hasCampaign = store.campaignBookings.some((booking) => booking.clientId === client.id);
+      const hasBill = store.bills.some((bill) => bill.clientId === client.id);
+      return hasCampaign || hasBill;
+    }
     return `${client.firmName} ${client.ownerName} ${client.mobile} ${client.alternatePhone ?? ""}`.toLowerCase().includes(normalizedLedgerSearch);
   });
-  const visibleLedgerClients = ledgerClients.slice(0, 100);
+  const visibleLedgerClients = (ledgerClients.length || !normalizedLedgerSearch ? ledgerClients : store.clients.filter(c => `${c.firmName} ${c.ownerName} ${c.mobile}`.toLowerCase().includes(normalizedLedgerSearch))).slice(0, 100);
   const normalizedBillingSearch = billingSearch.trim().toLowerCase();
   const filteredBills = store.bills.filter((bill) => {
     const status = billBalance(bill) === 0 ? "paid" : bill.status === "Overdue" ? "overdue" : "pending";
@@ -576,22 +699,80 @@ export default function OperationsApp() {
     (payment) => payment.status === "Paid" && payment.paidAt && payment.paidAt >= reportStart && payment.paidAt <= reportEnd,
   );
 
+  const calcWorkforceAttendanceCharges = (start: string, end: string) => {
+    let total = 0;
+    let curr = start;
+    while (curr <= end) {
+      const dayAttendance = store.attendance[curr];
+      if (dayAttendance) {
+        const [y, m] = curr.split("-").map(Number);
+        const daysInMonth = new Date(y, m, 0).getDate();
+        for (const employee of store.employees) {
+          if (dayAttendance[employee.id] === true) {
+            const rateInfo = rateOnDate(store.employeeRates, employee.id, curr) ?? store.employeeRates.find((r) => r.employeeId === employee.id);
+            const dailyRate = rateInfo?.dailyRate ?? 0;
+            const monthlyDailyBase = employee.monthlySalary > 0 ? Math.round(employee.monthlySalary / daysInMonth) : 0;
+            total += (dailyRate + monthlyDailyBase);
+          }
+        }
+      }
+      curr = addDays(curr, 1);
+    }
+    return total;
+  };
+
+  const reportWorkforceAttendanceItems: FleetStore["businessExpenses"] = store.employees.map((employee) => {
+    let earned = 0;
+    let presentDays = 0;
+    let curr = reportStart;
+    while (curr <= reportEnd) {
+      if (store.attendance[curr]?.[employee.id] === true) {
+        const [y, m] = curr.split("-").map(Number);
+        const daysInMonth = new Date(y, m, 0).getDate();
+        const rateInfo = rateOnDate(store.employeeRates, employee.id, curr) ?? store.employeeRates.find((r) => r.employeeId === employee.id);
+        const dailyRate = rateInfo?.dailyRate ?? 0;
+        const monthlyDailyBase = employee.monthlySalary > 0 ? Math.round(employee.monthlySalary / daysInMonth) : 0;
+        earned += (dailyRate + monthlyDailyBase);
+        presentDays++;
+      }
+      curr = addDays(curr, 1);
+    }
+
+    return {
+      id: 900000 + employee.id,
+      date: reportEnd,
+      category: "Self stay" as BusinessExpenseCategory,
+      description: `${employee.name} (${presentDays} days attendance)`,
+      purpose: `Workforce wages for ${fmt(reportStart)} to ${fmt(reportEnd)}`,
+      paidTo: employee.name,
+      reference: "Wardha",
+      amount: earned,
+      clientBillingAmount: 0,
+      paidAmount: earned,
+    };
+  }).filter((item) => item.amount > 0 && !reportPayroll.some((p) => p.employeeId === item.id - 900000));
+
+  const reportSalaryExpenses: FleetStore["businessExpenses"] = [
+    ...reportPayroll.map((payment) => ({
+      id: payment.id,
+      date: payment.paidAt ?? payment.payoutDate,
+      category: "Self stay" as BusinessExpenseCategory,
+      description: store.employees.find((employee) => employee.id === payment.employeeId)?.name ?? "Employee salary",
+      purpose: `${fmt(payment.periodStart)} to ${fmt(payment.periodEnd)}`,
+      paidTo: "Employee salary",
+      reference: "",
+      amount: payment.net,
+      clientBillingAmount: 0,
+      paidAmount: payment.net,
+    })),
+    ...reportWorkforceAttendanceItems,
+  ];
+
+  const totalSalaryCost = reportSalaryExpenses.reduce((sum, item) => sum + item.amount, 0);
+
   const reportRevenue = reportBills.reduce((sum, item) => sum + item.total, 0) + reportOtherBills.reduce((sum, item) => sum + item.total, 0);
   const reportOutstanding = reportBills.reduce((sum, bill) => sum + billBalance(bill), 0) + reportOtherBills.reduce((sum, bill) => sum + otherBillBalance(bill), 0);
-  const reportTotalExpenses = reportExpenses.reduce((sum, item) => sum + item.amount, 0) + reportEmployeeExpenses.reduce((sum, item) => sum + item.amount, 0) + reportPayroll.reduce((sum, item) => sum + item.net, 0);
-
-  const reportSalaryExpenses: FleetStore["businessExpenses"] = reportPayroll.map((payment) => ({
-    id: payment.id,
-    date: payment.paidAt ?? payment.payoutDate,
-    category: "Self stay",
-    description: store.employees.find((employee) => employee.id === payment.employeeId)?.name ?? "Employee salary",
-    purpose: `${fmt(payment.periodStart)} to ${fmt(payment.periodEnd)}`,
-    paidTo: "Employee salary",
-    reference: "",
-    amount: payment.net,
-    clientBillingAmount: 0,
-    paidAmount: payment.net,
-  }));
+  const reportTotalExpenses = reportExpenses.reduce((sum, item) => sum + item.amount, 0) + reportEmployeeExpenses.reduce((sum, item) => sum + item.amount, 0) + totalSalaryCost;
 
   const getCategoryClientBilling = (cat: ReportProfitCategory) => {
     if (cat === "All") {
@@ -629,7 +810,7 @@ export default function OperationsApp() {
       return reportTotalExpenses;
     }
     if (cat === "Self stay") {
-      return reportPayroll.reduce((sum, item) => sum + item.net, 0);
+      return totalSalaryCost;
     }
     if (cat === "Paper") {
       return reportOtherBills.filter((b) => b.category === "Paper").reduce((sum, b) => sum + otherBillCost(b), 0) + reportExpenses.filter((e) => e.category === "Paper").reduce((sum, e) => sum + e.amount, 0);
@@ -649,7 +830,7 @@ export default function OperationsApp() {
     : reportExpenses.filter((expense) => matchesReportCategory(expense, reportProfitCategory));
 
   const reportCategoryRecordCount = reportProfitCategory === "All"
-    ? reportBills.length + reportOtherBills.length + reportExpenses.length + reportPayroll.length
+    ? reportBills.length + reportOtherBills.length + reportExpenses.length + reportSalaryExpenses.length
     : reportCategoryExpenses.length;
 
   const reportProfitBreakdown = reportProfitCategories.map((category) => {
@@ -673,7 +854,8 @@ export default function OperationsApp() {
     const start = addDays(reportStart, Math.floor(index * graphTotalDays / graphBucketCount));
     const end = index === graphBucketCount - 1 ? reportEnd : addDays(reportStart, Math.floor((index + 1) * graphTotalDays / graphBucketCount) - 1);
     const revenue = reportBills.filter((item) => (item.billDate >= start && item.billDate <= end) || item.vehicleLines?.some((l) => l.startDate <= end && l.endDate >= start)).reduce((sum, item) => sum + item.total, 0) + reportOtherBills.filter((item) => item.billDate >= start && item.billDate <= end).reduce((sum, item) => sum + item.total, 0);
-    const expenses = reportExpenses.filter((item) => item.date >= start && item.date <= end).reduce((sum, item) => sum + item.amount, 0) + reportEmployeeExpenses.filter((item) => item.date >= start && item.date <= end).reduce((sum, item) => sum + item.amount, 0) + reportPayroll.filter((item) => item.paidAt && item.paidAt >= start && item.paidAt <= end).reduce((sum, item) => sum + item.net, 0);
+    const periodWorkforceSalary = calcWorkforceAttendanceCharges(start, end);
+    const expenses = reportExpenses.filter((item) => item.date >= start && item.date <= end).reduce((sum, item) => sum + item.amount, 0) + reportEmployeeExpenses.filter((item) => item.date >= start && item.date <= end).reduce((sum, item) => sum + item.amount, 0) + periodWorkforceSalary;
     return { label: reportPeriod === "Year" ? new Date(`${start}T00:00:00`).toLocaleDateString("en-IN", { month: "short" }) : `${fmt(start).split(" ")[0]} ${fmt(start).split(" ")[1]}`, revenue, expenses };
   });
 
@@ -899,9 +1081,16 @@ export default function OperationsApp() {
         notify("Supplier installment recorded");
       }}
     />}
-    {view === "reports" && (
+    {(view === "reports" || view === "employeeReports" || view === "clientReports" || view === "maintenanceReports") && (
       <ReportsView
         store={store}
+        initialTab={view === "employeeReports" ? "employees" : view === "clientReports" ? "clients" : view === "maintenanceReports" ? "maintenance" : "business"}
+        onTabChange={(tab) => {
+          if (tab === "employees") setView("employeeReports");
+          else if (tab === "clients") setView("clientReports");
+          else if (tab === "maintenance") setView("maintenanceReports");
+          else setView("reports");
+        }}
         reportPeriod={reportPeriod}
         setReportPeriod={setReportPeriod}
         reportMonth={reportMonth}

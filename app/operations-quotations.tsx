@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   addDays,
   Bill,
@@ -639,7 +639,7 @@ export function QuotationsView({
     notify("Quotation deleted");
   };
 
-  const restoreDeletedQuotation = () => {
+  const restoreAllClientQuotations = () => {
     const akGandhiClient = store.clients.find((c) =>
       c.firmName.toLowerCase().includes("gandhi"),
     ) || {
@@ -652,7 +652,72 @@ export function QuotationsView({
       categories: ["Automobile"],
     };
 
-    const restoredQtn: Quotation = {
+    const qtn1: Quotation = {
+      id: 1,
+      number: 1,
+      quotationDate: "2026-08-01",
+      clientId: akGandhiClient.id,
+      client: {
+        firmName: akGandhiClient.firmName,
+        ownerName: akGandhiClient.ownerName,
+        address: akGandhiClient.address,
+        mobile: akGandhiClient.mobile,
+        email: akGandhiClient.email,
+      },
+      vehicleLines: [
+        {
+          id: 1,
+          vehicleId: 0,
+          label: "Rickshaw",
+          quantity: 1,
+          startDate: "2026-08-01",
+          endDate: "2026-08-30",
+          bookedDays: 30,
+          advertisementDays: 30,
+          offDays: 0,
+          dailyRate: 800,
+          driverNames: [],
+        },
+      ],
+      charges: [
+        {
+          id: 1,
+          category: "Banner / printing",
+          description: "Ricksha banner",
+          quantity: 1,
+          rate: 3100,
+          amount: 3100,
+        },
+        {
+          id: 2,
+          category: "Pasting",
+          description: "",
+          quantity: 1,
+          rate: 900,
+          amount: 900,
+        },
+        {
+          id: 3,
+          category: "Municipal tax",
+          description: "",
+          quantity: 1,
+          rate: 300,
+          amount: 300,
+        },
+        {
+          id: 4,
+          category: "Miscellaneous",
+          description: "Lunch and dinner",
+          quantity: 1,
+          rate: 2500,
+          amount: 2500,
+        },
+      ],
+      total: 30800,
+      status: "Sent",
+    };
+
+    const qtn2: Quotation = {
       id: 2,
       number: 2,
       quotationDate: "2026-09-01",
@@ -717,16 +782,24 @@ export function QuotationsView({
       status: "Draft",
     };
 
+    const restoredList = [qtn2, qtn1];
     setStore((current) => {
-      const list = (current.quotations || []).filter((q) => q.number !== 2);
+      const existingIds = new Set(restoredList.map((q) => q.number));
+      const remaining = (current.quotations || []).filter((q) => !existingIds.has(q.number));
       return {
         ...current,
-        quotations: [restoredQtn, ...list].sort((a, b) => b.number - a.number),
+        quotations: [...restoredList, ...remaining].sort((a, b) => b.number - a.number),
         nextQuotationNumber: Math.max(current.nextQuotationNumber || 1, 4),
       };
     });
-    notify("Quotation QTN-0002 (₹30,800) restored successfully!");
+    notify("All client quotations restored successfully!");
   };
+
+  useEffect(() => {
+    if (!quotations || quotations.length === 0) {
+      restoreAllClientQuotations();
+    }
+  }, []);
 
   const convertToCampaign = (q: Quotation) => {
     if (
@@ -841,12 +914,10 @@ export function QuotationsView({
         <p>
           {filtered.length} of {quotations.length} quotations
         </p>
-        {!quotations.some((q) => q.number === 2) && (
-          <Button secondary onClick={restoreDeletedQuotation}>
-            <RotateCcw size={15} />
-            Restore QTN-0002 (₹30,800)
-          </Button>
-        )}
+        <Button secondary onClick={restoreAllClientQuotations}>
+          <RotateCcw size={15} />
+          Restore Client Quotations
+        </Button>
       </div>
 
       <section className="op-metrics three">

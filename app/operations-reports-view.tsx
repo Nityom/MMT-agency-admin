@@ -1,14 +1,28 @@
-"use client";
-
 import {
-  Banknote,
   BarChart3,
+  Building2,
   CalendarDays,
+  Check,
   CircleDollarSign,
+  FileText,
+  IndianRupee,
+  Printer,
   ReceiptText,
+  Search,
+  TrendingUp,
+  UsersRound,
   WalletCards,
+  Wrench,
 } from "lucide-react";
-import { addDays, type FleetStore } from "./fleet-domain";
+import { useEffect, useState } from "react";
+import {
+  addDays,
+  type BusinessExpenseCategory,
+  type ClientCategory,
+  type FleetStore,
+  getEmployeeCurrentStatus,
+  rateOnDate,
+} from "./fleet-domain";
 import {
   ClientDonut,
   Metric,
@@ -16,19 +30,49 @@ import {
   ReportProfitSection,
   TrendGraph,
 } from "./operations-reports";
+import { Button, Row, Status, Table } from "./operations-components";
+import { EmployeeRecordModal } from "./operations-records";
+import { ClientLedgerModal } from "./operations-client-ledger";
 import {
   billBalance,
+  clientCategories,
   clientOverallBalance,
   fmt,
   isoToday,
   money,
+  supplierBalance,
+  supplierPaid,
   type ReportProfitCategory,
 } from "./operations-utils";
 
 type ReportPeriod = "Month" | "Quarter" | "Year" | "Date range";
 
+const monthPresets = [
+  { value: "2026-04", label: "April 2026" },
+  { value: "2026-05", label: "May 2026" },
+  { value: "2026-06", label: "June 2026" },
+  { value: "2026-07", label: "July 2026" },
+  { value: "2026-08", label: "August 2026" },
+  { value: "2026-09", label: "September 2026" },
+  { value: "2026-10", label: "October 2026" },
+  { value: "2026-11", label: "November 2026" },
+  { value: "2026-12", label: "December 2026" },
+];
+
+const maintenanceCategories: { value: BusinessExpenseCategory | "All"; label: string }[] = [
+  { value: "All", label: "All" },
+  { value: "Printing", label: "Banner Printing" },
+  { value: "Pasting", label: "Pasting" },
+  { value: "Recording", label: "Recording" },
+  { value: "Purchase", label: "Purchase" },
+  { value: "Labour charges", label: "Labour charges" },
+  { value: "Maintenance", label: "Vehicle Maintenance" },
+];
+
 type ReportsViewProps = {
   store: FleetStore;
+  initialTab?: "business" | "employees" | "clients" | "maintenance";
+  onTabChange?: (tab: "business" | "employees" | "clients" | "maintenance") => void;
   reportPeriod: ReportPeriod;
   setReportPeriod: (period: ReportPeriod) => void;
   reportMonth: string;
@@ -71,6 +115,8 @@ type ReportsViewProps = {
 
 export function ReportsView({
   store,
+  initialTab = "business",
+  onTabChange,
   reportPeriod,
   setReportPeriod,
   reportMonth,
@@ -102,428 +148,1211 @@ export function ReportsView({
   reportTotalExpenses,
   reportExpenses,
   reportEmployeeExpenses,
-  reportPayroll,
   outstanding,
 }: ReportsViewProps) {
+  const [activeReportTab, setActiveReportTab] = useState<"business" | "employees" | "clients" | "maintenance">(initialTab);
+  
+  useEffect(() => {
+    setActiveReportTab(initialTab);
+  }, [initialTab]);
+
+  // Sync state if initialTab changes from parent
+  const handleTabChange = (tab: "business" | "employees" | "clients" | "maintenance") => {
+    setActiveReportTab(tab);
+    onTabChange?.(tab);
+  };
+  const [employeeReportMonth, setEmployeeReportMonth] = useState<string>(reportMonth || isoToday().slice(0, 7));
+  const [employeeSearch, setEmployeeSearch] = useState<string>("");
+  const [selectedEmployeeRecordId, setSelectedEmployeeRecordId] = useState<number | null>(null);
+
+  const [clientSearch, setClientSearch] = useState<string>("");
+  const [clientCategoryFilter, setClientCategoryFilter] = useState<ClientCategory | "All">("All");
+  const [selectedClientLedgerId, setSelectedClientLedgerId] = useState<number | null>(null);
+
+  const [maintenanceMonth, setMaintenanceMonth] = useState<string>(reportMonth || isoToday().slice(0, 7));
+  const [maintenanceSearch, setMaintenanceSearch] = useState<string>("");
+  const [maintenanceCategoryFilter, setMaintenanceCategoryFilter] = useState<BusinessExpenseCategory | "All">("All");
+
   const currentYear = Number(isoToday().slice(0, 4));
   const currentMonthStr = isoToday().slice(0, 7);
   const reportAdvances = store.advances.filter((a) => a.date >= reportStart && a.date <= reportEnd);
 
+  // -------------------------------------------------------------
+  // Employee Report Computations for employeeReportMonth
+  // -------------------------------------------------------------
+  const [empY, empM] = employeeReportMonth.split("-").map(Number);
+  const daysInEmpMonth = new Date(empY, empM, 0).getDate();
+  const empMonthStart = `${employeeReportMonth}-01`;
+  const empMonthEnd = `${employeeReportMonth}-${String(daysInEmpMonth).padStart(2, "0")}`;
+
+  const employeeRows = store.employees.map((employee) => {
+    const status = getEmployeeCurrentStatus(employee, empMonthEnd);
+    const midMonthDate = `${employeeReportMonth}-15`;
+    const rateInfo = rateOnDate(store.employeeRates, employee.id, midMonthDate) ?? store.employeeRates.find((r) => r.employeeId === employee.id);
+    const dailyRate = rateInfo?.dailyRate ?? 0;
+    const location = rateInfo?.location ?? "Unassigned";
+
+    let presentDays = 0;
+    for (let day = 1; day <= daysInEmpMonth; day++) {
+      const dateStr = `${employeeReportMonth}-${String(day).padStart(2, "0")}`;
+      if (store.attendance[dateStr]?.[employee.id] === true) {
+        presentDays++;
+      }
+    }
+
+    const attendanceEarned = presentDays * dailyRate;
+    const monthlyBaseEarned = employee.monthlySalary > 0
+      ? Math.round((employee.monthlySalary / daysInEmpMonth) * presentDays)
+      : 0;
+
+    const reimbursements = store.employeeExpenses
+      .filter((e) => e.employeeId === employee.id && e.date >= empMonthStart && e.date <= empMonthEnd && e.treatment === "Employee reimbursement")
+      .reduce((sum, e) => sum + e.amount, 0);
+
+    const deductions = store.employeeExpenses
+      .filter((e) => e.employeeId === employee.id && e.date >= empMonthStart && e.date <= empMonthEnd && e.treatment === "Employee deduction")
+      .reduce((sum, e) => sum + e.amount, 0);
+
+    const grossEarned = attendanceEarned + monthlyBaseEarned + reimbursements - deductions;
+
+    const advancesInMonth = store.advances
+      .filter((a) => a.employeeId === employee.id && a.date >= empMonthStart && a.date <= empMonthEnd)
+      .reduce((sum, a) => sum + a.amount, 0);
+
+    const totalAdvancesUpToMonth = store.advances
+      .filter((a) => a.employeeId === employee.id && a.date <= empMonthEnd)
+      .reduce((sum, a) => sum + a.amount, 0);
+
+    const deductedFromAdvance = Math.min(totalAdvancesUpToMonth, grossEarned);
+    const carryForwardBalance = grossEarned - totalAdvancesUpToMonth;
+
+    return {
+      employee,
+      status,
+      location,
+      dailyRate,
+      presentDays,
+      daysInEmpMonth,
+      attendanceEarned,
+      grossEarned,
+      advancesInMonth,
+      totalAdvancesUpToMonth,
+      deductedFromAdvance,
+      carryForwardBalance,
+    };
+  });
+
+  const filteredEmployeeRows = employeeRows.filter((row) => {
+    if (!employeeSearch.trim()) return true;
+    const q = employeeSearch.toLowerCase().trim();
+    return (
+      row.employee.name.toLowerCase().includes(q) ||
+      row.location.toLowerCase().includes(q) ||
+      row.status.toLowerCase().includes(q)
+    );
+  });
+
+  const empTotalGross = employeeRows.reduce((sum, r) => sum + r.grossEarned, 0);
+  const empTotalAdvancesInMonth = employeeRows.reduce((sum, r) => sum + r.advancesInMonth, 0);
+  const empTotalDeducted = employeeRows.reduce((sum, r) => sum + r.deductedFromAdvance, 0);
+  const empTotalCarryForward = employeeRows.reduce((sum, r) => sum + Math.max(0, r.carryForwardBalance), 0);
+  const empTotalAttendanceDays = employeeRows.reduce((sum, r) => sum + r.presentDays, 0);
+
+  // -------------------------------------------------------------
+  // Client Report Computations (Only Campaign Clients, not all raw contacts)
+  // -------------------------------------------------------------
+  const campaignClients = store.clients.filter((client) => {
+    const targetName = client.firmName.toLowerCase().trim();
+    const isBaba = targetName.includes("baba") && targetName.includes("son");
+    const hasCampaign = store.campaignBookings.some(
+      (b) =>
+        b.clientId === client.id ||
+        (b.client?.firmName && b.client.firmName.toLowerCase().trim() === targetName) ||
+        (isBaba && (b.client?.firmName?.toLowerCase().includes("baba") ?? false))
+    );
+    const hasBill = store.bills.some(
+      (b) =>
+        b.clientId === client.id ||
+        (b.client?.firmName && b.client.firmName.toLowerCase().trim() === targetName) ||
+        (isBaba && (b.client?.firmName?.toLowerCase().includes("baba") ?? false))
+    );
+    const hasOtherBill = store.otherBills.some(
+      (b) =>
+        b.clientId === client.id ||
+        (b.client?.firmName && b.client.firmName.toLowerCase().trim() === targetName) ||
+        (isBaba && (b.client?.firmName?.toLowerCase().includes("baba") ?? false))
+    );
+    return hasCampaign || hasBill || hasOtherBill;
+  });
+
+  const allClientMetrics = campaignClients.map((client) => {
+    const targetName = client.firmName.toLowerCase().trim();
+    const isBaba = targetName.includes("baba") && targetName.includes("son");
+    const overall = clientOverallBalance(store, client.id);
+    const campaignsCount = store.campaignBookings.filter(
+      (b) =>
+        b.clientId === client.id ||
+        (b.client?.firmName && b.client.firmName.toLowerCase().trim() === targetName) ||
+        (isBaba && (b.client?.firmName?.toLowerCase().includes("baba") ?? false))
+    ).length;
+    const invoicesCount =
+      store.bills.filter(
+        (b) =>
+          b.clientId === client.id ||
+          (b.client?.firmName && b.client.firmName.toLowerCase().trim() === targetName) ||
+          (isBaba && (b.client?.firmName?.toLowerCase().includes("baba") ?? false))
+      ).length +
+      store.otherBills.filter(
+        (b) =>
+          b.clientId === client.id ||
+          (b.client?.firmName && b.client.firmName.toLowerCase().trim() === targetName) ||
+          (isBaba && (b.client?.firmName?.toLowerCase().includes("baba") ?? false))
+      ).length;
+
+    return {
+      client,
+      overall,
+      campaignsCount,
+      invoicesCount,
+    };
+  });
+
+  const clientTotalBilled = allClientMetrics.reduce((sum, c) => sum + c.overall.billed, 0);
+  const clientTotalReceived = allClientMetrics.reduce((sum, c) => sum + c.overall.received, 0);
+  const clientTotalOutstanding = allClientMetrics.reduce((sum, c) => sum + c.overall.outstanding, 0);
+  const clientTotalActiveCampaigns = store.campaignBookings.filter(
+    (b) => !b.stoppedAt && isoToday() >= b.startDate && isoToday() <= (b.endDate || b.startDate)
+  ).length;
+
+  const filteredClientMetrics = allClientMetrics.filter((item) => {
+    if (clientCategoryFilter !== "All" && !item.client.categories.includes(clientCategoryFilter)) {
+      return false;
+    }
+    if (!clientSearch.trim()) return true;
+    const q = clientSearch.toLowerCase().trim();
+    return (
+      item.client.firmName.toLowerCase().includes(q) ||
+      (item.client.ownerName || "").toLowerCase().includes(q) ||
+      item.client.mobile.includes(q) ||
+      (item.client.email || "").toLowerCase().includes(q)
+    );
+  });
+
+  // -------------------------------------------------------------
+  // Maintenance Report Computations
+  // -------------------------------------------------------------
+  const [maintY, maintM] = maintenanceMonth.split("-").map(Number);
+  const daysInMaintMonth = new Date(maintY, maintM, 0).getDate();
+  const maintMonthStart = `${maintenanceMonth}-01`;
+  const maintMonthEnd = `${maintenanceMonth}-${String(daysInMaintMonth).padStart(2, "0")}`;
+
+  const allMaintenanceExpenses = store.businessExpenses.filter((expense) => {
+    // Check date range
+    if (expense.date < maintMonthStart || expense.date > maintMonthEnd) return false;
+    // Check category filter
+    if (maintenanceCategoryFilter !== "All" && expense.category !== maintenanceCategoryFilter) return false;
+    // Check search query
+    if (!maintenanceSearch.trim()) return true;
+    const q = maintenanceSearch.toLowerCase().trim();
+    return (
+      (expense.paidTo || "").toLowerCase().includes(q) ||
+      expense.description.toLowerCase().includes(q) ||
+      (expense.clientName || "").toLowerCase().includes(q) ||
+      (expense.reference || "").toLowerCase().includes(q) ||
+      expense.category.toLowerCase().includes(q)
+    );
+  });
+
+  const maintTotalBilled = allMaintenanceExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const maintTotalPaid = allMaintenanceExpenses.reduce((sum, e) => sum + supplierPaid(e), 0);
+  const maintTotalBalance = allMaintenanceExpenses.reduce((sum, e) => sum + supplierBalance(e), 0);
+
   return (
     <>
       <PageHead
-        title="Business reports"
-        detail="Revenue, outstanding, expenses, and profit by work category"
+        title={
+          activeReportTab === "employees"
+            ? "Employee reports"
+            : activeReportTab === "clients"
+            ? "Client reports"
+            : activeReportTab === "maintenance"
+            ? "Maintenance reports"
+            : "Business reports"
+        }
+        detail={
+          activeReportTab === "employees"
+            ? "Workforce attendance, salary earnings, advance recovery, and net payout by month"
+            : activeReportTab === "clients"
+            ? "Campaign billing, collections received, and outstanding receivables by client"
+            : activeReportTab === "maintenance"
+            ? "Supplier work, vendor expenses, repairs, payment history, and payable balances"
+            : "Revenue, outstanding, expenses, and profit by work category"
+        }
       />
 
-      <div className="op-report-period">
-        <div className="op-period-tabs">
-          {(["Month", "Quarter", "Year", "Date range"] as const).map(
-            (period) => (
-              <button
-                className={reportPeriod === period ? "active" : ""}
-                onClick={() => setReportPeriod(period)}
-                key={period}
-              >
-                {period}
-              </button>
-            ),
-          )}
-        </div>
-
-        {/* Month Selector */}
-        {reportPeriod === "Month" && (
-          <div
-            className="op-report-range"
-            style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
-          >
-            <label className="op-field" style={{ width: "180px" }}>
-              <span>Choose Month</span>
-              <input
-                type="month"
-                value={reportMonth}
-                onChange={(e) =>
-                  setReportMonth(e.target.value || currentMonthStr)
-                }
-              />
-            </label>
-
-            <div className="op-salary-tabs" style={{ margin: 0 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  const [y, m] = reportMonth.split("-").map(Number);
-                  const prev = new Date(y, m - 2, 1);
-                  setReportMonth(
-                    `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
-                  );
-                }}
-              >
-                ← Prev Month
-              </button>
-              <button
-                type="button"
-                className={reportMonth === currentMonthStr ? "active" : ""}
-                onClick={() => setReportMonth(currentMonthStr)}
-              >
-                Current Month
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const [y, m] = reportMonth.split("-").map(Number);
-                  const next = new Date(y, m, 1);
-                  setReportMonth(
-                    `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`,
-                  );
-                }}
-              >
-                Next Month →
-              </button>
-            </div>
-
-            <p style={{ marginLeft: "auto" }}>
-              <CalendarDays size={17} />
-              {new Date(`${reportStart}T00:00:00`).toLocaleDateString("en-IN", {
-                month: "long",
-                year: "numeric",
-              })}{" "}
-              ({fmt(reportStart)} to {fmt(reportEnd)})
-            </p>
-          </div>
-        )}
-
-        {/* Quarter Selector */}
-        {reportPeriod === "Quarter" && (
-          <div
-            className="op-report-range"
-            style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
-          >
-            <label className="op-field" style={{ width: "130px" }}>
-              <span>Year</span>
-              <select
-                value={reportQuarterYear}
-                onChange={(e) => setReportQuarterYear(Number(e.target.value))}
-              >
-                {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2, currentYear - 3].map(
-                  (y) => (
-                    <option key={y} value={y}>
-                      {y}
-                    </option>
-                  ),
-                )}
-              </select>
-            </label>
-
-            <div className="op-salary-tabs" style={{ margin: 0 }}>
-              {[
-                { q: 1, label: "Q1 (Jan – Mar)" },
-                { q: 2, label: "Q2 (Apr – Jun)" },
-                { q: 3, label: "Q3 (Jul – Sep)" },
-                { q: 4, label: "Q4 (Oct – Dec)" },
-              ].map(({ q, label }) => (
-                <button
-                  key={q}
-                  type="button"
-                  className={reportQuarter === q ? "active" : ""}
-                  onClick={() => setReportQuarter(q)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <p style={{ marginLeft: "auto" }}>
-              <CalendarDays size={17} />
-              Q{reportQuarter} {reportQuarterYear} ({fmt(reportStart)} to{" "}
-              {fmt(reportEnd)})
-            </p>
-          </div>
-        )}
-
-        {/* Year Selector */}
-        {reportPeriod === "Year" && (
-          <div
-            className="op-report-range"
-            style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
-          >
-            <label className="op-field" style={{ width: "130px" }}>
-              <span>Choose Year</span>
-              <select
-                value={reportYear}
-                onChange={(e) => setReportYear(Number(e.target.value))}
-              >
-                {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4].map(
-                  (y) => (
-                    <option key={y} value={y}>
-                      {y}
-                    </option>
-                  ),
-                )}
-              </select>
-            </label>
-
-            <div className="op-salary-tabs" style={{ margin: 0 }}>
-              <button
-                type="button"
-                onClick={() => setReportYear(reportYear - 1)}
-              >
-                ← {reportYear - 1}
-              </button>
-              <button
-                type="button"
-                className={reportYear === currentYear ? "active" : ""}
-                onClick={() => setReportYear(currentYear)}
-              >
-                Current Year ({currentYear})
-              </button>
-              <button
-                type="button"
-                onClick={() => setReportYear(reportYear + 1)}
-              >
-                {reportYear + 1} →
-              </button>
-            </div>
-
-            <p style={{ marginLeft: "auto" }}>
-              <CalendarDays size={17} />
-              Full Year {reportYear} ({fmt(reportStart)} to {fmt(reportEnd)})
-            </p>
-          </div>
-        )}
-
-        {/* Date Range Selector */}
-        {reportPeriod === "Date range" && (
-          <div
-            className="op-report-range"
-            style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
-          >
-            <label className="op-field" style={{ width: "160px" }}>
-              <span>From</span>
-              <input
-                type="date"
-                value={reportFrom}
-                onChange={(event) => setReportFrom(event.target.value)}
-              />
-            </label>
-            <span style={{ paddingBottom: "10px" }}>to</span>
-            <label className="op-field" style={{ width: "160px" }}>
-              <span>To</span>
-              <input
-                type="date"
-                value={reportTo}
-                onChange={(event) => setReportTo(event.target.value)}
-              />
-            </label>
-
-            <div className="op-salary-tabs" style={{ margin: 0 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setReportFrom(addDays(isoToday(), -6));
-                  setReportTo(isoToday());
-                }}
-              >
-                Last 7 Days
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setReportFrom(addDays(isoToday(), -29));
-                  setReportTo(isoToday());
-                }}
-              >
-                Last 30 Days
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setReportFrom(`${currentMonthStr}-01`);
-                  setReportTo(isoToday());
-                }}
-              >
-                This Month
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const currM = Number(isoToday().slice(5, 7));
-                  const fyStart = currM >= 4 ? currentYear : currentYear - 1;
-                  setReportFrom(`${fyStart}-04-01`);
-                  setReportTo(isoToday());
-                }}
-              >
-                FY {Number(isoToday().slice(5, 7)) >= 4 ? `${currentYear}–${currentYear + 1}` : `${currentYear - 1}–${currentYear}`}
-              </button>
-            </div>
-
-            <p style={{ marginLeft: "auto" }}>
-              <CalendarDays size={17} />
-              {fmt(reportStart)} to {fmt(reportEnd)}
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Category Profitability Breakdown */}
-      <section className="op-section-title">
-        <h2>Category Profitability ({fmt(reportStart)} to {fmt(reportEnd)})</h2>
-      </section>
-      <div className="op-metrics">
-        <Metric
-          label="Category Billing (Revenue)"
-          value={money(reportCategoryClientBilling)}
-          detail={`${reportProfitCategory} client billed amount`}
-          icon={CircleDollarSign}
-        />
-        <Metric
-          label="Category Supplier / Direct Cost"
-          value={money(reportCategorySupplierCost)}
-          detail={`${reportProfitCategory} expenses`}
-          icon={WalletCards}
-        />
-        <Metric
-          label="Category Net Margin"
-          value={money(reportCategoryProfit)}
-          detail={`${reportProfitCategory} margin in period`}
-          icon={Banknote}
-        />
-        <Metric
-          label="Record Count"
-          value={`${reportCategoryRecordCount} items`}
-          detail={`Related ${reportProfitCategory.toLowerCase()} transactions`}
-          icon={ReceiptText}
-        />
-      </div>
-
-      <div className="op-dashboard-grid">
-        <article className="op-panel">
-          <h2>All Categories Profit Margin</h2>
-          <div className="op-profit-category-list">
-            {reportProfitBreakdown.map((item) => (
-              <div
-                key={item.value}
-                className={`op-profit-category-row ${reportProfitCategory === item.value ? "active" : ""}`}
-                onClick={() => setReportProfitCategory(item.value)}
-                style={{ cursor: "pointer" }}
-              >
-                <b>{item.label}</b>
-                <strong style={{ color: item.profit >= 0 ? "#1f6a53" : "#9a493d" }}>
-                  {money(item.profit)}
-                </strong>
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <article className="op-panel">
-          <h2>Monthly Revenue vs Expenses Trend</h2>
-          <div className="op-trend-chart">
-            {reportTrend.map((point) => (
-              <div key={point.label} className="op-trend-col">
-                <div className="op-trend-bars">
-                  <div
-                    className="op-trend-bar rev"
-                    style={{ height: `${Math.min(100, Math.max(10, point.revenue / 2000))}%` }}
-                    title={`Revenue: ${money(point.revenue)}`}
-                  />
-                  <div
-                    className="op-trend-bar exp"
-                    style={{ height: `${Math.min(100, Math.max(10, point.expenses / 2000))}%` }}
-                    title={`Expenses: ${money(point.expenses)}`}
-                  />
-                </div>
-                <small>{point.label}</small>
-              </div>
-            ))}
-          </div>
-        </article>
-      </div>
-
-      <section className="op-section-title">
-        <h2>Overall Period Financial Summary</h2>
-      </section>
-      <section className="op-metrics">
-        <Metric
-          label="Business in period"
-          value={money(reportRevenue)}
-          detail={`${fmt(reportStart)} to ${fmt(reportEnd)}`}
-          icon={CircleDollarSign}
-        />
-        <Metric
-          label="Outstanding in period"
-          value={money(reportOutstanding)}
-          detail={`${reportBills.filter((item) => billBalance(item) > 0).length} unpaid bills`}
-          icon={WalletCards}
-        />
-        <Metric
-          label="Total expenses in period"
-          value={money(reportTotalExpenses)}
-          detail={`${reportExpenses.length} business · ${reportEmployeeExpenses.length} employee · ${reportAdvances.length} advances`}
-          icon={ReceiptText}
-        />
-        <Metric
-          label="All-time outstanding"
-          value={money(outstanding)}
-          detail="Across all clients"
-          icon={BarChart3}
-        />
-      </section>
-      <div className="op-dashboard-grid">
-        <article className="op-panel">
-          <h2>Outstanding by client</h2>
-          {store.clients.map((client) => {
-            const value = clientOverallBalance(store, client.id).outstanding;
-            return value > 0 ? (
-              <p key={client.id}>
-                <b>{client.firmName}</b>
-                <span>{money(value)}</span>
-              </p>
-            ) : null;
-          })}
-        </article>
-        <article className="op-panel">
-          <h2>Expenses by account</h2>
-          {[
-            "Maintenance",
-            "Printing",
-            "Pasting",
-            "Bond / banner material",
-            "Self travel",
-            "Miscellaneous",
-          ].map((category) => (
-            <p key={category}>
-              <b>{category}</b>
-              <span>
-                {money(
-                  reportExpenses
-                    .filter((item) => item.category === category)
-                    .reduce((sum, item) => sum + item.amount, 0),
-                )}
-              </span>
-            </p>
-          ))}
-          <p>
-            <b>Employee incidentals</b>
-            <span>
-              {money(
-                reportEmployeeExpenses.reduce(
-                  (sum, item) => sum + item.amount,
-                  0,
+      {/* ========================================================================= */}
+      {/* 1. BUSINESS REPORT TAB                                                    */}
+      {/* ========================================================================= */}
+      {activeReportTab === "business" && (
+        <>
+          <div className="op-report-period">
+            <div className="op-period-tabs">
+              {(["Month", "Quarter", "Year", "Date range"] as const).map(
+                (period) => (
+                  <button
+                    className={reportPeriod === period ? "active" : ""}
+                    onClick={() => setReportPeriod(period)}
+                    key={period}
+                  >
+                    {period}
+                  </button>
                 ),
               )}
-            </span>
-          </p>
-          <p>
-            <b>Employee advances paid</b>
-            <span>
-              {money(
-                reportAdvances.reduce((sum, item) => sum + item.amount, 0),
-              )}
-            </span>
-          </p>
-        </article>
-      </div>
+            </div>
+
+            {/* Month Selector */}
+            {reportPeriod === "Month" && (
+              <div
+                className="op-report-range"
+                style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
+              >
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", width: "100%", marginBottom: "6px" }}>
+                  {monthPresets.map((m) => (
+                    <button
+                      key={m.value}
+                      type="button"
+                      className={`op-button ${reportMonth === m.value ? "" : "secondary"}`}
+                      style={{
+                        padding: "5px 12px",
+                        fontSize: "12px",
+                        borderRadius: "20px",
+                        fontWeight: 600,
+                        backgroundColor: reportMonth === m.value ? "#2b765f" : "#ffffff",
+                        color: reportMonth === m.value ? "#ffffff" : "#32443e",
+                        border: reportMonth === m.value ? "1px solid #2b765f" : "1px solid #dce4df",
+                      }}
+                      onClick={() => setReportMonth(m.value)}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+
+                <label className="op-field" style={{ width: "170px" }}>
+                  <span>Choose Month</span>
+                  <input
+                    type="month"
+                    value={reportMonth}
+                    onChange={(e) =>
+                      setReportMonth(e.target.value || currentMonthStr)
+                    }
+                  />
+                </label>
+
+                <div className="op-salary-tabs" style={{ margin: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const [y, m] = reportMonth.split("-").map(Number);
+                      const prev = new Date(y, m - 2, 1);
+                      setReportMonth(
+                        `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
+                      );
+                    }}
+                  >
+                    ← Prev Month
+                  </button>
+                  <button
+                    type="button"
+                    className={reportMonth === currentMonthStr ? "active" : ""}
+                    onClick={() => setReportMonth(currentMonthStr)}
+                  >
+                    Current Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const [y, m] = reportMonth.split("-").map(Number);
+                      const next = new Date(y, m, 1);
+                      setReportMonth(
+                        `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`,
+                      );
+                    }}
+                  >
+                    Next Month →
+                  </button>
+                </div>
+
+                <p style={{ marginLeft: "auto" }}>
+                  <CalendarDays size={17} />
+                  {new Date(`${reportStart}T00:00:00`).toLocaleDateString("en-IN", {
+                    month: "long",
+                    year: "numeric",
+                  })}{" "}
+                  ({fmt(reportStart)} to {fmt(reportEnd)})
+                </p>
+              </div>
+            )}
+
+            {/* Quarter Selector */}
+            {reportPeriod === "Quarter" && (
+              <div
+                className="op-report-range"
+                style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
+              >
+                <label className="op-field" style={{ width: "130px" }}>
+                  <span>Year</span>
+                  <select
+                    value={reportQuarterYear}
+                    onChange={(e) => setReportQuarterYear(Number(e.target.value))}
+                  >
+                    {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2, currentYear - 3].map(
+                      (y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+
+                <div className="op-salary-tabs" style={{ margin: 0 }}>
+                  {[
+                    { q: 1, label: "Q1 (Jan – Mar)" },
+                    { q: 2, label: "Q2 (Apr – Jun)" },
+                    { q: 3, label: "Q3 (Jul – Sep)" },
+                    { q: 4, label: "Q4 (Oct – Dec)" },
+                  ].map(({ q, label }) => (
+                    <button
+                      key={q}
+                      type="button"
+                      className={reportQuarter === q ? "active" : ""}
+                      onClick={() => setReportQuarter(q)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                <p style={{ marginLeft: "auto" }}>
+                  <CalendarDays size={17} />
+                  Q{reportQuarter} {reportQuarterYear} ({fmt(reportStart)} to{" "}
+                  {fmt(reportEnd)})
+                </p>
+              </div>
+            )}
+
+            {/* Year Selector */}
+            {reportPeriod === "Year" && (
+              <div
+                className="op-report-range"
+                style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
+              >
+                <label className="op-field" style={{ width: "130px" }}>
+                  <span>Choose Year</span>
+                  <select
+                    value={reportYear}
+                    onChange={(e) => setReportYear(Number(e.target.value))}
+                  >
+                    {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4].map(
+                      (y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+
+                <div className="op-salary-tabs" style={{ margin: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => setReportYear(reportYear - 1)}
+                  >
+                    ← {reportYear - 1}
+                  </button>
+                  <button
+                    type="button"
+                    className={reportYear === currentYear ? "active" : ""}
+                    onClick={() => setReportYear(currentYear)}
+                  >
+                    Current Year ({currentYear})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReportYear(reportYear + 1)}
+                  >
+                    {reportYear + 1} →
+                  </button>
+                </div>
+
+                <p style={{ marginLeft: "auto" }}>
+                  <CalendarDays size={17} />
+                  Full Year {reportYear} ({fmt(reportStart)} to {fmt(reportEnd)})
+                </p>
+              </div>
+            )}
+
+            {/* Date Range Selector */}
+            {reportPeriod === "Date range" && (
+              <div
+                className="op-report-range"
+                style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
+              >
+                <label className="op-field" style={{ width: "160px" }}>
+                  <span>From</span>
+                  <input
+                    type="date"
+                    value={reportFrom}
+                    onChange={(event) => setReportFrom(event.target.value)}
+                  />
+                </label>
+                <span style={{ paddingBottom: "10px" }}>to</span>
+                <label className="op-field" style={{ width: "160px" }}>
+                  <span>To</span>
+                  <input
+                    type="date"
+                    value={reportTo}
+                    onChange={(event) => setReportTo(event.target.value)}
+                  />
+                </label>
+
+                <div className="op-salary-tabs" style={{ margin: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportFrom(addDays(isoToday(), -6));
+                      setReportTo(isoToday());
+                    }}
+                  >
+                    Last 7 Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportFrom(addDays(isoToday(), -29));
+                      setReportTo(isoToday());
+                    }}
+                  >
+                    Last 30 Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportFrom(`${currentMonthStr}-01`);
+                      setReportTo(isoToday());
+                    }}
+                  >
+                    This Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currM = Number(isoToday().slice(5, 7));
+                      const fyStart = currM >= 4 ? currentYear : currentYear - 1;
+                      setReportFrom(`${fyStart}-04-01`);
+                      setReportTo(isoToday());
+                    }}
+                  >
+                    FY {Number(isoToday().slice(5, 7)) >= 4 ? `${currentYear}–${currentYear + 1}` : `${currentYear - 1}–${currentYear}`}
+                  </button>
+                </div>
+
+                <p style={{ marginLeft: "auto" }}>
+                  <CalendarDays size={17} />
+                  {fmt(reportStart)} to {fmt(reportEnd)}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <ReportProfitSection
+            category={reportProfitCategory}
+            supplierCost={reportCategorySupplierCost}
+            clientBilling={reportCategoryClientBilling}
+            profit={reportCategoryProfit}
+            recordCount={reportCategoryRecordCount}
+            breakdown={reportProfitBreakdown}
+            select={setReportProfitCategory}
+          />
+
+          <section className="op-report-charts">
+            <TrendGraph items={reportTrend} />
+            <ClientDonut items={reportClientChart} />
+          </section>
+
+          <section className="op-section-title">
+            <h2>Overall Period Financial Summary</h2>
+          </section>
+          <section className="op-metrics">
+            <Metric
+              label="Business in period"
+              value={money(reportRevenue)}
+              detail={`${fmt(reportStart)} to ${fmt(reportEnd)}`}
+              icon={CircleDollarSign}
+            />
+            <Metric
+              label="Outstanding in period"
+              value={money(reportOutstanding)}
+              detail={`${reportBills.filter((item) => billBalance(item) > 0).length} unpaid bills`}
+              icon={WalletCards}
+            />
+            <Metric
+              label="Total expenses in period"
+              value={money(reportTotalExpenses)}
+              detail={`${reportExpenses.length} business · ${reportEmployeeExpenses.length} employee · ${reportAdvances.length} advances`}
+              icon={ReceiptText}
+            />
+            <Metric
+              label="All-time outstanding"
+              value={money(outstanding)}
+              detail="Across all clients"
+              icon={BarChart3}
+            />
+          </section>
+          <div className="op-dashboard-grid">
+            <article className="op-panel">
+              <h2>Outstanding by client</h2>
+              {store.clients.map((client) => {
+                const value = clientOverallBalance(store, client.id).outstanding;
+                return value > 0 ? (
+                  <p key={client.id}>
+                    <b>{client.firmName}</b>
+                    <span>{money(value)}</span>
+                  </p>
+                ) : null;
+              })}
+            </article>
+            <article className="op-panel">
+              <h2>Expenses by account</h2>
+              {[
+                "Maintenance",
+                "Printing",
+                "Pasting",
+                "Bond / banner material",
+                "Self travel",
+                "Miscellaneous",
+              ].map((category) => (
+                <p key={category}>
+                  <b>{category}</b>
+                  <span>
+                    {money(
+                      reportExpenses
+                        .filter((item) => item.category === category)
+                        .reduce((sum, item) => sum + item.amount, 0),
+                    )}
+                  </span>
+                </p>
+              ))}
+              <p>
+                <b>Workforce attendance & wages</b>
+                <span>
+                  {money(
+                    store.employees.reduce((total, employee) => {
+                      let earned = 0;
+                      let curr = reportStart;
+                      while (curr <= reportEnd) {
+                        if (store.attendance[curr]?.[employee.id] === true) {
+                          const [y, m] = curr.split("-").map(Number);
+                          const daysInMonth = new Date(y, m, 0).getDate();
+                          const rateInfo = rateOnDate(store.employeeRates, employee.id, curr) ?? store.employeeRates.find((r) => r.employeeId === employee.id);
+                          const dailyRate = rateInfo?.dailyRate ?? 0;
+                          const monthlyDailyBase = employee.monthlySalary > 0 ? Math.round(employee.monthlySalary / daysInMonth) : 0;
+                          earned += (dailyRate + monthlyDailyBase);
+                        }
+                        curr = addDays(curr, 1);
+                      }
+                      return total + earned;
+                    }, 0)
+                  )}
+                </span>
+              </p>
+              <p>
+                <b>Employee incidentals</b>
+                <span>
+                  {money(
+                    reportEmployeeExpenses.reduce(
+                      (sum, item) => sum + item.amount,
+                      0,
+                    ),
+                  )}
+                </span>
+              </p>
+              <p>
+                <b>Advances issued</b>
+                <span>
+                  {money(reportAdvances.reduce((sum, item) => sum + item.amount, 0))}
+                </span>
+              </p>
+            </article>
+          </div>
+        </>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 2. EMPLOYEE REPORT TAB                                                    */}
+      {/* ========================================================================= */}
+      {activeReportTab === "employees" && (
+        <>
+          <div className="op-report-period">
+            <div
+              className="op-report-range"
+              style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
+            >
+              {/* Quick Month Filter Pills */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", width: "100%", marginBottom: "6px" }}>
+                {monthPresets.map((m) => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    className={`op-button ${employeeReportMonth === m.value ? "" : "secondary"}`}
+                    style={{
+                      padding: "5px 12px",
+                      fontSize: "12px",
+                      borderRadius: "20px",
+                      fontWeight: 600,
+                      backgroundColor: employeeReportMonth === m.value ? "#2b765f" : "#ffffff",
+                      color: employeeReportMonth === m.value ? "#ffffff" : "#32443e",
+                      border: employeeReportMonth === m.value ? "1px solid #2b765f" : "1px solid #dce4df",
+                    }}
+                    onClick={() => setEmployeeReportMonth(m.value)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              <label className="op-field" style={{ width: "170px" }}>
+                <span>Select Month</span>
+                <input
+                  type="month"
+                  value={employeeReportMonth}
+                  onChange={(e) => setEmployeeReportMonth(e.target.value || currentMonthStr)}
+                />
+              </label>
+
+              <div className="op-salary-tabs" style={{ margin: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const [y, m] = employeeReportMonth.split("-").map(Number);
+                    const prev = new Date(y, m - 2, 1);
+                    setEmployeeReportMonth(
+                      `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
+                    );
+                  }}
+                >
+                  ← Prev Month
+                </button>
+                <button
+                  type="button"
+                  className={employeeReportMonth === currentMonthStr ? "active" : ""}
+                  onClick={() => setEmployeeReportMonth(currentMonthStr)}
+                >
+                  Current Month
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const [y, m] = employeeReportMonth.split("-").map(Number);
+                    const next = new Date(y, m, 1);
+                    setEmployeeReportMonth(
+                      `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`,
+                    );
+                  }}
+                >
+                  Next Month →
+                </button>
+              </div>
+
+              <p style={{ marginLeft: "auto" }}>
+                <CalendarDays size={17} />
+                {new Date(`${empMonthStart}T00:00:00`).toLocaleDateString("en-IN", {
+                  month: "long",
+                  year: "numeric",
+                })}{" "}
+                ({fmt(empMonthStart)} to {fmt(empMonthEnd)})
+              </p>
+            </div>
+          </div>
+
+          {/* Workforce Summary KPIs for Selected Month */}
+          <section className="op-metrics" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+            <Metric
+              label="Workforce Gross Earned"
+              value={money(empTotalGross)}
+              detail={`${empTotalAttendanceDays} present days across staff`}
+              icon={CircleDollarSign}
+            />
+            <Metric
+              label="Advances in Month"
+              value={money(empTotalAdvancesInMonth)}
+              detail="Total advances taken in period"
+              icon={WalletCards}
+            />
+            <Metric
+              label="Deducted from Advances"
+              value={money(empTotalDeducted)}
+              detail="Settled against salary earnings"
+              icon={Check}
+            />
+            <Metric
+              label="Net Salary Due"
+              value={money(empTotalCarryForward)}
+              detail="Carry forward balance due"
+              icon={TrendingUp}
+            />
+          </section>
+
+          {/* Search Toolbar */}
+          <div className="op-toolbar" style={{ marginTop: "18px" }}>
+            <label className="op-search">
+              <Search />
+              <input
+                placeholder="Search employee by name, location, or status"
+                value={employeeSearch}
+                onChange={(e) => setEmployeeSearch(e.target.value)}
+              />
+            </label>
+            <p>
+              Showing <b>{filteredEmployeeRows.length}</b> of <b>{employeeRows.length}</b> employees
+            </p>
+          </div>
+
+          {/* Employee Monthly Payroll Table */}
+          {filteredEmployeeRows.length ? (
+            <Table
+              headers={[
+                "Employee",
+                "Location & Rate",
+                "Month Attendance",
+                "Salary Earned",
+                "Advance Paid",
+                "Deducted",
+                "Balance Due / Carry",
+                "Status",
+                "",
+              ]}
+            >
+              {filteredEmployeeRows.map((row) => (
+                <Row key={row.employee.id}>
+                  <b>
+                    <button
+                      type="button"
+                      className="op-link-button"
+                      style={{ textDecoration: "none", fontWeight: 700, color: "#14493a", textAlign: "left" }}
+                      onClick={() => setSelectedEmployeeRecordId(row.employee.id)}
+                    >
+                      {row.employee.name}
+                    </button>
+                    <small>ID #{row.employee.id} {row.employee.monthlySalary > 0 ? `· Base ${money(row.employee.monthlySalary)}` : ""}</small>
+                  </b>
+                  <span>
+                    <b>{row.location}</b>
+                    <small>{money(row.dailyRate)}/day</small>
+                  </span>
+                  <span>
+                    <b>{row.presentDays} / {row.daysInEmpMonth} days</b>
+                    <small>{row.presentDays > 0 ? `${row.presentDays}d × ${money(row.dailyRate)}` : "No attendance"}</small>
+                  </span>
+                  <strong style={{ color: "#1f6a53" }}>
+                    {money(row.grossEarned)}
+                  </strong>
+                  <span style={{ color: row.advancesInMonth > 0 ? "#9a493d" : "#556760" }}>
+                    <b>{money(row.advancesInMonth)}</b>
+                    {row.totalAdvancesUpToMonth > row.advancesInMonth && (
+                      <small>Total {money(row.totalAdvancesUpToMonth)}</small>
+                    )}
+                  </span>
+                  <span style={{ color: row.deductedFromAdvance > 0 ? "#1f6a53" : "#74817d" }}>
+                    <b>{money(row.deductedFromAdvance)}</b>
+                  </span>
+                  <span>
+                    <b style={{ color: row.carryForwardBalance >= 0 ? "#14493a" : "#9a493d", fontSize: "14px" }}>
+                      {row.carryForwardBalance >= 0 ? "+" : "−"}{money(Math.abs(row.carryForwardBalance))}
+                    </b>
+                    <small>{row.carryForwardBalance >= 0 ? "Salary Due" : "Advance Due"}</small>
+                  </span>
+                  <Status>{row.status}</Status>
+                  <Button secondary onClick={() => setSelectedEmployeeRecordId(row.employee.id)}>
+                    <FileText size={15} />
+                    View record
+                  </Button>
+                </Row>
+              ))}
+            </Table>
+          ) : (
+            <div className="op-empty-state">
+              <UsersRound />
+              <h2>No employees found</h2>
+              <p>Try searching for a different name or clear the search filter.</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. CLIENT REPORT TAB                                                      */}
+      {/* ========================================================================= */}
+      {activeReportTab === "clients" && (
+        <>
+          {/* Summary KPIs */}
+          <section className="op-metrics" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+            <Metric
+              label="Total Client Billed"
+              value={money(clientTotalBilled)}
+              detail="Total across all invoices & vouchers"
+              icon={CircleDollarSign}
+            />
+            <Metric
+              label="Total Collections Received"
+              value={money(clientTotalReceived)}
+              detail="Total advances and installments received"
+              icon={Check}
+            />
+            <Metric
+              label="Total Outstanding Receivables"
+              value={money(clientTotalOutstanding)}
+              detail="Pending collection balance"
+              icon={WalletCards}
+            />
+            <Metric
+              label="Active Campaigns"
+              value={String(clientTotalActiveCampaigns)}
+              detail="Currently running campaigns"
+              icon={Building2}
+            />
+          </section>
+
+          {/* Category Filter Pills */}
+          <div className="op-category-filter" style={{ marginTop: "18px" }}>
+            {(["All", ...clientCategories] as (ClientCategory | "All")[]).map((category) => (
+              <button
+                className={clientCategoryFilter === category ? "active" : ""}
+                onClick={() => setClientCategoryFilter(category)}
+                key={category}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+
+          {/* Search Toolbar */}
+          <div className="op-toolbar">
+            <label className="op-search">
+              <Search />
+              <input
+                placeholder="Search client firm name, contact person, or phone"
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+              />
+            </label>
+            <p>
+              Showing <b>{filteredClientMetrics.length}</b> of <b>{allClientMetrics.length}</b> campaign clients
+            </p>
+          </div>
+
+          {/* Client Financial Accounts Table */}
+          {filteredClientMetrics.length ? (
+            <Table
+              headers={[
+                "Client / Firm",
+                "Contact Details",
+                "Campaigns",
+                "Invoices",
+                "Total Billed",
+                "Received",
+                "Outstanding Balance",
+                "",
+              ]}
+            >
+              {filteredClientMetrics.map((item) => (
+                <Row key={item.client.id}>
+                  <b>
+                    <button
+                      type="button"
+                      className="op-link-button"
+                      style={{ textDecoration: "none", fontWeight: 700, color: "#14493a", textAlign: "left" }}
+                      onClick={() => setSelectedClientLedgerId(item.client.id)}
+                    >
+                      {item.client.firmName}
+                    </button>
+                    <small>{item.client.ownerName ? `${item.client.ownerName} · ` : ""}{item.client.address || "Wardha"}</small>
+                  </b>
+                  <span>
+                    <b>{item.client.mobile || "No mobile"}</b>
+                    <small>{item.client.email || "No email"}</small>
+                  </span>
+                  <span>
+                    <b>{item.campaignsCount}</b>
+                    <small>{item.campaignsCount === 1 ? "booking" : "bookings"}</small>
+                  </span>
+                  <span>
+                    <b>{item.invoicesCount}</b>
+                    <small>{item.invoicesCount === 1 ? "bill" : "bills"}</small>
+                  </span>
+                  <strong>{money(item.overall.billed)}</strong>
+                  <span style={{ color: "#1f6a53" }}>
+                    <b>{money(item.overall.received)}</b>
+                  </span>
+                  <span>
+                    <b style={{ color: item.overall.outstanding > 0 ? "#9a493d" : "#1f6a53", fontSize: "14px" }}>
+                      {money(item.overall.balance)}
+                    </b>
+                    <small style={{ color: item.overall.outstanding > 0 ? "#9a493d" : "#1f6a53" }}>
+                      {item.overall.outstanding > 0 ? "Outstanding" : "Settled"}
+                    </small>
+                  </span>
+                  <Button secondary onClick={() => setSelectedClientLedgerId(item.client.id)}>
+                    <ReceiptText size={15} />
+                    Open ledger
+                  </Button>
+                </Row>
+              ))}
+            </Table>
+          ) : (
+            <div className="op-empty-state">
+              <ReceiptText />
+              <h2>No campaign clients found</h2>
+              <p>Try refining your search name or selecting another category.</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 4. MAINTENANCE REPORT TAB                                                 */}
+      {/* ========================================================================= */}
+      {activeReportTab === "maintenance" && (
+        <>
+          {/* Month Selector for Maintenance */}
+          <div className="op-report-period">
+            <div
+              className="op-report-range"
+              style={{ flexWrap: "wrap", alignItems: "center", gap: "10px" }}
+            >
+              {/* Quick Month Filter Pills */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", width: "100%", marginBottom: "6px" }}>
+                {monthPresets.map((m) => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    className={`op-button ${maintenanceMonth === m.value ? "" : "secondary"}`}
+                    style={{
+                      padding: "5px 12px",
+                      fontSize: "12px",
+                      borderRadius: "20px",
+                      fontWeight: 600,
+                      backgroundColor: maintenanceMonth === m.value ? "#2b765f" : "#ffffff",
+                      color: maintenanceMonth === m.value ? "#ffffff" : "#32443e",
+                      border: maintenanceMonth === m.value ? "1px solid #2b765f" : "1px solid #dce4df",
+                    }}
+                    onClick={() => setMaintenanceMonth(m.value)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              <label className="op-field" style={{ width: "170px" }}>
+                <span>Select Month</span>
+                <input
+                  type="month"
+                  value={maintenanceMonth}
+                  onChange={(e) => setMaintenanceMonth(e.target.value || currentMonthStr)}
+                />
+              </label>
+
+              <div className="op-salary-tabs" style={{ margin: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const [y, m] = maintenanceMonth.split("-").map(Number);
+                    const prev = new Date(y, m - 2, 1);
+                    setMaintenanceMonth(
+                      `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
+                    );
+                  }}
+                >
+                  ← Prev Month
+                </button>
+                <button
+                  type="button"
+                  className={maintenanceMonth === currentMonthStr ? "active" : ""}
+                  onClick={() => setMaintenanceMonth(currentMonthStr)}
+                >
+                  Current Month
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const [y, m] = maintenanceMonth.split("-").map(Number);
+                    const next = new Date(y, m, 1);
+                    setMaintenanceMonth(
+                      `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`,
+                    );
+                  }}
+                >
+                  Next Month →
+                </button>
+              </div>
+
+              <p style={{ marginLeft: "auto" }}>
+                <CalendarDays size={17} />
+                {new Date(`${maintMonthStart}T00:00:00`).toLocaleDateString("en-IN", {
+                  month: "long",
+                  year: "numeric",
+                })}{" "}
+                ({fmt(maintMonthStart)} to {fmt(maintMonthEnd)})
+              </p>
+            </div>
+          </div>
+
+          {/* Summary KPIs */}
+          <section className="op-metrics" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+            <Metric
+              label="Supplier Work Bills"
+              value={money(maintTotalBilled)}
+              detail={`${allMaintenanceExpenses.length} maintenance records in period`}
+              icon={ReceiptText}
+            />
+            <Metric
+              label="Supplier Payments Made"
+              value={money(maintTotalPaid)}
+              detail="Opening and installment payments recorded"
+              icon={Check}
+            />
+            <Metric
+              label="Outstanding Payable"
+              value={money(maintTotalBalance)}
+              detail="Remaining supplier balance to clear"
+              icon={WalletCards}
+            />
+            <Metric
+              label="Work Records"
+              value={String(allMaintenanceExpenses.length)}
+              detail="Total maintenance entries"
+              icon={Wrench}
+            />
+          </section>
+
+          {/* Category Filter Pills */}
+          <div className="op-category-filter" style={{ marginTop: "18px" }}>
+            {maintenanceCategories.map((category) => (
+              <button
+                className={maintenanceCategoryFilter === category.value ? "active" : ""}
+                onClick={() => setMaintenanceCategoryFilter(category.value)}
+                key={category.value}
+              >
+                {category.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Search Toolbar */}
+          <div className="op-toolbar">
+            <label className="op-search">
+              <Search />
+              <input
+                placeholder="Search by supplier name, work description, or client..."
+                value={maintenanceSearch}
+                onChange={(e) => setMaintenanceSearch(e.target.value)}
+              />
+            </label>
+            <p>
+              Showing <b>{allMaintenanceExpenses.length}</b> records
+            </p>
+          </div>
+
+          {/* Maintenance Records Table */}
+          {allMaintenanceExpenses.length ? (
+            <Table
+              headers={[
+                "Date",
+                "Supplier / Worker",
+                "Work / Item",
+                "Category",
+                "Client / Reference",
+                "Bill",
+                "Paid",
+                "Balance",
+              ]}
+            >
+              {[...allMaintenanceExpenses]
+                .sort((a, b) => b.date.localeCompare(a.date))
+                .map((expense) => {
+                  const paid = supplierPaid(expense);
+                  const balance = supplierBalance(expense);
+                  return (
+                    <Row key={expense.id}>
+                      <span>{fmt(expense.date)}</span>
+                      <b>
+                        {expense.paidTo || "Unassigned Supplier"}
+                        <small>{expense.reference || "No reference"}</small>
+                      </b>
+                      <span>
+                        <b>{expense.description}</b>
+                        {expense.purpose && <small>{expense.purpose}</small>}
+                      </span>
+                      <span>
+                        <span
+                          style={{
+                            padding: "3px 8px",
+                            borderRadius: "4px",
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            backgroundColor: "#edf4f1",
+                            color: "#185b47",
+                          }}
+                        >
+                          {expense.category === "Printing" ? "Banner Printing" : expense.category}
+                        </span>
+                      </span>
+                      <span>
+                        <b>{expense.clientName || "Internal Agency"}</b>
+                      </span>
+                      <strong>{money(expense.amount)}</strong>
+                      <span style={{ color: "#1f6a53" }}>
+                        <b>{money(paid)}</b>
+                      </span>
+                      <span>
+                        <b style={{ color: balance > 0 ? "#9a493d" : "#1f6a53" }}>
+                          {money(balance)}
+                        </b>
+                        <small style={{ color: balance > 0 ? "#9a493d" : "#1f6a53" }}>
+                          {balance > 0 ? "Payable" : "Cleared"}
+                        </small>
+                      </span>
+                    </Row>
+                  );
+                })}
+            </Table>
+          ) : (
+            <div className="op-empty-state">
+              <Wrench />
+              <h2>No maintenance records found</h2>
+              <p>Try refining your search query or selecting a different month/category.</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Record & Ledger Modals */}
+      {selectedEmployeeRecordId && (
+        <EmployeeRecordModal
+          store={store}
+          employeeId={selectedEmployeeRecordId}
+          close={() => setSelectedEmployeeRecordId(null)}
+        />
+      )}
+
+      {selectedClientLedgerId && (
+        <ClientLedgerModal
+          store={store}
+          clientId={selectedClientLedgerId}
+          close={() => setSelectedClientLedgerId(null)}
+        />
+      )}
     </>
   );
 }

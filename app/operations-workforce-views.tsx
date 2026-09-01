@@ -25,6 +25,7 @@ import {
   calculateEmployeeLedger,
   getAdvanceOutstanding,
   getEmployeeAdvancesWithRecoveries,
+  getEmployeeCurrentStatus,
   getEmployeeGrossEarned,
   inclusiveDays,
   weekFor,
@@ -200,7 +201,7 @@ export function AttendanceView({
           return (
             <Row key={`report-${employee.id}`}>
               <b>{employee.name}</b>
-              <Status>{employee.status}</Status>
+              <Status>{getEmployeeCurrentStatus(employee)}</Status>
               <strong style={{ color: "#1f6a53" }}>{present} days</strong>
               <strong style={{ color: absent > 0 ? "#a13e34" : "#687670" }}>
                 {absent} days
@@ -268,7 +269,7 @@ export function EmployeesView({
           "Employee",
           "Current location",
           "Daily rate",
-          "Active from",
+          "Inactive / Active date",
           "Overall balance",
           "Effective from",
           "Status",
@@ -277,9 +278,16 @@ export function EmployeesView({
       >
         {employeeRows.map(({ employee, rate }) => {
           const overallBalance = calculateEmployeeLedger(store, employee.id).remainingBalance;
-          const activeSchedule = employee.activeFrom
-            ? fmt(employee.activeFrom)
-            : "Since inception";
+          const currentStatus = getEmployeeCurrentStatus(employee);
+          const scheduleText = currentStatus === "Inactive"
+            ? employee.activeFrom
+              ? `Active: ${fmt(employee.activeFrom)}`
+              : employee.inactiveFrom
+              ? `Inactive: ${fmt(employee.inactiveFrom)}`
+              : "—"
+            : employee.inactiveFrom
+            ? `Inactive: ${fmt(employee.inactiveFrom)}`
+            : "—";
           return (
             <Row key={employee.id}>
               <button
@@ -290,12 +298,12 @@ export function EmployeesView({
               </button>
               <span>{rate?.location ?? "No location"}</span>
               <strong>{money(rate?.dailyRate ?? 0)}/day</strong>
-              <small style={{ color: "#314d44", fontWeight: 600 }}>{activeSchedule}</small>
+              <small style={{ color: currentStatus === "Inactive" ? "#9a493d" : "#687670", fontWeight: 600 }}>{scheduleText}</small>
               <strong style={{ color: overallBalance > 0 ? "#9a493d" : "#1f6a53" }}>
                 {money(overallBalance)}
               </strong>
               <span>{fmt(rate?.effectiveFrom ?? "")}</span>
-              <Status>{employee.status}</Status>
+              <Status>{currentStatus}</Status>
               <Actions
                 edit={() => editEmployee(employee.id)}
                 remove={() => removeEmployee(employee.id)}
@@ -663,20 +671,24 @@ export function PayrollView({
           >
             {filteredRows.map(({ preview, employee, empEarned, empAdvances, deductedFromAdvance, advanceRemaining, salaryPayable, balance }) => (
               <Row key={preview.employeeId}>
-                <div>
+                <div className="op-employee-info-cell">
                   <button
-                    className="op-name-button"
+                    className="op-employee-row-name"
                     onClick={() =>
                       openEmployeeRecord
                         ? openEmployeeRecord(preview.employeeId)
                         : setSelectedSlip({ preview, employee })
                     }
-                    title="Click to view complete record"
+                    title="Click to view employee record"
                   >
                     {employee?.name ?? "Unknown"}
                   </button>
                   <small className="op-subtext">
-                    Monthly base: {money(employee?.monthlySalary ?? 0)}
+                    {employee?.monthlySalary && employee.monthlySalary > 0
+                      ? `Monthly: ${money(employee.monthlySalary)}`
+                      : preview.rateBreakdown[0]?.location
+                      ? `${preview.rateBreakdown[0].location} driver`
+                      : "Workforce staff"}
                   </small>
                 </div>
 
@@ -686,12 +698,14 @@ export function PayrollView({
                       preview.presentDays > 0 ? "present" : "none"
                     }`}
                   >
-                    <b>{preview.presentDays}</b> / {preview.totalDays} Present days
+                    <strong>{preview.presentDays}</strong>
+                    <span className="op-slash">/</span>
+                    <span>{preview.totalDays} days</span>
                   </span>
                 </div>
 
                 <div className="op-daily-rate-cell">
-                  <strong className="op-gross-val" style={{ color: "#15803d" }}>+{money(empEarned)}</strong>
+                  <strong className="op-earned-figure">+{money(empEarned)}</strong>
                   <small className="op-subtext">
                     {preview.rateBreakdown
                       .map(
@@ -707,23 +721,35 @@ export function PayrollView({
                 </div>
 
                 <div className="op-advance-cell">
-                  <strong className="op-adv-val" style={{ color: "#b91c1c" }}>{empAdvances > 0 ? `−${money(empAdvances)}` : "₹0"}</strong>
-                  <small className="op-subtext">
-                    {empAdvances > 0 ? `${money(empAdvances)} given` : "No advances"}
-                  </small>
+                  {empAdvances > 0 ? (
+                    <>
+                      <strong className="op-adv-figure">−{money(empAdvances)}</strong>
+                      <small className="op-subtext">{money(empAdvances)} given</small>
+                    </>
+                  ) : (
+                    <>
+                      <strong className="op-zero-figure">₹0</strong>
+                      <small className="op-subtext muted">No advances</small>
+                    </>
+                  )}
                 </div>
 
                 <div className="op-adjustments-cell">
-                  <strong style={{ color: deductedFromAdvance > 0 ? "#b45309" : "#687670" }}>
-                    {deductedFromAdvance > 0 ? `−${money(deductedFromAdvance)}` : "₹0"}
-                  </strong>
-                  <small className="op-subtext">
-                    {deductedFromAdvance >= empEarned && empEarned > 0
-                      ? "Fully absorbed"
-                      : deductedFromAdvance > 0
-                      ? "Partially absorbed"
-                      : "No deduction"}
-                  </small>
+                  {deductedFromAdvance > 0 ? (
+                    <>
+                      <strong className="op-deduct-figure">−{money(deductedFromAdvance)}</strong>
+                      <small className="op-subtext">
+                        {deductedFromAdvance >= empEarned && empEarned > 0
+                          ? "Fully absorbed"
+                          : "Partially absorbed"}
+                      </small>
+                    </>
+                  ) : (
+                    <>
+                      <strong className="op-zero-figure">₹0</strong>
+                      <small className="op-subtext muted">No deduction</small>
+                    </>
+                  )}
                 </div>
 
                 <div className="op-balance-cell">
@@ -732,60 +758,50 @@ export function PayrollView({
                       <span className="op-balance-badge due">
                         +{money(salaryPayable)} Payable
                       </span>
-                      <small className="op-subtext">Salary due to employee</small>
+                      <small className="op-subtext due-text">Salary due to employee</small>
                     </>
                   ) : advanceRemaining > 0 ? (
                     <>
                       <span className="op-balance-badge advance-owed">
                         −{money(advanceRemaining)} Advance Due
                       </span>
-                      <small className="op-subtext">
-                        Advance carried forward
+                      <small className="op-subtext adv-text">
+                        Surplus advance
                       </small>
                     </>
                   ) : (
                     <>
                       <span className="op-balance-badge settled">
-                        ✓ {money(0)} Settled
+                        ✓ ₹0 Settled
                       </span>
-                      <small className="op-subtext">
+                      <small className="op-subtext settled-text">
                         All dues settled
                       </small>
                     </>
                   )}
                 </div>
 
-                <div className="op-actions-cell" style={{ display: "flex", gap: "6px" }}>
+                <div className="op-row-actions">
                   {addEmployeeAdvance && (
                     <button
                       type="button"
-                      className="op-name-button"
-                      style={{
-                        background: "#edf5f1",
-                        color: "#1a5b47",
-                        border: "1px solid #c8ded5",
-                        borderRadius: "6px",
-                        padding: "5px 9px",
-                        fontSize: "12.5px",
-                        fontWeight: "600",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "4px",
-                        cursor: "pointer",
-                      }}
+                      className="op-btn-pay-adv"
                       title={`Give advance to ${employee?.name}`}
                       onClick={() => addEmployeeAdvance(preview.employeeId)}
                     >
-                      <Banknote size={14} /> + Pay Adv
+                      <Banknote size={14} />
+                      + Pay Adv
                     </button>
                   )}
-                  <Button
-                    secondary
+                  <button
+                    type="button"
+                    className="op-btn-statement"
+                    title="View salary statement"
                     onClick={() => setSelectedSlip({ preview, employee })}
                   >
                     <FileText size={14} />
                     Statement
-                  </Button>
+                  </button>
                 </div>
               </Row>
             ))}

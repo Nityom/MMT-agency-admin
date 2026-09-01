@@ -2,7 +2,7 @@
 
 import { Banknote, CalendarDays, Printer, ReceiptText, WalletCards } from "lucide-react";
 import {
-  addDays, Bill, BillCharge, calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange, FleetStore, getAdvanceOutstanding, getEmployeeAdvancesWithRecoveries, groupAttendanceRanges, inclusiveDays, rateOnDate,
+  addDays, Bill, BillCharge, calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange, FleetStore, getAdvanceOutstanding, getEmployeeAdvancesWithRecoveries, getEmployeeCurrentStatus, groupAttendanceRanges, inclusiveDays, rateOnDate,
 } from "./fleet-domain";
 import { Button, Modal, Status } from "./operations-components";
 import {
@@ -69,9 +69,16 @@ export function EmployeeRecordModal({ store, employeeId, close }: { store: Fleet
     ...expenses.map((item) => ({ key: `expense-${item.id}`, date: item.date, type: item.category, detail: `${item.description} · ${item.treatment}`, status: item.treatment, amount: item.amount as number | null })),
   ].sort((left, right) => right.date.localeCompare(left.date));
   
-  const activeRangeText = employee.activeFrom
-    ? `Active from: ${fmt(employee.activeFrom)}`
-    : "Active from: Since inception";
+  const currentStatus = getEmployeeCurrentStatus(employee);
+  const statusDateText = currentStatus === "Inactive"
+    ? employee.activeFrom
+      ? `Active from: ${fmt(employee.activeFrom)}`
+      : employee.inactiveFrom
+      ? `Inactive from: ${fmt(employee.inactiveFrom)}`
+      : ""
+    : employee.inactiveFrom
+    ? `Inactive from: ${fmt(employee.inactiveFrom)}`
+    : "";
 
   return (
     <Modal title={`${employee.name} · complete record`} close={close}>
@@ -80,9 +87,9 @@ export function EmployeeRecordModal({ store, employeeId, close }: { store: Fleet
           <div>
             <b>{employee.name}</b>
             <span>{currentRate?.location ?? "No current location"} · {money(currentRate?.dailyRate ?? 0)}/day · Monthly base: {money(employee.monthlySalary)}</span>
-            <small>{employee.status} · {presentDays} present days · {activeRangeText}</small>
+            <small>{currentStatus} · {presentDays} present days {statusDateText ? `· ${statusDateText}` : ""}</small>
           </div>
-          <Status>{employee.status}</Status>
+          <Status>{currentStatus}</Status>
         </section>
 
         <section className="op-ledger-totals">

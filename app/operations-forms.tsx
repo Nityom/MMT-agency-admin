@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Printer } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import {
   addDays,
   BusinessExpenseCategory,
@@ -9,6 +9,7 @@ import {
   EmployeeExpenseCategory,
   ExpenseTreatment,
   FleetStore,
+  getEmployeeCurrentStatus,
   PaymentMode,
   rateOnDate,
 } from "./fleet-domain";
@@ -114,6 +115,14 @@ export function EntryForm({
     dialog === "employee"
       ? store.employees.find((item) => item.id === employeeId)
       : undefined;
+  const [employeeStatus, setEmployeeStatus] = useState<"Active" | "Inactive">(
+    editingEmployee ? getEmployeeCurrentStatus(editingEmployee) : "Active"
+  );
+  useEffect(() => {
+    if (editingEmployee) {
+      setEmployeeStatus(getEmployeeCurrentStatus(editingEmployee));
+    }
+  }, [editingEmployee]);
   const currentEmployeeRate = editingEmployee
     ? rateOnDate(store.employeeRates, editingEmployee.id, isoToday())
     : undefined;
@@ -185,7 +194,28 @@ export function EntryForm({
             },
           ]
         : store.employeeRates;
-      const activeFrom = input(data, "activeFrom") || effectiveFrom || isoToday();
+      const inputStatus = (input(data, "status") || (editingEmployee ? editingEmployee.status : "Active")) as "Active" | "Inactive";
+      let activeFrom = input(data, "activeFrom") || undefined;
+      let inactiveFrom = input(data, "inactiveFrom") || undefined;
+      let finalStatus: "Active" | "Inactive" = inputStatus;
+
+      if (inputStatus === "Inactive") {
+        if (activeFrom && isoToday() >= activeFrom) {
+          finalStatus = "Active";
+          inactiveFrom = undefined;
+        } else {
+          finalStatus = "Inactive";
+          inactiveFrom = editingEmployee?.inactiveFrom || isoToday();
+        }
+      } else {
+        if (inactiveFrom && isoToday() >= inactiveFrom) {
+          finalStatus = "Inactive";
+        } else {
+          finalStatus = "Active";
+        }
+        activeFrom = editingEmployee?.activeFrom || effectiveFrom || isoToday();
+      }
+
       updated = {
         ...store,
         employees: editingEmployee
@@ -194,9 +224,10 @@ export function EntryForm({
                 ? {
                     ...employee,
                     name: input(data, "name"),
-                    status: input(data, "status") as "Active" | "Inactive",
+                    status: finalStatus,
                     monthlySalary: amount(data, "monthlySalary"),
                     activeFrom,
+                    inactiveFrom,
                   }
                 : employee,
             )
@@ -205,9 +236,10 @@ export function EntryForm({
               {
                 id: savedEmployeeId,
                 name: input(data, "name"),
-                status: "Active",
+                status: finalStatus,
                 monthlySalary: amount(data, "monthlySalary"),
                 activeFrom,
+                inactiveFrom,
               },
             ],
         employeeRates,
@@ -408,16 +440,18 @@ export function EntryForm({
               />
             </div>
             {editingEmployee && (
-              <FormSelect
-                label="Status"
-                name="status"
-                defaultValue={editingEmployee.status}
-                options={[
-                  { value: "Active", label: "Active" },
-                  { value: "Inactive", label: "Inactive" },
-                ]}
-                required
-              />
+              <label className="op-field">
+                <span>Status</span>
+                <select
+                  name="status"
+                  value={employeeStatus}
+                  onChange={(e) => setEmployeeStatus(e.target.value as "Active" | "Inactive")}
+                  required
+                >
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </label>
             )}
             <div className="op-form-grid">
               <FormField
@@ -435,13 +469,21 @@ export function EntryForm({
               />
             </div>
             <div className="op-form-grid">
-              <FormField
-                label="Active from date"
-                name="activeFrom"
-                type="date"
-                defaultValue={editingEmployee?.activeFrom ?? currentEmployeeRate?.effectiveFrom ?? isoToday()}
-                required
-              />
+              {employeeStatus === "Inactive" ? (
+                <FormField
+                  label="Active date (Optional)"
+                  name="activeFrom"
+                  type="date"
+                  defaultValue={editingEmployee?.activeFrom ?? ""}
+                />
+              ) : (
+                <FormField
+                  label="Inactive date (Optional)"
+                  name="inactiveFrom"
+                  type="date"
+                  defaultValue={editingEmployee?.inactiveFrom ?? ""}
+                />
+              )}
               <FormField
                 label={editingEmployee ? "Rate effective from" : "Rate effective from"}
                 name="effectiveFrom"
