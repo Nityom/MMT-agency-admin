@@ -11,6 +11,7 @@ import {
   FleetStore,
   inclusiveDays,
   OtherBill,
+  rateOnDate,
   VehicleType,
 } from "./fleet-domain";
 
@@ -236,3 +237,113 @@ export const consolidateCampaignBookings = (bookings: CampaignBooking[]): Campai
 
   return result.sort((a, b) => b.startDate.localeCompare(a.startDate));
 };
+
+export function calcEmployeeEarnings(
+  store: FleetStore,
+  employeeId: number,
+  fromDate?: string,
+  throughDate?: string
+) {
+  let earned = 0;
+  const employee = store.employees.find((e) => e.id === employeeId);
+  if (!employee) return 0;
+
+  for (const dateStr of Object.keys(store.attendance)) {
+    if (fromDate && dateStr < fromDate) continue;
+    if (throughDate && dateStr > throughDate) continue;
+    if (store.attendance[dateStr]?.[employeeId] === true) {
+      const rateInfo =
+        rateOnDate(store.employeeRates, employeeId, dateStr) ??
+        store.employeeRates.find((r) => r.employeeId === employeeId);
+      const dailyRate = rateInfo?.dailyRate ?? 0;
+      const [y, m] = dateStr.split("-").map(Number);
+      const daysInMonth = new Date(y, m, 0).getDate();
+      const monthlyDailyBase =
+        employee.monthlySalary > 0
+          ? Math.round(employee.monthlySalary / daysInMonth)
+          : 0;
+      earned += dailyRate + monthlyDailyBase;
+    }
+  }
+
+  const reimbursements = store.employeeExpenses
+    .filter(
+      (e) =>
+        e.employeeId === employeeId &&
+        (!fromDate || e.date >= fromDate) &&
+        (!throughDate || e.date <= throughDate) &&
+        e.treatment === "Employee reimbursement"
+    )
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  const deductions = store.employeeExpenses
+    .filter(
+      (e) =>
+        e.employeeId === employeeId &&
+        (!fromDate || e.date >= fromDate) &&
+        (!throughDate || e.date <= throughDate) &&
+        e.treatment === "Employee deduction"
+    )
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  return earned + reimbursements - deductions;
+}
+
+export function calcEmployeeSettlement(
+  store: FleetStore,
+  employeeId: number,
+  periodStart?: string,
+  periodEnd?: string
+) {
+  const isAllTime = !periodStart || periodStart === "2020-01-01" || periodStart === "all";
+
+  if (isAllTime) {
+    const earned = calcEmployeeEarnings(store, employeeId, undefined, periodEnd);
+    const advances = store.advances
+      .filter((a) => a.employeeId === employeeId && (!periodEnd || a.date <= periodEnd))
+      .reduce((sum, a) => sum + a.amount, 0);
+    const deducted = Math.min(earned, advances);
+    const balance = earned - advances;
+    return {
+      priorBalance: 0,
+      periodEarned: earned,
+      periodAdvances: advances,
+      deductedFromAdvance: deducted,
+      carryForwardBalance: balance,
+      salaryPayable: Math.max(0, balance),
+      advanceRemaining: Math.max(0, -balance),
+    };
+  }
+
+  const prevEnd = addDays(periodStart, -1);
+  const priorEarned = calcEmployeeEarnings(store, employeeId, undefined, prevEnd);
+  const priorAdvances = store.advances
+    .filter((a) => a.employeeId === employeeId && a.date <= prevEnd)
+    .reduce((sum, a) => sum + a.amount, 0);
+  const priorBalance = priorEarned - priorAdvances;
+
+  const periodEarned = calcEmployeeEarnings(store, employeeId, periodStart, periodEnd);
+  const periodAdvances = store.advances
+    .filter(
+      (a) =>
+        a.employeeId === employeeId &&
+        a.date >= periodStart &&
+        (!periodEnd || a.date <= periodEnd)
+    )
+    .reduce((sum, a) => sum + a.amount, 0);
+
+  const carryForwardBalance = priorBalance + periodEarned - periodAdvances;
+  const advancePool = periodAdvances + (priorBalance < 0 ? Math.abs(priorBalance) : 0);
+  const earnedPool = periodEarned + (priorBalance > 0 ? priorBalance : 0);
+  const deductedFromAdvance = Math.min(advancePool, earnedPool);
+
+  return {
+    priorBalance,
+    periodEarned,
+    periodAdvances,
+    deductedFromAdvance,
+    carryForwardBalance,
+    salaryPayable: Math.max(0, carryForwardBalance),
+    advanceRemaining: Math.max(0, -carryForwardBalance),
+  };
+}

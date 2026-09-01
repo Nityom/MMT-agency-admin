@@ -37,7 +37,7 @@ import {
 } from "./fleet-domain";
 import { Actions, AttendanceCalendar, Button, Modal, Row, Status, Table } from "./operations-components";
 import { Metric, PageHead } from "./operations-reports";
-import { fmt, isoToday, money } from "./operations-utils";
+import { calcEmployeeSettlement, fmt, isoToday, money } from "./operations-utils";
 
 export type AttendanceRow = { employee: Employee; rate: EmployeeRate | undefined; present: boolean | undefined };
 
@@ -418,25 +418,18 @@ export function PayrollView({
     }
   };
 
-  // Pure Plus & Minus calculation per employee:
-  // 1. Earned = Gross attendance salary + reimbursements - deductions
-  // 2. Advance = Total advances given up to period end
-  // 3. Deducted from Advance = min(Earned, Advance)
-  // 4. Carry Forward Balance:
-  //    - If Advance > Earned: - (Advance - Earned) [Advance Due / Carried forward]
-  //    - If Earned > Advance: + (Earned - Advance) [Salary Due to employee]
-  //    - If equal: 0 Settled
+  // Pure Plus & Minus calculation per employee with accurate monthly settlement & carry-forward:
   const calculatedRows = payrollRows.map((row) => {
     const employeeId = row.preview.employeeId;
-    const empEarned = Math.max(0, row.preview.gross + row.preview.reimbursements - row.preview.deductions);
-    const empAdvances = store.advances
-      .filter((a) => a.employeeId === employeeId && a.date <= payrollPeriodEnd)
-      .reduce((sum, a) => sum + a.amount, 0);
+    const settlement = calcEmployeeSettlement(store, employeeId, payrollWeek, payrollPeriodEnd);
 
-    const deductedFromAdvance = Math.min(empAdvances, empEarned);
-    const advanceRemaining = Math.max(0, empAdvances - empEarned);
-    const salaryPayable = Math.max(0, empEarned - empAdvances);
-    const balance = salaryPayable > 0 ? salaryPayable : (advanceRemaining > 0 ? -advanceRemaining : 0);
+    const empEarned = settlement.periodEarned;
+    const empAdvances = settlement.periodAdvances;
+    const deductedFromAdvance = settlement.deductedFromAdvance;
+    const advanceRemaining = settlement.advanceRemaining;
+    const salaryPayable = settlement.salaryPayable;
+    const balance = settlement.carryForwardBalance;
+    const priorBalance = settlement.priorBalance;
 
     const status =
       balance > 0
@@ -453,14 +446,13 @@ export function PayrollView({
       advanceRemaining,
       salaryPayable,
       balance,
+      priorBalance,
       status,
     };
   });
 
   const totalGross = payrollGrossTotal;
-  const totalAdvancesIssued = store.advances
-    .filter((a) => a.date <= payrollPeriodEnd)
-    .reduce((sum, a) => sum + a.amount, 0);
+  const totalAdvancesIssued = calculatedRows.reduce((sum, r) => sum + r.empAdvances, 0);
 
   const totalDeductedFromAdvance = calculatedRows.reduce((sum, r) => sum + r.deductedFromAdvance, 0);
   const totalPayableSalary = calculatedRows
@@ -850,16 +842,27 @@ export function SalarySlipModal({
   close: () => void;
   onAddAdvance?: () => void;
 }) {
-  // Pure Plus & Minus calculation:
-  const empEarned = Math.max(0, preview.gross + preview.reimbursements - preview.deductions);
+  // Pure Plus & Minus calculation with accurate monthly carry-forward:
+  const settlement = calcEmployeeSettlement(
+    store,
+    preview.employeeId,
+    preview.periodStart,
+    preview.periodEnd
+  );
+  const empEarned = settlement.periodEarned;
   const employeeAdvances = store.advances
-    .filter((adv) => adv.employeeId === preview.employeeId && adv.date <= preview.periodEnd)
+    .filter(
+      (adv) =>
+        adv.employeeId === preview.employeeId &&
+        adv.date >= preview.periodStart &&
+        adv.date <= preview.periodEnd
+    )
     .sort((a, b) => b.date.localeCompare(a.date));
-  const totalAdvancesIssued = employeeAdvances.reduce((sum, a) => sum + a.amount, 0);
-
-  const deductedFromAdvance = Math.min(totalAdvancesIssued, empEarned);
-  const advanceRemaining = Math.max(0, totalAdvancesIssued - empEarned);
-  const salaryPayable = Math.max(0, empEarned - totalAdvancesIssued);
+  const totalAdvancesIssued = settlement.periodAdvances;
+  const deductedFromAdvance = settlement.deductedFromAdvance;
+  const advanceRemaining = settlement.advanceRemaining;
+  const salaryPayable = settlement.salaryPayable;
+  const priorBalance = settlement.priorBalance;
 
   // Relevant itemized expenses
   const relevantExpenses = store.employeeExpenses.filter(

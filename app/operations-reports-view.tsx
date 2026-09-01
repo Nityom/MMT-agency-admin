@@ -35,6 +35,7 @@ import { EmployeeRecordModal } from "./operations-records";
 import { ClientLedgerModal } from "./operations-client-ledger";
 import {
   billBalance,
+  calcEmployeeSettlement,
   clientCategories,
   clientOverallBalance,
   fmt,
@@ -197,20 +198,10 @@ export function ReportsView({
     const location = rateInfo?.location ?? "Unassigned";
 
     let presentDays = 0;
-    let attendanceEarned = 0;
-    let monthlyBaseEarned = 0;
-
     if (isEmpAllTime) {
       for (const dateStr of Object.keys(store.attendance)) {
         if (store.attendance[dateStr]?.[employee.id] === true) {
           presentDays++;
-          const dayRateInfo = rateOnDate(store.employeeRates, employee.id, dateStr) ?? store.employeeRates.find((r) => r.employeeId === employee.id);
-          const dayRate = dayRateInfo?.dailyRate ?? dailyRate;
-          const [y, m] = dateStr.split("-").map(Number);
-          const daysInMonth = new Date(y, m, 0).getDate();
-          const dayBase = employee.monthlySalary > 0 ? Math.round(employee.monthlySalary / daysInMonth) : 0;
-          attendanceEarned += dayRate;
-          monthlyBaseEarned += dayBase;
         }
       }
     } else {
@@ -220,32 +211,19 @@ export function ReportsView({
           presentDays++;
         }
       }
-      attendanceEarned = presentDays * dailyRate;
-      monthlyBaseEarned = employee.monthlySalary > 0 ? Math.round((employee.monthlySalary / daysInEmpMonth) * presentDays) : 0;
     }
 
-    const reimbursements = store.employeeExpenses
-      .filter((e) => e.employeeId === employee.id && e.date >= empMonthStart && e.date <= empMonthEnd && e.treatment === "Employee reimbursement")
-      .reduce((sum, e) => sum + e.amount, 0);
+    const settlement = calcEmployeeSettlement(
+      store,
+      employee.id,
+      isEmpAllTime ? undefined : empMonthStart,
+      isEmpAllTime ? undefined : empMonthEnd
+    );
 
-    const deductions = store.employeeExpenses
-      .filter((e) => e.employeeId === employee.id && e.date >= empMonthStart && e.date <= empMonthEnd && e.treatment === "Employee deduction")
-      .reduce((sum, e) => sum + e.amount, 0);
-
-    const grossEarned = attendanceEarned + monthlyBaseEarned + reimbursements - deductions;
-
-    const advancesInMonth = isEmpAllTime
-      ? store.advances.filter((a) => a.employeeId === employee.id).reduce((sum, a) => sum + a.amount, 0)
-      : store.advances
-          .filter((a) => a.employeeId === employee.id && a.date >= empMonthStart && a.date <= empMonthEnd)
-          .reduce((sum, a) => sum + a.amount, 0);
-
-    const totalAdvancesUpToMonth = store.advances
-      .filter((a) => a.employeeId === employee.id && a.date <= empMonthEnd)
-      .reduce((sum, a) => sum + a.amount, 0);
-
-    const deductedFromAdvance = Math.min(totalAdvancesUpToMonth, grossEarned);
-    const carryForwardBalance = grossEarned - totalAdvancesUpToMonth;
+    const grossEarned = settlement.periodEarned;
+    const advancesInMonth = settlement.periodAdvances;
+    const deductedFromAdvance = settlement.deductedFromAdvance;
+    const carryForwardBalance = settlement.carryForwardBalance;
 
     return {
       employee,
@@ -254,10 +232,8 @@ export function ReportsView({
       dailyRate,
       presentDays,
       daysInEmpMonth,
-      attendanceEarned,
       grossEarned,
       advancesInMonth,
-      totalAdvancesUpToMonth,
       deductedFromAdvance,
       carryForwardBalance,
     };
@@ -1005,9 +981,6 @@ export function ReportsView({
                   </strong>
                   <span style={{ color: row.advancesInMonth > 0 ? "#9a493d" : "#556760" }}>
                     <b>{money(row.advancesInMonth)}</b>
-                    {row.totalAdvancesUpToMonth > row.advancesInMonth && (
-                      <small>Total {money(row.totalAdvancesUpToMonth)}</small>
-                    )}
                   </span>
                   <span style={{ color: row.deductedFromAdvance > 0 ? "#1f6a53" : "#74817d" }}>
                     <b>{money(row.deductedFromAdvance)}</b>
