@@ -98,50 +98,8 @@ export default function OperationsApp() {
   const [vehicleAttendanceDirty, setVehicleAttendanceDirty] = useState(false);
   const [advanceSearch, setAdvanceSearch] = useState("");
   const [advanceHistoryEmployeeId, setAdvanceHistoryEmployeeId] = useState<number | null>(null);
-  useEffect(() => {
-    if (!storageReady) return;
-    const wipeKey = "fleet_salary_advance_reset_v1";
-    if (!localStorage.getItem(wipeKey)) {
-      localStorage.setItem(wipeKey, "true");
-      setStore((current) => ({
-        ...current,
-        payrollPayments: [],
-        advances: [],
-        employeePayments: [],
-      }));
-    }
-  }, [storageReady, setStore]);
-  useEffect(() => {
-    if (!storageReady) return;
-    const sudhakarRateKey = "fleet_sudhakar_rate_split_v1";
-    if (!localStorage.getItem(sudhakarRateKey)) {
-      localStorage.setItem(sudhakarRateKey, "true");
-      setStore((current) => {
-        const sudhakar = current.employees.find((e) => e.name.toLowerCase().includes("sudhakar"));
-        if (!sudhakar) return current;
-        const otherRates = current.employeeRates.filter((r) => r.employeeId !== sudhakar.id);
-        const aprilRate: EmployeeRate = {
-          id: nextId(otherRates),
-          employeeId: sudhakar.id,
-          location: "Wardha",
-          dailyRate: 300,
-          effectiveFrom: "2026-04-01",
-          effectiveTo: "2026-04-30",
-        };
-        const mayRate: EmployeeRate = {
-          id: aprilRate.id + 1,
-          employeeId: sudhakar.id,
-          location: "Wardha",
-          dailyRate: 350,
-          effectiveFrom: "2026-05-01",
-        };
-        return {
-          ...current,
-          employeeRates: [...otherRates, aprilRate, mayRate],
-        };
-      });
-    }
-  }, [storageReady, setStore]);
+
+
   useEffect(() => {
     if (!storageReady) return;
     let cancelled = false;

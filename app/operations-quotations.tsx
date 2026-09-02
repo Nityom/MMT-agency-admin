@@ -795,11 +795,7 @@ export function QuotationsView({
     notify("All client quotations restored successfully!");
   };
 
-  useEffect(() => {
-    if (!quotations || quotations.length === 0) {
-      restoreAllClientQuotations();
-    }
-  }, []);
+
 
   const convertToCampaign = (q: Quotation) => {
     if (
