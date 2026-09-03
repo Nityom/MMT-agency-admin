@@ -54,33 +54,28 @@ export function QuotationEditorModal({
   close: () => void;
   save: (quotation: Quotation) => void;
 }) {
-  const [clientId, setClientId] = useState(
-    quotation?.clientId || store.clients[0]?.id || 0
-  );
+  const [clientId, setClientId] = useState(quotation?.clientId || 0);
   const [clientQuery, setClientQuery] = useState("");
   const [clientResultLimit, setClientResultLimit] = useState(100);
 
   const [campaignClientName, setCampaignClientName] = useState(
-    quotation?.client?.firmName || store.clients[0]?.firmName || ""
+    quotation?.client?.firmName || ""
   );
   const [clientOwnerName, setClientOwnerName] = useState(
-    quotation?.client?.ownerName || store.clients[0]?.ownerName || ""
+    quotation?.client?.ownerName || ""
   );
   const [clientMobile, setClientMobile] = useState(
-    quotation?.client?.mobile || store.clients[0]?.mobile || ""
+    quotation?.client?.mobile || ""
   );
   const [clientAddress, setClientAddress] = useState(
-    quotation?.client?.address || store.clients[0]?.address || ""
+    quotation?.client?.address || ""
   );
   const [clientEmail, setClientEmail] = useState(
-    quotation?.client?.email || store.clients[0]?.email || ""
+    quotation?.client?.email || ""
   );
 
-  const [quotationStartDate, setQuotationStartDate] = useState(
-    quotation?.vehicleLines[0]?.startDate || isoToday()
-  );
-  const [quotationEndDate, setQuotationEndDate] = useState(
-    quotation?.vehicleLines[0]?.endDate || addDays(isoToday(), 30)
+  const [quotationDate, setQuotationDate] = useState(
+    quotation?.quotationDate || isoToday()
   );
 
   const [status, setStatus] = useState<QuotationStatus>(
@@ -103,14 +98,14 @@ export function QuotationEditorModal({
   const existingClient = store.clients.find((c) => c.id === clientId);
 
   const newLine = (): QuotationLineDraft => ({
-    vehicleId: store.vehicles[0]?.id || 0,
-    label: "Rickshaw",
+    vehicleId: 0,
+    label: "",
     quantity: 1,
-    startDate: quotationStartDate,
-    endDate: quotationEndDate,
-    advertisementDays: inclusiveDays(quotationStartDate, quotationEndDate),
+    startDate: quotationDate,
+    endDate: addDays(quotationDate, 30),
+    advertisementDays: 30,
     offDays: 0,
-    dailyRate: 700,
+    dailyRate: 0,
   });
 
   const [lines, setLines] = useState<QuotationLineDraft[]>(
@@ -136,15 +131,14 @@ export function QuotationEditorModal({
     );
 
   const finalLines: BillVehicleLine[] = lines.map((line, index) => {
-    const bookedDays =
-      line.startDate <= line.endDate
-        ? inclusiveDays(line.startDate, line.endDate)
-        : 1;
+    const days = line.advertisementDays || 1;
     return {
       ...line,
       id: index + 1,
-      bookedDays,
-      advertisementDays: line.advertisementDays || bookedDays,
+      startDate: quotationDate,
+      endDate: addDays(quotationDate, days),
+      bookedDays: days,
+      advertisementDays: days,
       driverNames: [],
     };
   });
@@ -170,7 +164,7 @@ export function QuotationEditorModal({
     save({
       id: quotation?.id || nextId(store.quotations || []),
       number: quotation?.number || nextQuotationNumber(store.quotations, store.nextQuotationNumber || 1),
-      quotationDate: quotationStartDate,
+      quotationDate: quotationDate,
       validUntil: validUntil || undefined,
       clientId: clientId || 0,
       client: clientDetails,
@@ -216,6 +210,12 @@ export function QuotationEditorModal({
                   setClientMobile(selClient.mobile || "");
                   setClientAddress(selClient.address || "");
                   setClientEmail(selClient.email || "");
+                } else {
+                  setCampaignClientName("");
+                  setClientOwnerName("");
+                  setClientMobile("");
+                  setClientAddress("");
+                  setClientEmail("");
                 }
               }}
             >
@@ -292,52 +292,12 @@ export function QuotationEditorModal({
 
         <div className="op-form-grid">
           <label className="op-field">
-            <span>Tentative start date</span>
+            <span>Quotation Date</span>
             <input
-              name="startDate"
+              name="quotationDate"
               type="date"
-              value={quotationStartDate}
-              onChange={(e) => {
-                const nextDate = e.target.value;
-                setLines((curr) =>
-                  curr.map((l) =>
-                    l.startDate === quotationStartDate
-                      ? {
-                          ...l,
-                          startDate: nextDate,
-                          advertisementDays:
-                            nextDate <= l.endDate ? inclusiveDays(nextDate, l.endDate) : 1,
-                        }
-                      : l
-                  )
-                );
-                setQuotationStartDate(nextDate);
-              }}
-              required
-            />
-          </label>
-          <label className="op-field">
-            <span>Tentative end date</span>
-            <input
-              name="endDate"
-              type="date"
-              value={quotationEndDate}
-              onChange={(e) => {
-                const nextDate = e.target.value;
-                setLines((curr) =>
-                  curr.map((l) =>
-                    l.endDate === quotationEndDate
-                      ? {
-                          ...l,
-                          endDate: nextDate,
-                          advertisementDays:
-                            l.startDate <= nextDate ? inclusiveDays(l.startDate, nextDate) : 1,
-                        }
-                      : l
-                  )
-                );
-                setQuotationEndDate(nextDate);
-              }}
+              value={quotationDate}
+              onChange={(e) => setQuotationDate(e.target.value)}
               required
             />
           </label>
@@ -364,32 +324,31 @@ export function QuotationEditorModal({
         </div>
 
         <div className="op-section-title">
-          <h2>Vehicle time intervals</h2>
+          <h2>Vehicle requirements & rates</h2>
           <Button
             secondary
             type="button"
             onClick={() => setLines((curr) => [...curr, newLine()])}
           >
-            <Plus size={16} /> Add interval
+            <Plus size={16} /> Add vehicle line
           </Button>
         </div>
 
         {lines.map((line, index) => {
-          const days =
-            line.startDate <= line.endDate ? inclusiveDays(line.startDate, line.endDate) : 1;
+          const days = line.advertisementDays || 1;
           return (
             <div className="op-vehicle-period" key={index}>
               <label>
                 <span>Vehicle type / description</span>
                 <input
-                  value={line.label || "Rickshaw"}
+                  value={line.label}
                   placeholder="e.g. Rickshaw, E-rickshaw"
                   onChange={(e) => updateLine(index, { label: e.target.value })}
                   required
                 />
               </label>
               <label>
-                <span>Quantity</span>
+                <span>Vehicles</span>
                 <input
                   type="number"
                   min="1"
@@ -401,27 +360,17 @@ export function QuotationEditorModal({
                 />
               </label>
               <label>
-                <span>From</span>
+                <span>Running Days</span>
                 <input
-                  type="date"
-                  value={line.startDate}
+                  type="number"
+                  min="1"
+                  placeholder="30"
+                  value={line.advertisementDays || ""}
                   onChange={(e) => {
-                    const start = e.target.value;
-                    const adDays = start <= line.endDate ? inclusiveDays(start, line.endDate) : 1;
-                    updateLine(index, { startDate: start, advertisementDays: adDays });
-                  }}
-                  required
-                />
-              </label>
-              <label>
-                <span>To</span>
-                <input
-                  type="date"
-                  value={line.endDate}
-                  onChange={(e) => {
-                    const end = e.target.value;
-                    const adDays = line.startDate <= end ? inclusiveDays(line.startDate, end) : 1;
-                    updateLine(index, { endDate: end, advertisementDays: adDays });
+                    const daysVal = Math.max(1, Number(e.target.value) || 1);
+                    updateLine(index, {
+                      advertisementDays: daysVal,
+                    });
                   }}
                   required
                 />
@@ -431,7 +380,8 @@ export function QuotationEditorModal({
                 <input
                   type="number"
                   min="0"
-                  value={line.dailyRate}
+                  placeholder="0"
+                  value={line.dailyRate ? line.dailyRate : ""}
                   onChange={(e) =>
                     updateLine(index, { dailyRate: Number(e.target.value) || 0 })
                   }
@@ -440,13 +390,13 @@ export function QuotationEditorModal({
               </label>
               <button
                 type="button"
-                title="Remove interval"
+                title="Remove line"
                 onClick={() => setLines((curr) => curr.filter((_, i) => i !== index))}
               >
                 <Trash2 size={16} />
               </button>
               <small>
-                {days} Total Days · {line.quantity || 1} slots · Estimated{" "}
+                {days} Days · {line.quantity || 1} vehicles · Estimated{" "}
                 {money(days * (line.quantity || 1) * line.dailyRate)}
               </small>
             </div>

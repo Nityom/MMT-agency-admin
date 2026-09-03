@@ -55,7 +55,8 @@ export function PageHead({
 }) {
   const printableSupplierLedger = title === "Maintenance payment ledger";
   const printablePayroll = title === "Weekly payroll";
-  const printablePage = printableSupplierLedger || printablePayroll;
+  const printableBilling = title === "Client billing";
+  const printablePage = printableSupplierLedger || printablePayroll || printableBilling;
   const visibleTitle = title.replace(/payroll/gi, "salary");
   const visibleDetail = detail.replace(/payroll/gi, "salary");
   return (
