@@ -75,10 +75,10 @@ export function QuotationEditorModal({
   );
 
   const [quotationStartDate, setQuotationStartDate] = useState(
-    quotation?.vehicleLines[0]?.startDate || isoToday()
+    quotation?.vehicleLines[0]?.startDate || quotation?.quotationDate || ""
   );
   const [quotationEndDate, setQuotationEndDate] = useState(
-    quotation?.vehicleLines[0]?.endDate || addDays(isoToday(), 30)
+    quotation?.vehicleLines[0]?.endDate || ""
   );
 
   const [status, setStatus] = useState<QuotationStatus>(
@@ -102,11 +102,14 @@ export function QuotationEditorModal({
 
   const newLine = (): QuotationLineDraft => ({
     vehicleId: 0,
-    label: "",
+    label: "Rickshaw",
     quantity: 1,
-    startDate: quotationStartDate,
-    endDate: quotationEndDate,
-    advertisementDays: inclusiveDays(quotationStartDate, quotationEndDate),
+    startDate: quotationStartDate || "",
+    endDate: quotationEndDate || "",
+    advertisementDays:
+      quotationStartDate && quotationEndDate && quotationStartDate <= quotationEndDate
+        ? inclusiveDays(quotationStartDate, quotationEndDate)
+        : 0,
     offDays: 0,
     dailyRate: 0,
   });
@@ -134,12 +137,16 @@ export function QuotationEditorModal({
     );
 
   const finalLines: BillVehicleLine[] = lines.map((line, index) => {
+    const sDate = line.startDate || quotationStartDate || isoToday();
+    const eDate = line.endDate || quotationEndDate || addDays(sDate, 30);
     const bookedDays =
-      line.startDate <= line.endDate
-        ? inclusiveDays(line.startDate, line.endDate)
+      sDate <= eDate
+        ? inclusiveDays(sDate, eDate)
         : 1;
     return {
       ...line,
+      startDate: sDate,
+      endDate: eDate,
       id: index + 1,
       bookedDays,
       advertisementDays: line.advertisementDays || bookedDays,
@@ -305,19 +312,20 @@ export function QuotationEditorModal({
                 const nextDate = e.target.value;
                 setLines((curr) =>
                   curr.map((l) =>
-                    l.startDate === quotationStartDate
+                    !l.startDate || l.startDate === quotationStartDate
                       ? {
                           ...l,
                           startDate: nextDate,
                           advertisementDays:
-                            nextDate <= l.endDate ? inclusiveDays(nextDate, l.endDate) : 1,
+                            nextDate && l.endDate && nextDate <= l.endDate
+                              ? inclusiveDays(nextDate, l.endDate)
+                              : 0,
                         }
                       : l
                   )
                 );
                 setQuotationStartDate(nextDate);
               }}
-              required
             />
           </label>
           <label className="op-field">
@@ -330,19 +338,20 @@ export function QuotationEditorModal({
                 const nextDate = e.target.value;
                 setLines((curr) =>
                   curr.map((l) =>
-                    l.endDate === quotationEndDate
+                    !l.endDate || l.endDate === quotationEndDate
                       ? {
                           ...l,
                           endDate: nextDate,
                           advertisementDays:
-                            l.startDate <= nextDate ? inclusiveDays(l.startDate, nextDate) : 1,
+                            l.startDate && nextDate && l.startDate <= nextDate
+                              ? inclusiveDays(l.startDate, nextDate)
+                              : 0,
                         }
                       : l
                   )
                 );
                 setQuotationEndDate(nextDate);
               }}
-              required
             />
           </label>
           <label className="op-field">
@@ -380,17 +389,21 @@ export function QuotationEditorModal({
 
         {lines.map((line, index) => {
           const days =
-            line.startDate <= line.endDate ? inclusiveDays(line.startDate, line.endDate) : 1;
+            line.startDate && line.endDate && line.startDate <= line.endDate
+              ? inclusiveDays(line.startDate, line.endDate)
+              : (line.advertisementDays || 0);
           return (
             <div className="op-vehicle-period" key={index}>
               <label>
-                <span>Vehicle type / description</span>
-                <input
-                  value={line.label}
-                  placeholder="e.g. Rickshaw, E-rickshaw"
+                <span>Vehicle type</span>
+                <select
+                  value={line.label || "Rickshaw"}
                   onChange={(e) => updateLine(index, { label: e.target.value })}
                   required
-                />
+                >
+                  <option value="Rickshaw">Rickshaw</option>
+                  <option value="E-rickshaw">E-rickshaw</option>
+                </select>
               </label>
               <label>
                 <span>Quantity</span>
@@ -411,10 +424,12 @@ export function QuotationEditorModal({
                   value={line.startDate}
                   onChange={(e) => {
                     const start = e.target.value;
-                    const adDays = start <= line.endDate ? inclusiveDays(start, line.endDate) : 1;
+                    const adDays =
+                      start && line.endDate && start <= line.endDate
+                        ? inclusiveDays(start, line.endDate)
+                        : 0;
                     updateLine(index, { startDate: start, advertisementDays: adDays });
                   }}
-                  required
                 />
               </label>
               <label>
@@ -424,10 +439,12 @@ export function QuotationEditorModal({
                   value={line.endDate}
                   onChange={(e) => {
                     const end = e.target.value;
-                    const adDays = line.startDate <= end ? inclusiveDays(line.startDate, end) : 1;
+                    const adDays =
+                      line.startDate && end && line.startDate <= end
+                        ? inclusiveDays(line.startDate, end)
+                        : 0;
                     updateLine(index, { endDate: end, advertisementDays: adDays });
                   }}
-                  required
                 />
               </label>
               <label>

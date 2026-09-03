@@ -136,6 +136,41 @@ export function EntryForm({
     dialog === "client"
       ? store.clients.find((item) => item.id === clientId)
       : undefined;
+  const [clientSearchQuery, setClientSearchQuery] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [clientFirmName, setClientFirmName] = useState(editingClient?.firmName ?? "");
+  const [clientOwnerName, setClientOwnerName] = useState(editingClient?.ownerName ?? "");
+  const [clientAddress, setClientAddress] = useState(editingClient?.address ?? "");
+  const [clientMobile, setClientMobile] = useState(editingClient?.mobile ?? "");
+  const [clientAlternatePhone, setClientAlternatePhone] = useState(editingClient?.alternatePhone ?? "");
+  const [clientDateOfBirth, setClientDateOfBirth] = useState(editingClient?.dateOfBirth ?? "");
+  const [clientEmail, setClientEmail] = useState(editingClient?.email ?? "");
+  const [clientCategoriesState, setClientCategoriesState] = useState<ClientCategory[]>(editingClient?.categories ?? []);
+
+  useEffect(() => {
+    if (editingClient) {
+      setSelectedClientId(editingClient.id);
+      setClientFirmName(editingClient.firmName);
+      setClientOwnerName(editingClient.ownerName || "");
+      setClientAddress(editingClient.address || "");
+      setClientMobile(editingClient.mobile || "");
+      setClientAlternatePhone(editingClient.alternatePhone || "");
+      setClientDateOfBirth(editingClient.dateOfBirth || "");
+      setClientEmail(editingClient.email || "");
+      setClientCategoriesState(editingClient.categories || []);
+    } else {
+      setSelectedClientId(null);
+      setClientSearchQuery("");
+      setClientFirmName("");
+      setClientOwnerName("");
+      setClientAddress("");
+      setClientMobile("");
+      setClientAlternatePhone("");
+      setClientDateOfBirth("");
+      setClientEmail("");
+      setClientCategoriesState([]);
+    }
+  }, [editingClient, dialog]);
   const editingVehicle =
     dialog === "vehicle"
       ? store.vehicles.find((item) => item.id === vehicleId)
@@ -294,24 +329,25 @@ export function EntryForm({
       };
     }
     if (dialog === "client") {
+      const activeClientId = editingClient?.id ?? selectedClientId;
       const profile = {
-        firmName: input(data, "firmName"),
-        ownerName: input(data, "ownerName"),
-        address: input(data, "address"),
-        mobile: input(data, "mobile"),
-        alternatePhone: input(data, "alternatePhone"),
-        dateOfBirth: input(data, "dateOfBirth"),
-        email: input(data, "email"),
-        categories: data.getAll("categories") as ClientCategory[],
+        firmName: clientFirmName.trim() || input(data, "firmName"),
+        ownerName: clientOwnerName.trim() || input(data, "ownerName"),
+        address: clientAddress.trim() || input(data, "address"),
+        mobile: clientMobile.trim() || input(data, "mobile"),
+        alternatePhone: clientAlternatePhone.trim() || input(data, "alternatePhone"),
+        dateOfBirth: clientDateOfBirth.trim() || input(data, "dateOfBirth"),
+        email: clientEmail.trim() || input(data, "email"),
+        categories: clientCategoriesState,
         status: (editingClient ? input(data, "status") : "Active") as
           | "Active"
           | "Inactive",
       };
       updated = {
         ...store,
-        clients: editingClient
+        clients: activeClientId
           ? store.clients.map((client) =>
-              client.id === editingClient.id
+              client.id === activeClientId
                 ? { ...client, ...profile }
                 : client,
             )
@@ -570,42 +606,109 @@ export function EntryForm({
         )}
         {dialog === "client" && (
           <>
+            {!editingClient && (
+              <div style={{ marginBottom: "14px", background: "#f8fafc", padding: "12px", borderRadius: "8px", border: "1px solid #cbd5e1" }}>
+                <span style={{ display: "block", fontSize: "12px", fontWeight: 700, color: "#334155", marginBottom: "6px", textTransform: "uppercase" }}>
+                  Search and pick from existing contacts ({store.clients.length.toLocaleString("en-IN")} available)
+                </span>
+                <input
+                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #94a3b8", borderRadius: "6px", fontSize: "14px" }}
+                  placeholder="Type name, phone, or firm to search contacts..."
+                  value={clientSearchQuery}
+                  onChange={(e) => setClientSearchQuery(e.target.value)}
+                />
+                {clientSearchQuery.trim() && (
+                  <div style={{ maxHeight: "160px", overflowY: "auto", border: "1px solid #cbd5e1", borderRadius: "6px", background: "#ffffff", marginTop: "6px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
+                    {store.clients
+                      .filter((c) =>
+                        `${c.firmName} ${c.ownerName || ""} ${c.mobile || ""} ${c.alternatePhone || ""} ${c.address || ""}`
+                          .toLowerCase()
+                          .includes(clientSearchQuery.trim().toLowerCase())
+                      )
+                      .slice(0, 50)
+                      .map((c) => (
+                        <div
+                          key={c.id}
+                          style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", fontSize: "13px" }}
+                          onMouseDown={() => {
+                            setSelectedClientId(c.id);
+                            setClientFirmName(c.firmName);
+                            setClientOwnerName(c.ownerName || "");
+                            setClientAddress(c.address || "");
+                            setClientMobile(c.mobile || "");
+                            setClientAlternatePhone(c.alternatePhone || "");
+                            setClientDateOfBirth(c.dateOfBirth || "");
+                            setClientEmail(c.email || "");
+                            setClientCategoriesState(c.categories || []);
+                            setClientSearchQuery("");
+                          }}
+                        >
+                          <b>{c.firmName}</b> {c.ownerName ? `· ${c.ownerName}` : ""} {c.mobile ? `· ${c.mobile}` : ""} {c.address ? `· ${c.address}` : ""}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="op-form-grid">
-              <FormField
-                label="Firm name"
-                name="firmName"
-                defaultValue={editingClient?.firmName}
-                required
-              />
-              <FormField
-                label="Concerend person name"
-                name="ownerName"
-                defaultValue={editingClient?.ownerName}
-              />
+              <label className="op-field">
+                <span>Firm name</span>
+                <input
+                  name="firmName"
+                  value={clientFirmName}
+                  onChange={(e) => setClientFirmName(e.target.value)}
+                  placeholder="Firm / Client Name"
+                  required
+                />
+              </label>
+              <label className="op-field">
+                <span>Concerned person name</span>
+                <input
+                  name="ownerName"
+                  value={clientOwnerName}
+                  onChange={(e) => setClientOwnerName(e.target.value)}
+                  placeholder="Contact person"
+                />
+              </label>
             </div>
-            <FormField
-              label="Address"
-              name="address"
-              defaultValue={editingClient?.address}
-            />
+            <label className="op-field">
+              <span>Address</span>
+              <input
+                name="address"
+                value={clientAddress}
+                onChange={(e) => setClientAddress(e.target.value)}
+                placeholder="Client address / Location"
+              />
+            </label>
             <div className="op-form-grid">
-              <FormField
-                label="Mobile number"
-                name="mobile"
-                defaultValue={editingClient?.mobile}
-              />
-              <FormField
-                label="Alternate phone"
-                name="alternatePhone"
-                defaultValue={editingClient?.alternatePhone}
-              />
+              <label className="op-field">
+                <span>Mobile number</span>
+                <input
+                  name="mobile"
+                  value={clientMobile}
+                  onChange={(e) => setClientMobile(e.target.value)}
+                  placeholder="+91..."
+                />
+              </label>
+              <label className="op-field">
+                <span>Alternate phone</span>
+                <input
+                  name="alternatePhone"
+                  value={clientAlternatePhone}
+                  onChange={(e) => setClientAlternatePhone(e.target.value)}
+                  placeholder="Alternate contact number"
+                />
+              </label>
             </div>
-            <FormField
-              label="Date of birth"
-              name="dateOfBirth"
-              type="date"
-              defaultValue={editingClient?.dateOfBirth}
-            />
+            <label className="op-field">
+              <span>Date of birth</span>
+              <input
+                name="dateOfBirth"
+                type="date"
+                value={clientDateOfBirth}
+                onChange={(e) => setClientDateOfBirth(e.target.value)}
+              />
+            </label>
             <fieldset className="op-check-group">
               <legend>Client categories</legend>
               {clientCategories.map((category) => (
@@ -614,21 +717,30 @@ export function EntryForm({
                     type="checkbox"
                     name="categories"
                     value={category}
-                    defaultChecked={editingClient?.categories.includes(
-                      category,
-                    )}
+                    checked={clientCategoriesState.includes(category)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setClientCategoriesState((prev) => [...prev, category]);
+                      } else {
+                        setClientCategoriesState((prev) => prev.filter((c) => c !== category));
+                      }
+                    }}
                   />
                   <span>{category}</span>
                 </label>
               ))}
             </fieldset>
             <div className="op-form-grid">
-              <FormField
-                label="Mail ID"
-                name="email"
-                type="email"
-                defaultValue={editingClient?.email}
-              />
+              <label className="op-field">
+                <span>Mail ID</span>
+                <input
+                  name="email"
+                  type="email"
+                  value={clientEmail}
+                  onChange={(e) => setClientEmail(e.target.value)}
+                  placeholder="name@example.com"
+                />
+              </label>
               {editingClient && (
                 <FormSelect
                   label="Status"

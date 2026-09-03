@@ -302,9 +302,9 @@ export default function OperationsApp() {
   const normalizedClientSearch = clientSearch.trim().toLowerCase();
   const campaignClientIds = new Set(store.campaignBookings.filter((booking) => clientCampaignFilter === "Ongoing" ? isBookingOngoing(booking) : clientCampaignFilter === "Completed" ? (!isBookingOngoing(booking) && (Boolean(booking.stoppedAt) || isoToday() > bookingEnd(booking))) : false).map((booking) => booking.clientId));
   const matchingClients = store.clients.filter((client) => {
-    const matchesSearch = !normalizedClientSearch || `${client.firmName} ${client.mobile} ${client.alternatePhone ?? ""} ${client.categories.join(" ")}`.toLowerCase().includes(normalizedClientSearch);
+    const matchesSearch = !normalizedClientSearch || `${client.firmName} ${client.ownerName || ""} ${client.mobile || ""} ${client.alternatePhone || ""} ${client.address || ""} ${client.email || ""} ${(client.categories || []).join(" ")}`.toLowerCase().includes(normalizedClientSearch);
     const matchesCategory = clientCategoryFilter === "All" || client.categories.includes(clientCategoryFilter);
-    if (clientCampaignFilter === "Search") return (Boolean(normalizedClientSearch) || clientCategoryFilter !== "All") && matchesSearch && matchesCategory;
+    if (clientCampaignFilter === "Search") return matchesSearch && matchesCategory;
     return campaignClientIds.has(client.id) && matchesSearch && matchesCategory;
   });
   const visibleClients = matchingClients.slice(0, 100);
