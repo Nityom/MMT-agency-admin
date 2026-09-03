@@ -236,17 +236,15 @@ export function EntryForm({
           ]
         : store.employeeRates;
       const inputStatus = (input(data, "status") || (editingEmployee ? editingEmployee.status : "Active")) as "Active" | "Inactive";
-      let activeFrom = input(data, "activeFrom") || undefined;
-      let inactiveFrom = input(data, "inactiveFrom") || undefined;
+      const activeFrom = input(data, "activeFrom") || undefined;
+      const inactiveFrom = input(data, "inactiveFrom") || undefined;
       let finalStatus: "Active" | "Inactive" = inputStatus;
 
       if (inputStatus === "Inactive") {
         if (activeFrom && isoToday() >= activeFrom) {
           finalStatus = "Active";
-          inactiveFrom = undefined;
         } else {
           finalStatus = "Inactive";
-          inactiveFrom = editingEmployee?.inactiveFrom || isoToday();
         }
       } else {
         if (inactiveFrom && isoToday() >= inactiveFrom) {
@@ -254,7 +252,6 @@ export function EntryForm({
         } else {
           finalStatus = "Active";
         }
-        activeFrom = editingEmployee?.activeFrom || effectiveFrom || isoToday();
       }
 
       updated = {
@@ -523,14 +520,14 @@ export function EntryForm({
                   label="Active date (Optional)"
                   name="activeFrom"
                   type="date"
-                  defaultValue={editingEmployee?.activeFrom ?? ""}
+                  defaultValue=""
                 />
               ) : (
                 <FormField
                   label="Inactive date (Optional)"
                   name="inactiveFrom"
                   type="date"
-                  defaultValue={editingEmployee?.inactiveFrom ?? ""}
+                  defaultValue=""
                 />
               )}
               <FormField

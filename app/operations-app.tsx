@@ -304,7 +304,17 @@ export default function OperationsApp() {
   const matchingClients = store.clients.filter((client) => {
     const matchesSearch = !normalizedClientSearch || `${client.firmName} ${client.ownerName || ""} ${client.mobile || ""} ${client.alternatePhone || ""} ${client.address || ""} ${client.email || ""} ${(client.categories || []).join(" ")}`.toLowerCase().includes(normalizedClientSearch);
     const matchesCategory = clientCategoryFilter === "All" || client.categories.includes(clientCategoryFilter);
-    if (clientCampaignFilter === "Search") return matchesSearch && matchesCategory;
+    if (clientCampaignFilter === "Search") {
+      if (normalizedClientSearch || clientCategoryFilter !== "All") {
+        return matchesSearch && matchesCategory;
+      }
+      const hasActivity =
+        store.campaignBookings.some((b) => b.clientId === client.id) ||
+        store.bills.some((b) => b.clientId === client.id) ||
+        (store.quotations ?? []).some((q) => q.clientId === client.id) ||
+        (client.categories && client.categories.length > 0);
+      return hasActivity && matchesSearch && matchesCategory;
+    }
     return campaignClientIds.has(client.id) && matchesSearch && matchesCategory;
   });
   const visibleClients = matchingClients.slice(0, 100);
