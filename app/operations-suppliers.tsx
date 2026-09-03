@@ -151,7 +151,25 @@ export function SupplierLedgerPrint({ store, supplierName, records, payments, cl
   return <div className="invoice-backdrop"><div className="invoice-dialog op-plain-ledger-dialog"><div className="invoice-toolbar"><Button secondary onClick={close}><X size={17}/>Close</Button><Button onClick={() => window.print()}><Printer size={17}/>Print / PDF</Button></div><article className="op-supplier-ledger-sheet"><header><div><h1>{supplierName}</h1>{(supplierInfo?.phone || supplierInfo?.address) && <p style={{ margin: "2px 0 4px", fontSize: "13px", color: "#475569" }}>{[supplierInfo.phone ? `Phone: ${supplierInfo.phone}` : "", supplierInfo.address ? `Address: ${supplierInfo.address}` : ""].filter(Boolean).join(" · ")}</p>}<p>Supplier ledger · {fmt(isoToday())}</p></div><strong>{money(balance)}<small>{balance < 0 ? "Advance credit" : "Amount payable"}</small></strong></header><table className="op-supplier-ledger-table op-supplier-ledger-summary"><thead><tr><th>Supplier charges</th><th>Bulk paid</th><th>Client amount</th><th>Balance</th></tr></thead><tbody><tr><td>{money(charges)}</td><td>{money(paid)}</td><td>{money(clientAmount)}</td><td>{money(balance)}</td></tr></tbody></table><table className="op-supplier-ledger-table"><thead><tr><th>Date</th><th>Record</th><th>Client / details</th><th>Quantity</th><th>Charge</th><th>Bulk paid</th></tr></thead><tbody>{records.map((expense) => <tr key={`charge-${expense.id}`}><td>{fmt(expense.date)}</td><td><b>{expense.category === "Printing" ? "Banner printing" : expense.category}</b><br/>{expense.description}</td><td>{expense.clientName || "No client"}{expense.campaignId ? " · Campaign linked" : ""}</td><td>{expense.quantity || 0} {expense.unit || "units"}</td><td>{money(expense.amount)}</td><td>—</td></tr>)}{payments.map((payment) => <tr className="is-payment" key={`payment-${payment.id}`}><td>{fmt(payment.date)}</td><td><b>Bulk payment</b></td><td>{payment.reference || payment.note || "Supplier account payment"}</td><td>—</td><td>—</td><td>{money(payment.amount)}</td></tr>)}{!records.length && !payments.length ? <tr><td colSpan={6}>No records available</td></tr> : null}</tbody></table></article></div></div>;
 }
 
-function AscendingSupplierLedgerPrint({ supplierName, phone, address, records, payments, close }: { supplierName: string; phone?: string; address?: string; records: FleetStore["businessExpenses"]; payments: FleetStore["supplierPayments"]; close: () => void }) {
+function AscendingSupplierLedgerPrint({
+  supplierName,
+  phone,
+  address,
+  from,
+  to,
+  records,
+  payments,
+  close,
+}: {
+  supplierName: string;
+  phone?: string;
+  address?: string;
+  from?: string;
+  to?: string;
+  records: FleetStore["businessExpenses"];
+  payments: FleetStore["supplierPayments"];
+  close: () => void;
+}) {
   const charges = records.reduce((sum, expense) => sum + expense.amount, 0);
   const paid = payments.reduce((sum, payment) => sum + payment.amount, 0);
   const clientAmount = records.reduce((sum, expense) => sum + expenseClientBilling(expense), 0);
@@ -160,11 +178,113 @@ function AscendingSupplierLedgerPrint({ supplierName, phone, address, records, p
     ...records.map((expense) => ({ date: expense.date, id: expense.id, kind: "charge" as const, expense })),
     ...payments.map((payment) => ({ date: payment.date, id: payment.id, kind: "payment" as const, payment })),
   ].sort((left, right) => left.date.localeCompare(right.date) || left.kind.localeCompare(right.kind) || left.id - right.id);
-  return <div className="invoice-backdrop"><div className="invoice-dialog op-plain-ledger-dialog"><div className="invoice-toolbar"><Button secondary onClick={close}><X size={17}/>Close</Button><Button onClick={() => window.print()}><Printer size={17}/>Print / PDF</Button></div><article className="op-supplier-ledger-sheet"><header><div><h1>{supplierName}</h1>{(phone || address) && <p style={{ margin: "2px 0 4px", fontSize: "13px", color: "#475569" }}>{[phone ? `Phone: ${phone}` : "", address ? `Address: ${address}` : ""].filter(Boolean).join(" · ")}</p>}<p>Supplier ledger · {fmt(isoToday())}</p></div><strong>{money(balance)}<small>{balance < 0 ? "Advance credit" : "Amount payable"}</small></strong></header><table className="op-supplier-ledger-table op-supplier-ledger-summary"><thead><tr><th>Supplier charges</th><th>Bulk paid</th><th>Client amount</th><th>Balance</th></tr></thead><tbody><tr><td>{money(charges)}</td><td>{money(paid)}</td><td>{money(clientAmount)}</td><td>{money(balance)}</td></tr></tbody></table><table className="op-supplier-ledger-table"><thead><tr><th>Date</th><th>Record</th><th>Client / details</th><th>Quantity</th><th>Charge</th><th>Bulk paid</th></tr></thead><tbody>{rows.map((row) => row.kind === "charge" ? <tr key={`charge-${row.id}`}><td>{fmt(row.date)}</td><td><b>{row.expense.category === "Printing" ? "Banner printing" : row.expense.category}</b><br/>{row.expense.description}</td><td>{row.expense.clientName || "No client"}{row.expense.campaignId ? " · Campaign linked" : ""}</td><td>{row.expense.quantity || 0} {row.expense.unit || "units"}</td><td>{money(row.expense.amount)}</td><td>—</td></tr> : <tr className="is-payment" key={`payment-${row.id}`}><td>{fmt(row.date)}</td><td><b>Bulk payment</b></td><td>{row.payment.reference || row.payment.note || "Supplier account payment"}</td><td>—</td><td>—</td><td>{money(row.payment.amount)}</td></tr>)}{!rows.length ? <tr><td colSpan={6}>No records available</td></tr> : null}</tbody></table></article></div></div>;
+  return (
+    <div className="invoice-backdrop">
+      <div className="invoice-dialog op-plain-ledger-dialog">
+        <div className="invoice-toolbar">
+          <Button secondary onClick={close}>
+            <X size={17} />
+            Close
+          </Button>
+          <Button onClick={() => window.print()}>
+            <Printer size={17} />
+            Print / PDF
+          </Button>
+        </div>
+        <article className="op-supplier-ledger-sheet">
+          <header>
+            <div>
+              <h1>{supplierName}</h1>
+              {(phone || address) && (
+                <p style={{ margin: "2px 0 4px", fontSize: "13px", color: "#475569" }}>
+                  {[phone ? `Phone: ${phone}` : "", address ? `Address: ${address}` : ""].filter(Boolean).join(" · ")}
+                </p>
+              )}
+              <p>Supplier ledger · {from && to ? `${fmt(from)} to ${fmt(to)}` : "All Time"} · {fmt(isoToday())}</p>
+            </div>
+            <strong>
+              {money(balance)}
+              <small>{balance < 0 ? "Advance credit" : "Amount payable"}</small>
+            </strong>
+          </header>
+          <table className="op-supplier-ledger-table op-supplier-ledger-summary">
+            <thead>
+              <tr>
+                <th>Supplier charges</th>
+                <th>Bulk paid</th>
+                <th>Client amount</th>
+                <th>Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>{money(charges)}</td>
+                <td>{money(paid)}</td>
+                <td>{money(clientAmount)}</td>
+                <td>{money(balance)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <table className="op-supplier-ledger-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Record</th>
+                <th>Client / details</th>
+                <th>Quantity</th>
+                <th>Charge</th>
+                <th>Bulk paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) =>
+                row.kind === "charge" ? (
+                  <tr key={`charge-${row.id}`}>
+                    <td>{fmt(row.date)}</td>
+                    <td>
+                      <b>{row.expense.category === "Printing" ? "Banner printing" : row.expense.category}</b>
+                      <br />
+                      {row.expense.description}
+                    </td>
+                    <td>{row.expense.clientName || "No client"}{row.expense.campaignId ? " · Campaign linked" : ""}</td>
+                    <td>{row.expense.quantity || 0} {row.expense.unit || "units"}</td>
+                    <td>{money(row.expense.amount)}</td>
+                    <td>—</td>
+                  </tr>
+                ) : (
+                  <tr className="is-payment" key={`payment-${row.id}`}>
+                    <td>{fmt(row.date)}</td>
+                    <td><b>Bulk payment</b></td>
+                    <td>{row.payment.reference || row.payment.note || "Supplier account payment"}</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>{money(row.payment.amount)}</td>
+                  </tr>
+                )
+              )}
+              {!rows.length ? <tr><td colSpan={6}>No records available in selected date range</td></tr> : null}
+            </tbody>
+          </table>
+        </article>
+      </div>
+    </div>
+  );
 }
 
-export function SupplierCardsView({ store, setStore, notify, remove }: { store: FleetStore; setStore: React.Dispatch<React.SetStateAction<FleetStore>>; notify: (message: string) => void; remove: (collection: "employees" | "vehicles" | "clients" | "businessExpenses", id: number) => void }) {
+export function SupplierCardsView({
+  store,
+  setStore,
+  notify,
+  remove,
+}: {
+  store: FleetStore;
+  setStore: React.Dispatch<React.SetStateAction<FleetStore>>;
+  notify: (message: string) => void;
+  remove: (collection: "employees" | "vehicles" | "clients" | "businessExpenses", id: number) => void;
+}) {
   const [search, setSearch] = useState("");
+  const [from, setFrom] = useState<string>("");
+  const [to, setTo] = useState<string>("");
   const [profileOpen, setProfileOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<{ name: string; phone?: string; address?: string } | null>(null);
   const [chargeSupplier, setChargeSupplier] = useState<string | null>(null);
@@ -172,26 +292,64 @@ export function SupplierCardsView({ store, setStore, notify, remove }: { store: 
   const [paymentSupplier, setPaymentSupplier] = useState<string | null>(null);
   const [printSupplier, setPrintSupplier] = useState<string | null>(null);
   const [receiptModal, setReceiptModal] = useState<{ paidTo: string; description?: string; category?: string; payment: { id?: number; date: string; amount: number; mode?: PaymentMode; reference?: string; note?: string } } | null>(null);
+
   const categories = new Set<BusinessExpenseCategory>(["Printing", "Pasting", "Recording", "Purchase", "Labour charges"]);
   const allRecords = store.businessExpenses.filter((expense) => categories.has(expense.category));
-  const names = Array.from(new Map([
-    ...(store.suppliers ?? []).map((supplier) => supplier.name),
-    ...allRecords.map((expense) => expense.paidTo.trim()),
-  ].filter(Boolean).map((name) => [name.toLowerCase(), name])).values());
+  const names = Array.from(
+    new Map(
+      [
+        ...(store.suppliers ?? []).map((supplier) => supplier.name),
+        ...allRecords.map((expense) => expense.paidTo.trim()),
+      ]
+        .filter(Boolean)
+        .map((name) => [name.toLowerCase(), name])
+    ).values()
+  );
+
+  const inRange = (d: string) => (!from || d >= from) && (!to || d <= to);
+  const isFiltered = Boolean(from || to);
   const normalizedSearch = search.trim().toLowerCase();
-  const profiles = names.map((supplierName) => {
-    const supplierInfo = (store.suppliers ?? []).find((s) => s.name.trim().toLowerCase() === supplierName.toLowerCase());
-    const records = allRecords.filter((expense) => expense.paidTo.trim().toLowerCase() === supplierName.toLowerCase()).sort((left, right) => right.date.localeCompare(left.date));
-    const payments = (store.supplierPayments ?? []).filter((payment) => payment.supplierName.trim().toLowerCase() === supplierName.toLowerCase()).sort((left, right) => right.date.localeCompare(left.date));
-    const charges = records.reduce((sum, expense) => sum + expense.amount, 0);
-    const paid = payments.reduce((sum, payment) => sum + payment.amount, 0);
-    const clientBilling = records.reduce((sum, expense) => sum + expenseClientBilling(expense), 0);
-    return { supplierName, phone: supplierInfo?.phone, address: supplierInfo?.address, records, payments, charges, paid, clientBilling, profit: clientBilling - charges, balance: charges - paid };
-  }).filter((profile) => !normalizedSearch || `${profile.supplierName} ${profile.phone ?? ""} ${profile.address ?? ""} ${profile.records.map((record) => `${record.description} ${record.clientName ?? ""}`).join(" ")}`.toLowerCase().includes(normalizedSearch)).sort((left, right) => left.supplierName.localeCompare(right.supplierName));
+
+  const profiles = names
+    .map((supplierName) => {
+      const supplierInfo = (store.suppliers ?? []).find((s) => s.name.trim().toLowerCase() === supplierName.toLowerCase());
+      const allSupplierRecords = allRecords
+        .filter((expense) => expense.paidTo.trim().toLowerCase() === supplierName.toLowerCase())
+        .sort((left, right) => right.date.localeCompare(left.date));
+      const allSupplierPayments = (store.supplierPayments ?? [])
+        .filter((payment) => payment.supplierName.trim().toLowerCase() === supplierName.toLowerCase())
+        .sort((left, right) => right.date.localeCompare(left.date));
+
+      const records = allSupplierRecords.filter((expense) => inRange(expense.date));
+      const payments = allSupplierPayments.filter((payment) => inRange(payment.date));
+
+      const charges = records.reduce((sum, expense) => sum + expense.amount, 0);
+      const paid = payments.reduce((sum, payment) => sum + payment.amount, 0);
+      const clientBilling = records.reduce((sum, expense) => sum + expenseClientBilling(expense), 0);
+      return {
+        supplierName,
+        phone: supplierInfo?.phone,
+        address: supplierInfo?.address,
+        records,
+        payments,
+        totalRecordsCount: allSupplierRecords.length,
+        totalPaymentsCount: allSupplierPayments.length,
+        charges,
+        paid,
+        clientBilling,
+        profit: clientBilling - charges,
+        balance: charges - paid,
+      };
+    })
+    .filter((profile) => !normalizedSearch || `${profile.supplierName} ${profile.phone ?? ""} ${profile.address ?? ""} ${profile.records.map((record) => `${record.description} ${record.clientName ?? ""}`).join(" ")}`.toLowerCase().includes(normalizedSearch))
+    .sort((left, right) => left.supplierName.localeCompare(right.supplierName));
+
   const selectedPaymentProfile = profiles.find((profile) => profile.supplierName === paymentSupplier);
   const selectedPrintProfile = profiles.find((profile) => profile.supplierName === printSupplier);
   const totalCharges = profiles.reduce((sum, profile) => sum + profile.charges, 0);
   const totalPaid = profiles.reduce((sum, profile) => sum + profile.paid, 0);
+  const totalPeriodRecords = profiles.reduce((sum, profile) => sum + profile.records.length, 0);
+
   const saveProfile = (name: string, phone?: string, address?: string) => {
     if (editingProfile) {
       const oldName = editingProfile.name;
@@ -245,6 +403,7 @@ export function SupplierCardsView({ store, setStore, notify, remove }: { store: 
     setProfileOpen(false);
     notify("Supplier profile created");
   };
+
   const deleteSupplierProfile = (supplierName: string) => {
     if (!window.confirm(`Delete supplier profile "${supplierName}"? This will remove the supplier card and its bulk payments.`)) return;
     setStore((current) => ({
@@ -254,20 +413,337 @@ export function SupplierCardsView({ store, setStore, notify, remove }: { store: 
     }));
     notify(`Supplier profile "${supplierName}" deleted`);
   };
-  return <>
-    <PageHead title="Supplier profiles" detail="Create supplier cards, then add charges and bulk payments" action="Add supplier profile" onAction={() => setProfileOpen(true)}/>
-    <div className="op-toolbar"><label className="op-search"><Search/><input placeholder="Search supplier, client, or work" value={search} onChange={(event) => setSearch(event.target.value)}/></label><p>{profiles.length} suppliers · {allRecords.length} charges</p></div>
-    <section className="op-metrics three"><Metric label="Supplier charges" value={money(totalCharges)} detail="All displayed charges" icon={ReceiptText}/><Metric label="Bulk amount paid" value={money(totalPaid)} detail="Supplier payments only" icon={Check}/><Metric label="Running balance" value={money(totalCharges - totalPaid)} detail={totalCharges - totalPaid < 0 ? "Advance credit with suppliers" : "Amount payable"} icon={WalletCards}/></section>
-    <section className="op-supplier-profiles">{profiles.length ? profiles.map((profile) => <article className="op-supplier-profile" key={profile.supplierName}>
-      <header><div><UserRound/><span><span className="op-supplier-title-row"><h2>{profile.supplierName}</h2><button className="op-icon" title={`Edit ${profile.supplierName} profile`} onClick={() => setEditingProfile({ name: profile.supplierName, phone: profile.phone, address: profile.address })}><Pencil size={16}/></button><button className="op-icon" title={`Print ${profile.supplierName} statement`} onClick={() => setPrintSupplier(profile.supplierName)}><Printer size={17}/></button><button className="op-icon delete" title={`Delete ${profile.supplierName} profile`} onClick={() => deleteSupplierProfile(profile.supplierName)}><Trash2 size={17}/></button></span>{(profile.phone || profile.address) && <small style={{ display: "block", color: "#64748b", margin: "1px 0" }}>{[profile.phone, profile.address].filter(Boolean).join(" · ")}</small>}<small>{profile.records.length} charges · {profile.payments.length} bulk payments</small></span></div><span className="op-supplier-card-actions"><Button secondary onClick={() => setChargeSupplier(profile.supplierName)}><Plus size={16}/>Add charge</Button><Button secondary onClick={() => setPaymentSupplier(profile.supplierName)}><Banknote size={16}/>Add bulk payment</Button></span></header>
-      <div className="op-supplier-summary"><p><span>Supplier charges</span><b>{money(profile.charges)}</b></p><p><span>Bulk paid</span><b>{money(profile.paid)}</b></p><p><span>Client amount</span><b>{money(profile.clientBilling)}</b></p><p><span>Profit</span><b className={profile.profit < 0 ? "op-loss" : "op-profit"}>{money(profile.profit)}</b></p><p><span>Balance</span><strong className={profile.balance < 0 ? "op-profit" : "op-loss"}>{money(profile.balance)}</strong></p></div>
-      <div className="op-supplier-transactions">{profile.records.map((expense) => <div key={expense.id}><time>{fmt(expense.date)}</time><span><b>{expense.clientName || "Direct maintenance"}</b><small>{expense.category === "Printing" ? "Banner printing" : expense.category}{expense.description ? ` · ${expense.description}` : ""}{expense.campaignId ? " · Campaign linked" : ""} · {expense.quantity || 0} {expense.unit || "units"} × {money(expense.supplierRate ?? expense.amount)}{expense.discount ? ` · Disc: ${money(expense.discount)}` : ""}</small></span><b>{money(expense.amount)}</b><strong className={expenseProfit(expense) < 0 ? "op-loss" : "op-profit"}>{money(expenseProfit(expense))} profit</strong><button className="op-icon" title="Edit charge" onClick={() => { setEditingCharge(expense); setChargeSupplier(null); }}><Pencil size={16}/></button><button className="op-icon" title="Delete charge" onClick={() => remove("businessExpenses", expense.id)}><Trash2 size={16}/></button></div>)}{profile.payments.map((payment) => <div className="is-payment" key={`payment-${payment.id}`}><time>{fmt(payment.date)}</time><span><b>Bulk payment ({payment.mode || "Cash"})</b><small>{payment.reference || payment.note || "Supplier account payment"}</small></span><b>{money(payment.amount)}</b><strong>Credit</strong><button className="op-icon" title="Print receipt" onClick={() => setReceiptModal({ paidTo: profile.supplierName, description: "Bulk supplier account payment", payment })}><Printer size={16}/></button><button className="op-icon" title="Delete bulk payment" onClick={() => { if (!window.confirm("Delete this bulk supplier payment?")) return; setStore((current) => ({ ...current, supplierPayments: (current.supplierPayments ?? []).filter((item) => item.id !== payment.id) })); notify("Bulk supplier payment deleted"); }}><Trash2 size={16}/></button></div>)}</div>
-    </article>) : <div className="op-empty-state"><UserRound/><h2>No supplier profiles</h2><p>{normalizedSearch ? "Try another search." : "Add a supplier profile to create the first card."}</p></div>}</section>
-    {profileOpen && <SupplierProfileForm close={() => setProfileOpen(false)} save={saveProfile}/>} 
-    {editingProfile && <SupplierProfileForm initialData={editingProfile} close={() => setEditingProfile(null)} save={saveProfile}/>} 
-    {(chargeSupplier || editingCharge) && <MaintenanceEntryForm supplierName={chargeSupplier ?? editingCharge?.paidTo} expense={editingCharge ?? undefined} store={store} close={() => { setChargeSupplier(null); setEditingCharge(null); }} save={(expense) => { setStore((current) => ({ ...current, businessExpenses: editingCharge ? current.businessExpenses.map((item) => item.id === expense.id ? expense : item) : [...current.businessExpenses, expense] })); setChargeSupplier(null); setEditingCharge(null); notify(editingCharge ? "Supplier charge updated" : "Supplier charge saved"); }}/>} 
-    {selectedPaymentProfile && <SupplierBulkPaymentModal supplierName={selectedPaymentProfile.supplierName} balance={selectedPaymentProfile.balance} close={() => setPaymentSupplier(null)} save={(date, paymentAmount, mode, reference, note) => { setStore((current) => { const supplierPayments = current.supplierPayments ?? []; return { ...current, supplierPayments: [...supplierPayments, { id: nextId(supplierPayments), supplierName: selectedPaymentProfile.supplierName, date, amount: paymentAmount, mode, reference, note }] }; }); setPaymentSupplier(null); notify("Bulk supplier payment saved"); }}/>} 
-    {selectedPrintProfile && <AscendingSupplierLedgerPrint supplierName={selectedPrintProfile.supplierName} phone={selectedPrintProfile.phone} address={selectedPrintProfile.address} records={selectedPrintProfile.records} payments={selectedPrintProfile.payments} close={() => setPrintSupplier(null)}/>} 
-    {receiptModal && <MaintenancePaymentReceiptModal store={store} paidTo={receiptModal.paidTo} description={receiptModal.description} category={receiptModal.category} payment={receiptModal.payment} close={() => setReceiptModal(null)} />}
-  </>;
+
+  return (
+    <>
+      <PageHead
+        title="Supplier profiles"
+        detail="Create supplier cards, then add charges and bulk payments"
+        action="Add supplier profile"
+        onAction={() => setProfileOpen(true)}
+      />
+
+      {/* Date Filter Toolbar */}
+      <div
+        className="op-toolbar"
+        style={{
+          background: "#f3f7f4",
+          padding: "10px 14px",
+          borderRadius: "7px",
+          flexWrap: "wrap",
+          gap: "8px",
+          margin: "12px 0",
+        }}
+      >
+        <label className="op-field" style={{ margin: 0 }}>
+          <span>From Date</span>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="op-field" style={{ margin: 0 }}>
+          <span>To Date</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+        <Button
+          secondary
+          onClick={() => {
+            setFrom(`${isoToday().slice(0, 7)}-01`);
+            setTo(isoToday());
+          }}
+        >
+          This Month
+        </Button>
+        <Button
+          secondary
+          onClick={() => {
+            setFrom(`${isoToday().slice(0, 4)}-01-01`);
+            setTo(isoToday());
+          }}
+        >
+          This Year
+        </Button>
+        <Button
+          secondary
+          onClick={() => {
+            setFrom("");
+            setTo("");
+          }}
+        >
+          All Time
+        </Button>
+      </div>
+
+      <div className="op-toolbar">
+        <label className="op-search">
+          <Search />
+          <input
+            placeholder="Search supplier, client, or work"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+        <p>
+          Showing <b>{profiles.length}</b> suppliers · <b>{totalPeriodRecords}</b> charges
+          {isFiltered ? ` (${from ? fmt(from) : "Start"} to ${to ? fmt(to) : "Today"})` : " (All Time)"}
+        </p>
+      </div>
+
+      <section className="op-metrics three">
+        <Metric
+          label={isFiltered ? "Charges in period" : "Supplier charges"}
+          value={money(totalCharges)}
+          detail={isFiltered ? `${totalPeriodRecords} charges in selected period` : "All displayed charges"}
+          icon={ReceiptText}
+        />
+        <Metric
+          label={isFiltered ? "Paid in period" : "Bulk amount paid"}
+          value={money(totalPaid)}
+          detail="Supplier payments recorded"
+          icon={Check}
+        />
+        <Metric
+          label={isFiltered ? "Period balance" : "Running balance"}
+          value={money(totalCharges - totalPaid)}
+          detail={totalCharges - totalPaid < 0 ? "Advance credit with suppliers" : "Amount payable"}
+          icon={WalletCards}
+        />
+      </section>
+
+      <section className="op-supplier-profiles">
+        {profiles.length ? (
+          profiles.map((profile) => (
+            <article className="op-supplier-profile" key={profile.supplierName}>
+              <header>
+                <div>
+                  <UserRound />
+                  <span>
+                    <span className="op-supplier-title-row">
+                      <h2>{profile.supplierName}</h2>
+                      <button
+                        className="op-icon"
+                        title={`Edit ${profile.supplierName} profile`}
+                        onClick={() => setEditingProfile({ name: profile.supplierName, phone: profile.phone, address: profile.address })}
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        className="op-icon"
+                        title={`Print ${profile.supplierName} statement`}
+                        onClick={() => setPrintSupplier(profile.supplierName)}
+                      >
+                        <Printer size={17} />
+                      </button>
+                      <button
+                        className="op-icon delete"
+                        title={`Delete ${profile.supplierName} profile`}
+                        onClick={() => deleteSupplierProfile(profile.supplierName)}
+                      >
+                        <Trash2 size={17} />
+                      </button>
+                    </span>
+                    {(profile.phone || profile.address) && (
+                      <small style={{ display: "block", color: "#64748b", margin: "1px 0" }}>
+                        {[profile.phone, profile.address].filter(Boolean).join(" · ")}
+                      </small>
+                    )}
+                    <small>
+                      {profile.records.length} charges · {profile.payments.length} bulk payments
+                      {isFiltered ? ` (Filtered: ${from ? fmt(from) : "Start"} to ${to ? fmt(to) : "Today"})` : ""}
+                    </small>
+                  </span>
+                </div>
+                <span className="op-supplier-card-actions">
+                  <Button secondary onClick={() => setChargeSupplier(profile.supplierName)}>
+                    <Plus size={16} />
+                    Add charge
+                  </Button>
+                  <Button secondary onClick={() => setPaymentSupplier(profile.supplierName)}>
+                    <Banknote size={16} />
+                    Add bulk payment
+                  </Button>
+                </span>
+              </header>
+              <div className="op-supplier-summary">
+                <p>
+                  <span>Supplier charges</span>
+                  <b>{money(profile.charges)}</b>
+                </p>
+                <p>
+                  <span>Bulk paid</span>
+                  <b>{money(profile.paid)}</b>
+                </p>
+                <p>
+                  <span>Client amount</span>
+                  <b>{money(profile.clientBilling)}</b>
+                </p>
+                <p>
+                  <span>Profit</span>
+                  <b className={profile.profit < 0 ? "op-loss" : "op-profit"}>{money(profile.profit)}</b>
+                </p>
+                <p>
+                  <span>Balance</span>
+                  <strong className={profile.balance < 0 ? "op-profit" : "op-loss"}>{money(profile.balance)}</strong>
+                </p>
+              </div>
+              <div className="op-supplier-transactions">
+                {profile.records.map((expense) => (
+                  <div key={expense.id}>
+                    <time>{fmt(expense.date)}</time>
+                    <span>
+                      <b>{expense.clientName || "Direct maintenance"}</b>
+                      <small>
+                        {expense.category === "Printing" ? "Banner printing" : expense.category}
+                        {expense.description ? ` · ${expense.description}` : ""}
+                        {expense.campaignId ? " · Campaign linked" : ""} · {expense.quantity || 0} {expense.unit || "units"} × {money(expense.supplierRate ?? expense.amount)}
+                        {expense.discount ? ` · Disc: ${money(expense.discount)}` : ""}
+                      </small>
+                    </span>
+                    <b>{money(expense.amount)}</b>
+                    <strong className={expenseProfit(expense) < 0 ? "op-loss" : "op-profit"}>
+                      {money(expenseProfit(expense))} profit
+                    </strong>
+                    <button
+                      className="op-icon"
+                      title="Edit charge"
+                      onClick={() => {
+                        setEditingCharge(expense);
+                        setChargeSupplier(null);
+                      }}
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button className="op-icon" title="Delete charge" onClick={() => remove("businessExpenses", expense.id)}>
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+                {profile.payments.map((payment) => (
+                  <div className="is-payment" key={`payment-${payment.id}`}>
+                    <time>{fmt(payment.date)}</time>
+                    <span>
+                      <b>Bulk payment ({payment.mode || "Cash"})</b>
+                      <small>{payment.reference || payment.note || "Supplier account payment"}</small>
+                    </span>
+                    <b>{money(payment.amount)}</b>
+                    <strong>Credit</strong>
+                    <button
+                      className="op-icon"
+                      title="Print receipt"
+                      onClick={() =>
+                        setReceiptModal({
+                          paidTo: profile.supplierName,
+                          description: "Bulk supplier account payment",
+                          payment,
+                        })
+                      }
+                    >
+                      <Printer size={16} />
+                    </button>
+                    <button
+                      className="op-icon"
+                      title="Delete bulk payment"
+                      onClick={() => {
+                        if (!window.confirm("Delete this bulk supplier payment?")) return;
+                        setStore((current) => ({
+                          ...current,
+                          supplierPayments: (current.supplierPayments ?? []).filter((item) => item.id !== payment.id),
+                        }));
+                        notify("Bulk supplier payment deleted");
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+                {!profile.records.length && !profile.payments.length ? (
+                  <p style={{ color: "#64748b", padding: "12px", textAlign: "center", margin: 0 }}>
+                    No charges or bulk payments found for this supplier in the selected date range.
+                  </p>
+                ) : null}
+              </div>
+            </article>
+          ))
+        ) : (
+          <div className="op-empty-state">
+            <UserRound />
+            <h2>No supplier profiles</h2>
+            <p>{normalizedSearch ? "Try another search." : "Add a supplier profile to create the first card."}</p>
+          </div>
+        )}
+      </section>
+
+      {profileOpen && <SupplierProfileForm close={() => setProfileOpen(false)} save={saveProfile} />}
+      {editingProfile && <SupplierProfileForm initialData={editingProfile} close={() => setEditingProfile(null)} save={saveProfile} />}
+      {(chargeSupplier || editingCharge) && (
+        <MaintenanceEntryForm
+          supplierName={chargeSupplier ?? editingCharge?.paidTo}
+          expense={editingCharge ?? undefined}
+          store={store}
+          close={() => {
+            setChargeSupplier(null);
+            setEditingCharge(null);
+          }}
+          save={(expense) => {
+            setStore((current) => ({
+              ...current,
+              businessExpenses: editingCharge ? current.businessExpenses.map((item) => (item.id === expense.id ? expense : item)) : [...current.businessExpenses, expense],
+            }));
+            setChargeSupplier(null);
+            setEditingCharge(null);
+            notify(editingCharge ? "Supplier charge updated" : "Supplier charge saved");
+          }}
+        />
+      )}
+      {selectedPaymentProfile && (
+        <SupplierBulkPaymentModal
+          supplierName={selectedPaymentProfile.supplierName}
+          balance={selectedPaymentProfile.balance}
+          close={() => setPaymentSupplier(null)}
+          save={(date, paymentAmount, mode, reference, note) => {
+            setStore((current) => {
+              const supplierPayments = current.supplierPayments ?? [];
+              return {
+                ...current,
+                supplierPayments: [
+                  ...supplierPayments,
+                  {
+                    id: nextId(supplierPayments),
+                    supplierName: selectedPaymentProfile.supplierName,
+                    date,
+                    amount: paymentAmount,
+                    mode,
+                    reference,
+                    note,
+                  },
+                ],
+              };
+            });
+            setPaymentSupplier(null);
+            notify("Bulk supplier payment saved");
+          }}
+        />
+      )}
+      {selectedPrintProfile && (
+        <AscendingSupplierLedgerPrint
+          supplierName={selectedPrintProfile.supplierName}
+          phone={selectedPrintProfile.phone}
+          address={selectedPrintProfile.address}
+          from={from}
+          to={to}
+          records={selectedPrintProfile.records}
+          payments={selectedPrintProfile.payments}
+          close={() => setPrintSupplier(null)}
+        />
+      )}
+      {receiptModal && (
+        <MaintenancePaymentReceiptModal
+          store={store}
+          paidTo={receiptModal.paidTo}
+          description={receiptModal.description}
+          category={receiptModal.category}
+          payment={receiptModal.payment}
+          close={() => setReceiptModal(null)}
+        />
+      )}
+    </>
+  );
 }
