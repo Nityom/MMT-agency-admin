@@ -96,7 +96,7 @@ export function ClientLedgerPrintModal({
           </section>
 
           {/* Financial Summary */}
-          <section className="op-supplier-print-summary" style={{ gridTemplateColumns: "repeat(4, 1fr)", margin: "14px 0" }}>
+          <section className="op-client-print-summary">
             <p>
               <span>Total Billed</span>
               <strong>{money(overall.billed)}</strong>
@@ -118,7 +118,7 @@ export function ClientLedgerPrintModal({
           </section>
 
           <h2 className="op-print-section-title">Ledger Transactions & Activity</h2>
-          <table className="invoice-expenses op-supplier-print-table">
+          <table className="invoice-expenses op-client-print-table">
             <thead>
               <tr>
                 <th>Date</th>

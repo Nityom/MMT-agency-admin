@@ -436,7 +436,7 @@ button, input, select { font: inherit; letter-spacing: 0; }
 .op-supplier-profiles { display: grid; gap: 16px; }.op-supplier-profile { border: 1px solid #d6dfda; border-radius: 8px; overflow: hidden; background: white; }.op-supplier-profile > header { padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; background: #f3f7f4; }.op-supplier-profile > header > div { display: flex; align-items: center; gap: 11px; }.op-supplier-profile h2 { margin: 0; font: 600 21px Palatino, Georgia, serif; }.op-supplier-profile small, .op-supplier-profile time { color: #687670; font-size: 12px; }.op-supplier-profile header span { display: grid; gap: 3px; }.op-supplier-summary { padding: 13px 18px; border-top: 1px solid #dce4df; border-bottom: 1px solid #dce4df; display: grid; grid-template-columns: repeat(5, minmax(110px, 1fr)); gap: 10px; }.op-supplier-summary p { margin: 0; display: grid; gap: 4px; }.op-supplier-summary span { color: #687670; font-size: 11px; text-transform: uppercase; }.op-supplier-summary b, .op-supplier-summary strong { font-size: 17px; }.op-supplier-transactions > div { min-height: 62px; padding: 10px 18px; border-bottom: 1px solid #e5ebe8; display: grid; grid-template-columns: 105px minmax(260px, 1fr) 100px 115px 34px; align-items: center; gap: 12px; }.op-supplier-transactions > div:last-child { border-bottom: 0; }.op-supplier-transactions > div > span { display: grid; gap: 3px; }.op-supplier-transactions > div > b, .op-supplier-transactions > div > strong { text-align: right; white-space: nowrap; }.op-supplier-transactions .is-payment { background: #eef6f1; }.op-supplier-transactions .is-payment > strong { color: #1f6a53; }
 .op-supplier-profile header .op-supplier-card-actions { display: flex; grid-auto-flow: column; gap: 8px; }
 .op-supplier-print-summary p:nth-child(3), .op-supplier-ledger-summary th:nth-child(3), .op-supplier-ledger-summary td:nth-child(3) { display: none; }
-.op-supplier-title-row { display: flex !important; align-items: center; gap: 7px !important; }.op-supplier-title-row .op-icon { width: 32px; height: 32px; color: #246b57; background: white; }.op-supplier-statement { min-height: 900px; }.op-supplier-print-summary { margin: 16px; border: 1px solid #222; display: grid; grid-template-columns: repeat(4, 1fr); }.op-supplier-print-summary p { margin: 0; padding: 12px; border-right: 1px solid #222; display: grid; gap: 5px; }.op-supplier-print-summary p:last-child { border-right: 0; }.op-supplier-print-summary span { font-size: 11px; text-transform: uppercase; }.op-supplier-print-summary strong { font-size: 18px; }.op-print-section-title { margin: 20px 16px 7px; font: 700 16px Futura, "Century Gothic", sans-serif; text-transform: uppercase; }.op-supplier-print-table { width: calc(100% - 32px); margin: 0 16px; }.op-supplier-print-table th, .op-supplier-print-table td { padding: 8px; font-size: 11px; }.op-supplier-print-table th { text-align: left; }
+.op-supplier-title-row { display: flex !important; align-items: center; gap: 7px !important; }.op-supplier-title-row .op-icon { width: 32px; height: 32px; color: #246b57; background: white; }.op-supplier-statement { min-height: 900px; }.op-supplier-print-summary { margin: 16px; border: 1px solid #222; display: grid; grid-template-columns: repeat(4, 1fr); }.op-supplier-print-summary p { margin: 0; padding: 12px; border-right: 1px solid #222; display: grid; gap: 5px; }.op-supplier-print-summary p:last-child { border-right: 0; }.op-supplier-print-summary span { font-size: 11px; text-transform: uppercase; }.op-supplier-print-summary strong { font-size: 18px; }.op-client-print-summary { margin: 16px 0; border: 1px solid #222; display: grid; grid-template-columns: repeat(4, 1fr); }.op-client-print-summary p { margin: 0; padding: 10px 12px; border-right: 1px solid #222; display: grid; gap: 4px; }.op-client-print-summary p:last-child { border-right: 0; }.op-client-print-summary span { font-size: 11px; text-transform: uppercase; color: #4e615a; }.op-client-print-summary strong { font-size: 17px; }.op-print-section-title { margin: 20px 16px 7px; font: 700 16px Futura, "Century Gothic", sans-serif; text-transform: uppercase; }.op-supplier-print-table { width: calc(100% - 32px); margin: 0 16px; }.op-supplier-print-table th, .op-supplier-print-table td { padding: 8px; font-size: 11px; }.op-supplier-print-table th { text-align: left; }
 .op-editor { padding: 22px; border: 1px solid #dce4df; border-radius: 8px; background: white; }.op-section-title { margin: 24px 0 10px; display: flex; align-items: center; justify-content: space-between; }.op-section-title h2 { margin: 0; font: 600 21px Palatino, Georgia, serif; }.op-line-editor { position: relative; margin-bottom: 9px; padding: 14px; padding-right: 52px; border: 1px solid #e0e7e3; border-radius: 7px; display: grid; grid-template-columns: 1.15fr repeat(5, .8fr); gap: 8px; background: #f8faf8; }.op-line-editor label { display: grid; gap: 4px; }.op-line-editor > button { position: absolute; top: 34px; right: 12px; width: 32px; height: 32px; border: 0; color: #a1483b; background: transparent; }.op-line-editor > small { grid-column: 1 / -1; color: #61716b; }.op-charge-editor { margin-bottom: 8px; padding: 10px; border: 1px solid #e0e7e3; border-radius: 7px; display: grid; grid-template-columns: 1.1fr 2fr .55fr .7fr .9fr 34px; align-items: center; gap: 8px; background: #f8faf8; }.op-charge-editor > label { display: grid; gap: 4px; }.op-charge-editor > label > span { color: #53635d; font: 700 11px Futura, "Century Gothic", sans-serif; }.op-charge-date, .op-charge-design, .op-charge-date:first-of-type { grid-column: 1 / 3; }.op-charge-date:nth-of-type(2) { grid-column: 3 / 5; }.op-charge-design { grid-column: 1 / 3; }.op-charge-editor > b { grid-column: 5; grid-row: 2; }.op-charge-editor > button { grid-column: 6; grid-row: 2; height: 34px; border: 0; color: #a1483b; background: transparent; }.op-bill-total { margin-top: 22px; padding: 18px; display: flex; align-items: flex-end; justify-content: flex-end; gap: 40px; background: #f1f6f3; }.op-bill-total .op-field { width: 200px; }.op-full-payment { display: grid; gap: 8px; }.op-full-payment > label:first-child { min-height: 45px; padding: 0 12px; border: 1px solid #9fc7b8; border-radius: 6px; display: flex; align-items: center; gap: 8px; color: #185b47; background: #e5f2ec; font-weight: 700; }.op-full-payment input[type="checkbox"] { width: 18px; height: 18px; accent-color: #236c58; }.op-bill-total p { margin: 0; min-width: 220px; text-align: right; }.op-bill-total span, .op-bill-total strong, .op-bill-total small { display: block; }.op-bill-total span { color: #65736e; }.op-bill-total strong { font-size: 28px; }.op-bill-total small { margin-top: 4px; }.op-editor-actions { margin-top: 18px; display: flex; justify-content: flex-end; gap: 8px; }
 .op-invoice .invoice-table { font-size: 13px; }.op-invoice-total { width: calc(100% - 32px); margin: 16px; padding: 0; border: 1px solid #222; }.op-invoice-total p { border-bottom: 1px solid #222; display: grid; grid-template-columns: minmax(0, 1fr) 190px; align-items: stretch; }.op-invoice-total p:last-child { border-bottom: 0; }.op-invoice-total p > * { padding: 10px 14px; display: flex; align-items: center; }.op-invoice-total p > :last-child { border-left: 1px solid #222; justify-content: flex-end; text-align: right; }.op-invoice-total strong { font-size: 19px; }.op-toast { position: fixed; right: 22px; bottom: 22px; z-index: 150; padding: 13px 17px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: white; background: #183a31; box-shadow: 0 14px 35px #10231e45; }
 
@@ -1785,11 +1785,15 @@ button, input, select { font: inherit; letter-spacing: 0; }
     visibility: visible !important;
   }
 
-  /* When any modal is open, hide all non-modal sibling content in op-content */
+  /* When an invoice/statement print sheet is open, hide all non-invoice content (including background modal backdrops) */
   .op-shell:has(.invoice-backdrop) .op-content > :not(.invoice-backdrop):not(:has(.invoice-backdrop)),
-  .op-shell:has(.op-modal-backdrop) .op-content > :not(.op-modal-backdrop):not(:has(.op-modal-backdrop)),
-  body:has(.invoice-backdrop) .op-content > :not(.invoice-backdrop):not(:has(.invoice-backdrop)),
-  body:has(.op-modal-backdrop) .op-content > :not(.op-modal-backdrop):not(:has(.op-modal-backdrop)) {
+  body:has(.invoice-backdrop) .op-content > :not(.invoice-backdrop):not(:has(.invoice-backdrop)) {
+    display: none !important;
+  }
+
+  /* When a modal is open and NO invoice print sheet is open, hide non-modal sibling content in op-content */
+  .op-shell:not(:has(.invoice-backdrop)):has(.op-modal-backdrop) .op-content > :not(.op-modal-backdrop):not(:has(.op-modal-backdrop)),
+  body:not(:has(.invoice-backdrop)):has(.op-modal-backdrop) .op-content > :not(.op-modal-backdrop):not(:has(.op-modal-backdrop)) {
     display: none !important;
   }
 
@@ -1834,6 +1838,32 @@ button, input, select { font: inherit; letter-spacing: 0; }
     display: none !important;
   }
 
+  .op-client-print-summary {
+    margin: 10px 0 !important;
+    border: 1px solid #222 !important;
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  .op-client-print-summary p {
+    margin: 0 !important;
+    padding: 6px 8px !important;
+    border-right: 1px solid #222 !important;
+    display: grid !important;
+    gap: 3px !important;
+  }
+  .op-client-print-summary p:last-child {
+    border-right: 0 !important;
+  }
+  .op-client-print-summary span {
+    font-size: 10px !important;
+    text-transform: uppercase !important;
+  }
+  .op-client-print-summary strong {
+    font-size: 14px !important;
+  }
+
   /* Invoices, Bills, Quotations, and Statement Modals */
   .invoice-backdrop {
     position: static !important;
@@ -1873,7 +1903,8 @@ button, input, select { font: inherit; letter-spacing: 0; }
 
   .invoice-sheet,
   .op-supplier-ledger-sheet,
-  .op-salary-slip-sheet {
+  .op-salary-slip-sheet,
+  .op-client-statement-sheet {
     position: relative !important;
     width: 100% !important;
     max-width: 100% !important;
@@ -1928,6 +1959,7 @@ button, input, select { font: inherit; letter-spacing: 0; }
   .invoice-expenses,
   .op-supplier-print-table,
   .op-supplier-ledger-table,
+  .op-client-print-table,
   .op-slip-work-table,
   .op-slip-calc-table {
     width: 100% !important;
@@ -1937,21 +1969,21 @@ button, input, select { font: inherit; letter-spacing: 0; }
     margin: 0 !important;
   }
 
-  .invoice-table thead, .invoice-expenses thead, .op-supplier-print-table thead, .op-supplier-ledger-table thead, .op-slip-work-table thead, .op-slip-calc-table thead {
+  .invoice-table thead, .invoice-expenses thead, .op-supplier-print-table thead, .op-supplier-ledger-table thead, .op-client-print-table thead, .op-slip-work-table thead, .op-slip-calc-table thead {
     display: table-header-group !important;
   }
 
-  .invoice-table tbody, .invoice-expenses tbody, .op-supplier-print-table tbody, .op-supplier-ledger-table tbody, .op-slip-work-table tbody, .op-slip-calc-table tbody {
+  .invoice-table tbody, .invoice-expenses tbody, .op-supplier-print-table tbody, .op-supplier-ledger-table tbody, .op-client-print-table tbody, .op-slip-work-table tbody, .op-slip-calc-table tbody {
     display: table-row-group !important;
   }
 
-  .invoice-table tr, .invoice-expenses tr, .op-supplier-print-table tr, .op-supplier-ledger-table tr, .op-slip-work-table tr, .op-slip-calc-table tr {
+  .invoice-table tr, .invoice-expenses tr, .op-supplier-print-table tr, .op-supplier-ledger-table tr, .op-client-print-table tr, .op-slip-work-table tr, .op-slip-calc-table tr {
     display: table-row !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
 
-  .invoice-table th, .invoice-expenses th, .op-supplier-print-table th, .op-supplier-ledger-table th, .op-slip-work-table th, .op-slip-calc-table th {
+  .invoice-table th, .invoice-expenses th, .op-supplier-print-table th, .op-supplier-ledger-table th, .op-client-print-table th, .op-slip-work-table th, .op-slip-calc-table th {
     height: 26px !important;
     font-size: 11.5px !important;
     padding: 4px 6px !important;
@@ -1961,7 +1993,7 @@ button, input, select { font: inherit; letter-spacing: 0; }
     border-bottom: 1px solid #222 !important;
   }
 
-  .invoice-table td, .invoice-expenses td, .op-supplier-print-table td, .op-supplier-ledger-table td, .op-slip-work-table td, .op-slip-calc-table td {
+  .invoice-table td, .invoice-expenses td, .op-supplier-print-table td, .op-supplier-ledger-table td, .op-client-print-table td, .op-slip-work-table td, .op-slip-calc-table td {
     font-size: 11.5px !important;
     padding: 4px 6px !important;
     border-right: 1px solid #222 !important;
@@ -1972,7 +2004,8 @@ button, input, select { font: inherit; letter-spacing: 0; }
   .invoice-table th:last-child, .invoice-table td:last-child,
   .invoice-expenses th:last-child, .invoice-expenses td:last-child,
   .op-supplier-print-table th:last-child, .op-supplier-print-table td:last-child,
-  .op-supplier-ledger-table th:last-child, .op-supplier-ledger-table td:last-child {
+  .op-supplier-ledger-table th:last-child, .op-supplier-ledger-table td:last-child,
+  .op-client-print-table th:last-child, .op-client-print-table td:last-child {
     border-right: 0 !important;
   }
 
