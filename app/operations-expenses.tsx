@@ -5,11 +5,14 @@ import {
   Check,
   FileText,
   Plus,
+  Printer,
   ReceiptText,
   Trash2,
   Truck,
   WalletCards,
+  X,
 } from "lucide-react";
+import Image from "next/image";
 import { FormEvent, useState } from "react";
 import { BusinessExpenseCategory, FleetStore } from "./fleet-domain";
 import { Button, FormField, Modal } from "./operations-components";
@@ -264,6 +267,158 @@ function SelfExpenseForm({
   );
 }
 
+export function SelfExpensesPrintModal({
+  store,
+  from,
+  to,
+  records,
+  travelTotal,
+  stayTotal,
+  close,
+}: {
+  store: FleetStore;
+  from: string;
+  to: string;
+  records: FleetStore["businessExpenses"];
+  travelTotal: number;
+  stayTotal: number;
+  close: () => void;
+}) {
+  const total = travelTotal + stayTotal;
+  return (
+    <div className="invoice-backdrop">
+      <div className="invoice-dialog op-plain-ledger-dialog">
+        <div className="invoice-toolbar">
+          <Button secondary onClick={close}>
+            <X size={17} />
+            Close
+          </Button>
+          <Button onClick={() => window.print()}>
+            <Printer size={17} />
+            Print Expenses / PDF
+          </Button>
+        </div>
+        <article className="invoice-sheet op-client-statement-sheet">
+          <header className="invoice-brand">
+            <ReceiptText size={30} />
+            <h2>{store.company.name}</h2>
+          </header>
+          <h1>SELF EXPENSES STATEMENT (TRAVEL & STAY)</h1>
+          <section className="invoice-company">
+            <p>{store.company.address}</p>
+            <p>
+              Mobile: {store.company.mobile} | Email: {store.company.email}
+            </p>
+          </section>
+          <section className="invoice-meta">
+            <p>
+              <b>Statement Period</b>
+              <br />
+              {from && to ? `${fmt(from)} to ${fmt(to)}` : "All Time Records"}
+            </p>
+            <p>
+              <b>Statement Date</b>
+              <br />
+              {fmt(isoToday())}
+            </p>
+            <p className="invoice-bill-to">
+              <b>Expense Statement</b>
+              <br />
+              <strong>Company Travel, Lodging & Field Expenses</strong>
+              <br />
+              <span>{records.length} saved expense record(s)</span>
+            </p>
+          </section>
+
+          {/* Financial Summary */}
+          <section className="op-client-print-summary" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <p>
+              <span>Total Self Expenses</span>
+              <strong>{money(total)}</strong>
+            </p>
+            <p>
+              <span>Travel Expenses</span>
+              <strong>{money(travelTotal)}</strong>
+            </p>
+            <p>
+              <span>Stay Expenses</span>
+              <strong>{money(stayTotal)}</strong>
+            </p>
+          </section>
+
+          <h2 className="op-print-section-title">Itemized Travel & Stay Expenses</h2>
+          <table className="invoice-expenses op-client-print-table">
+            <thead>
+              <tr>
+                <th>Date / Period</th>
+                <th>Category</th>
+                <th>Description & Route</th>
+                <th>Purpose</th>
+                <th>Paid Date</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.length ? (
+                records.map((expense) => (
+                  <tr key={expense.id}>
+                    <td>
+                      {fmt(expense.startDate ?? expense.date)}
+                      {expense.endDate && expense.endDate !== expense.startDate ? ` to ${fmt(expense.endDate)}` : ""}
+                    </td>
+                    <td><b>{expense.category === "Self travel" ? "Travel" : "Stay"}</b></td>
+                    <td>
+                      {expense.description}
+                      {(expense.fromLocation || expense.toLocation) && (
+                        <div style={{ fontSize: "11px", color: "#555" }}>
+                          {expense.fromLocation || "Origin"} → {expense.toLocation || "Destination"}
+                        </div>
+                      )}
+                    </td>
+                    <td>{expense.purpose || "—"}</td>
+                    <td>{fmt(expense.paidDate ?? expense.date)}</td>
+                    <td><b>{money(expense.amount)}</b></td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>No self expense records in selected period</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+
+          <section className="op-invoice-total">
+            <p>
+              <span>Total Expense Amount</span>
+              <strong>{money(total)}</strong>
+            </p>
+          </section>
+
+          <footer className="invoice-footer">
+            <div>
+              <h3>Expense Reimbursement & Audit Summary</h3>
+              <p><b>Company:</b> {store.company.name}</p>
+              <p><b>Verification:</b> Operations Management</p>
+            </div>
+            <div className="invoice-signature">
+              <p>For {store.company.name}</p>
+              <Image
+                className="invoice-signature-mark"
+                src="/sign.png"
+                alt="Authorized Signatory"
+                width={700}
+                height={278}
+              />
+              <b>Authorized Signatory</b>
+            </div>
+          </footer>
+        </article>
+      </div>
+    </div>
+  );
+}
+
 export function SelfExpensesView({
   store,
   setStore,
@@ -274,10 +429,16 @@ export function SelfExpensesView({
   notify: (message: string) => void;
 }) {
   const [formOpen, setFormOpen] = useState(false);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+
+  const inRange = (d: string) => (!from || d >= from) && (!to || d <= to);
   const records = store.businessExpenses
     .filter(
       (expense) =>
-        expense.category === "Self travel" || expense.category === "Self stay",
+        (expense.category === "Self travel" || expense.category === "Self stay") &&
+        (inRange(expense.date) || inRange(expense.paidDate ?? expense.date) || (expense.startDate && inRange(expense.startDate)))
     )
     .sort((left, right) => right.date.localeCompare(left.date));
   const travelTotal = records
@@ -304,6 +465,50 @@ export function SelfExpensesView({
         action="Add expense record"
         onAction={() => setFormOpen(true)}
       />
+
+      <div className="op-toolbar" style={{ background: "#f3f7f4", padding: "10px 14px", borderRadius: "7px", flexWrap: "wrap", gap: "8px", margin: "14px 0" }}>
+        <label className="op-field" style={{ margin: 0 }}>
+          <span>From Date</span>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="op-field" style={{ margin: 0 }}>
+          <span>To Date</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+        <Button
+          secondary
+          onClick={() => {
+            setFrom(`${isoToday().slice(0, 7)}-01`);
+            setTo(isoToday());
+          }}
+        >
+          This Month
+        </Button>
+        <Button
+          secondary
+          onClick={() => {
+            const currentYear = isoToday().slice(0, 4);
+            setFrom(`${currentYear}-01-01`);
+            setTo(isoToday());
+          }}
+        >
+          This Year
+        </Button>
+        <Button
+          secondary
+          onClick={() => {
+            setFrom("");
+            setTo("");
+          }}
+        >
+          All Time
+        </Button>
+        <Button secondary onClick={() => setPrintModalOpen(true)}>
+          <Printer size={16} />
+          Print expenses
+        </Button>
+      </div>
+
       <section className="op-metrics three">
         <Metric
           label="Total self expenses"
@@ -578,10 +783,16 @@ export function EditableSelfExpensesView({
   const [editingExpense, setEditingExpense] = useState<
     FleetStore["businessExpenses"][number] | null | undefined
   >(undefined);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+
+  const inRange = (d: string) => (!from || d >= from) && (!to || d <= to);
   const records = store.businessExpenses
     .filter(
       (expense) =>
-        expense.category === "Self travel" || expense.category === "Self stay",
+        (expense.category === "Self travel" || expense.category === "Self stay") &&
+        (inRange(expense.date) || inRange(expense.paidDate ?? expense.date) || (expense.startDate && inRange(expense.startDate)))
     )
     .sort((left, right) => right.date.localeCompare(left.date));
   const travelTotal = records
@@ -626,6 +837,50 @@ export function EditableSelfExpensesView({
         action="Add expense record"
         onAction={() => setEditingExpense(null)}
       />
+
+      <div className="op-toolbar" style={{ background: "#f3f7f4", padding: "10px 14px", borderRadius: "7px", flexWrap: "wrap", gap: "8px", margin: "14px 0" }}>
+        <label className="op-field" style={{ margin: 0 }}>
+          <span>From Date</span>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="op-field" style={{ margin: 0 }}>
+          <span>To Date</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+        <Button
+          secondary
+          onClick={() => {
+            setFrom(`${isoToday().slice(0, 7)}-01`);
+            setTo(isoToday());
+          }}
+        >
+          This Month
+        </Button>
+        <Button
+          secondary
+          onClick={() => {
+            const currentYear = isoToday().slice(0, 4);
+            setFrom(`${currentYear}-01-01`);
+            setTo(isoToday());
+          }}
+        >
+          This Year
+        </Button>
+        <Button
+          secondary
+          onClick={() => {
+            setFrom("");
+            setTo("");
+          }}
+        >
+          All Time
+        </Button>
+        <Button secondary onClick={() => setPrintModalOpen(true)}>
+          <Printer size={16} />
+          Print expenses
+        </Button>
+      </div>
+
       <section className="op-metrics three">
         <Metric
           label="Total self expenses"
@@ -710,6 +965,18 @@ export function EditableSelfExpensesView({
           expense={editingExpense}
           close={() => setEditingExpense(undefined)}
           save={saveRecord}
+        />
+      )}
+
+      {printModalOpen && (
+        <SelfExpensesPrintModal
+          store={store}
+          from={from}
+          to={to}
+          records={records}
+          travelTotal={travelTotal}
+          stayTotal={stayTotal}
+          close={() => setPrintModalOpen(false)}
         />
       )}
     </>
