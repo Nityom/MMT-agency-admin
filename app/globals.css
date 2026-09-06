@@ -305,7 +305,7 @@ button, input, select { font: inherit; letter-spacing: 0; }
 
 
 /* Date-effective operations application. */
-.op-shell { min-height: 100vh; background: #f3f5f2; }
+.op-shell { min-height: 100vh; background: #f3f5f2; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
 .op-shell > aside { position: fixed; inset: 0 auto 0 0; z-index: 40; width: 252px; overflow-y: auto; color: white; background: #18332d; }
 .op-brand { height: 78px; padding: 0 20px; border-bottom: 1px solid #ffffff1f; display: flex; align-items: center; gap: 11px; }
 .op-brand > svg { padding: 8px; width: 40px; height: 40px; border-radius: 7px; color: #174d40; background: #d3eadf; }
@@ -327,7 +327,7 @@ button, input, select { font: inherit; letter-spacing: 0; }
 .op-nav-children button > span { flex: 1; }
 .op-shell > aside nav i { min-width: 21px; margin-left: auto; padding: 2px 6px; border-radius: 10px; color: #24332f; background: #e6b45c; font-size: 11px; font-style: normal; text-align: center; }
 .op-shell > main { min-height: 100vh; margin-left: 252px; }.op-mobile-head { display: none; }
-.op-content, .op-workspace { width: 100%; max-width: 1500px; margin: auto; padding: 34px 36px 72px; }
+.op-content, .op-workspace { width: 100%; max-width: 1500px; margin: auto; padding: 34px 36px 72px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif; }
 .op-workspace { min-height: 100vh; background: #f3f5f2; }
 .op-page-head { margin-bottom: 24px; display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
 .op-page-head-actions { display: flex; align-items: center; gap: 8px; }
@@ -355,7 +355,21 @@ button, input, select { font: inherit; letter-spacing: 0; }
 .op-workspace:has(.salary-range-toolbar) > .op-page-head { order: 1; }
 .op-workspace:has(.salary-range-toolbar) > .salary-range-toolbar { order: 2; }
 .op-search { width: min(390px, 100%); min-height: 44px; padding: 0 12px; border: 1px solid #d5deda; border-radius: 6px; display: flex; align-items: center; gap: 8px; color: #70807a; background: white; }.op-search input { width: 100%; border: 0; outline: 0; background: transparent; }
-.op-table-wrap { border: 1px solid #dce4df; border-radius: 8px; overflow-x: auto; background: white; }.op-table { min-width: 980px; }.op-table > header, .op-row { padding: 0 17px; display: grid; grid-template-columns: repeat(var(--cols), minmax(100px, 1fr)); align-items: center; gap: 12px; }.op-table > header { min-height: 48px; border-bottom: 1px solid #dce4df; color: #687670; background: #f7f9f7; }.op-table > header b { font: 700 12px Futura, "Century Gothic", sans-serif; text-transform: uppercase; }.op-row { min-height: 78px; border-bottom: 1px solid #e8edea; font-size: 14px; }.op-row:last-child { border: 0; }.op-row > span, .op-row > b, .op-row > strong { min-width: 0; overflow-wrap: anywhere; }.op-row small { margin-top: 3px; display: block; color: #6c7974; }.op-row strong { font-size: 15px; }
+.op-table-wrap { border: 1px solid #dce4df; border-radius: 8px; overflow-x: auto; background: white; }
+.op-table { min-width: 980px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+.op-table > header, .op-row { padding: 0 17px; display: grid; grid-template-columns: repeat(var(--cols), minmax(100px, 1fr)); align-items: center; gap: 12px; }
+.op-table > header { min-height: 48px; border-bottom: 1px solid #dce4df; color: #576962; background: #f7f9f7; }
+.op-table > header b { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #52655e; }
+.op-row { min-height: 74px; border-bottom: 1px solid #e8edea; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif; font-size: 14px; font-variant-numeric: tabular-nums lining-nums; -webkit-font-smoothing: antialiased; }
+.op-row:last-child { border: 0; }
+.op-row > span, .op-row > b, .op-row > strong { min-width: 0; overflow-wrap: anywhere; }
+.op-row b { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif; font-weight: 600; color: #16382c; font-variant-numeric: tabular-nums lining-nums; }
+.op-row strong { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif; font-size: 14.5px; font-weight: 600; font-variant-numeric: tabular-nums lining-nums; }
+.op-row small { margin-top: 3px; display: block; color: #6a7c75; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif; font-size: 12px; font-weight: 400; }
+.op-link-button { padding: 0; border: 0; background: transparent; color: #155644; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif; font-size: 14.5px; font-weight: 600; line-height: 1.35; text-align: left; cursor: pointer; transition: color 0.15s ease; }
+.op-link-button:hover { color: #0b3a2c; text-decoration: underline; }
+.op-table a[href^="tel:"] { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif; font-variant-numeric: tabular-nums lining-nums; font-size: 14px; font-weight: 600; color: #1f6a53; text-decoration: none; letter-spacing: 0.01em; }
+.op-table a[href^="tel:"]:hover { color: #124d3c; text-decoration: underline; }
 .op-status { width: max-content; max-width: 100%; padding: 5px 9px; border-radius: 10px; color: #315a4d; background: #e3f1eb; font: 700 12px Futura, "Century Gothic", sans-serif; }.op-status.pending, .op-status.maintenance, .op-status.scheduled { color: #87570f; background: #fff0ca; }.op-status.overdue, .op-status.inactive, .op-status.stopped { color: #9b4034; background: #f8e2dd; }.op-status.billed { color: #315477; background: #e3edf6; }.op-status-button { padding: 0; border: 0; background: transparent; }.op-actions { display: flex; justify-content: flex-end; gap: 5px; }.op-actions button, .op-icon { width: 34px; height: 34px; padding: 0; border: 1px solid #d5deda; border-radius: 5px; display: grid; place-items: center; color: #56635f; background: white; }.op-actions button.delete { color: #a1483b; }
 .op-attendance { min-height: 38px; padding: 0 10px; border: 1px solid #d5deda; border-radius: 6px; display: flex; align-items: center; justify-content: center; gap: 5px; color: #687670; background: white; }.op-attendance svg { width: 16px; }.op-attendance.active { border-color: #78ad9a; color: #176048; background: #e5f3ed; }.op-attendance.absent { border-color: #d69a90; color: #983f34; background: #f8e5e1; }
 .op-attendance-save-bottom { display: none; }

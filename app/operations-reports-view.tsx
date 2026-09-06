@@ -2582,7 +2582,6 @@ export function ReportsView({
                       <button
                         type="button"
                         className="op-link-button"
-                        style={{ textDecoration: "none", fontWeight: 700, color: "#14493a", textAlign: "left" }}
                         onClick={() => setSelectedEmployeeRecordId(row.employee.id)}
                       >
                         {row.employee.name}
@@ -2654,7 +2653,6 @@ export function ReportsView({
                       <button
                         type="button"
                         className="op-link-button"
-                        style={{ textDecoration: "none", fontWeight: 700, color: "#14493a", textAlign: "left" }}
                         onClick={() => setSelectedEmployeeRecordId(row.employee.id)}
                       >
                         {row.employee.name}
@@ -3107,7 +3105,6 @@ export function ReportsView({
                       <button
                         type="button"
                         className="op-link-button"
-                        style={{ textDecoration: "none", fontWeight: 700, color: "#14493a", textAlign: "left" }}
                         onClick={() => setSelectedClientLedgerId(item.clientId)}
                       >
                         {item.firmName}
@@ -3118,7 +3115,6 @@ export function ReportsView({
                       {item.phone ? (
                         <a
                           href={`tel:${item.phone}`}
-                          style={{ color: "#1f6a53", fontWeight: 600, textDecoration: "none" }}
                           title="Click to call"
                         >
                           {item.phone}
@@ -3177,7 +3173,6 @@ export function ReportsView({
                       <button
                         type="button"
                         className="op-link-button"
-                        style={{ textDecoration: "none", fontWeight: 700, color: "#14493a", textAlign: "left" }}
                         onClick={() => setSelectedClientLedgerId(item.client.id)}
                       >
                         {item.client.firmName}
@@ -3188,13 +3183,12 @@ export function ReportsView({
                       {item.client.mobile ? (
                         <a
                           href={`tel:${item.client.mobile}`}
-                          style={{ color: "#1f6a53", fontWeight: 600, textDecoration: "none" }}
                           title="Click to call"
                         >
-                          <b>{item.client.mobile}</b>
+                          {item.client.mobile}
                         </a>
                       ) : (
-                        <b>No mobile</b>
+                        <span style={{ color: "#6c7c76", fontSize: "13.5px", fontWeight: 500 }}>No mobile</span>
                       )}
                       <small>{item.client.email || "No email"}</small>
                     </span>
