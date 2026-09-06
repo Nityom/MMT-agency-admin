@@ -22,6 +22,7 @@ import {
   type BusinessExpenseCategory,
   type ClientCategory,
   type FleetStore,
+  getAdvanceOutstanding,
   getEmployeeCurrentStatus,
   rateOnDate,
 } from "./fleet-domain";
@@ -304,6 +305,1025 @@ export function OutstandingBillsPrintModal({
   );
 }
 
+export function ClientAccountsSummaryPrintModal({
+  store,
+  periodLabel,
+  categoryFilter,
+  clients,
+  totalBilled,
+  totalReceived,
+  totalOutstanding,
+  activeCampaigns,
+  close,
+}: {
+  store: FleetStore;
+  periodLabel: string;
+  categoryFilter: string;
+  clients: {
+    client: FleetStore["clients"][number];
+    campaignsCount: number;
+    invoicesCount: number;
+    overall: {
+      billed: number;
+      received: number;
+      balance: number;
+      outstanding: number;
+    };
+  }[];
+  totalBilled: number;
+  totalReceived: number;
+  totalOutstanding: number;
+  activeCampaigns: number;
+  close: () => void;
+}) {
+  return (
+    <div className="invoice-backdrop">
+      <div className="invoice-dialog op-plain-ledger-dialog">
+        <div className="invoice-toolbar">
+          <Button secondary onClick={close}>
+            <X size={17} />
+            Close
+          </Button>
+          <Button onClick={() => window.print()}>
+            <Printer size={17} />
+            Print Accounts Summary / PDF
+          </Button>
+        </div>
+        <article className="invoice-sheet op-client-statement-sheet">
+          <header className="invoice-brand">
+            <ReceiptText size={30} />
+            <h2>{store.company.name}</h2>
+          </header>
+          <h1>CLIENT ACCOUNTS FINANCIAL SUMMARY STATEMENT</h1>
+          <section className="invoice-company">
+            <p>{store.company.address}</p>
+            <p>
+              Mobile: {store.company.mobile} | Email: {store.company.email}
+            </p>
+          </section>
+          <section className="invoice-meta">
+            <p>
+              <b>Statement Period</b>
+              <br />
+              {periodLabel}
+            </p>
+            <p>
+              <b>Report Generated</b>
+              <br />
+              {fmt(isoToday())}
+            </p>
+            <p className="invoice-bill-to">
+              <b>Summary Scope</b>
+              <br />
+              <strong>{clients.length} Client Account{clients.length === 1 ? "" : "s"}</strong>
+              {categoryFilter !== "All" ? ` · Category: ${categoryFilter}` : ""}
+              <br />
+              <span>Consolidated billing, collections, and outstanding dues</span>
+            </p>
+          </section>
+
+          {/* Financial Summary */}
+          <section className="op-client-print-summary" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+            <p>
+              <span>Total Client Billed</span>
+              <strong>{money(totalBilled)}</strong>
+            </p>
+            <p>
+              <span>Total Collections</span>
+              <strong>{money(totalReceived)}</strong>
+            </p>
+            <p>
+              <span>Net Outstanding</span>
+              <strong style={{ color: "#9a493d" }}>
+                {money(totalOutstanding)}
+              </strong>
+            </p>
+            <p>
+              <span>Active Campaigns</span>
+              <strong>{activeCampaigns} Active</strong>
+            </p>
+          </section>
+
+          <h2 className="op-print-section-title">Itemized Client Accounts & Balances</h2>
+          <table className="invoice-expenses op-client-print-table">
+            <thead>
+              <tr>
+                <th style={{ width: "35px" }}>#</th>
+                <th>Client / Firm Name</th>
+                <th>Contact Person</th>
+                <th>Phone Number</th>
+                <th style={{ width: "75px" }}>Campaigns</th>
+                <th style={{ width: "65px" }}>Invoices</th>
+                <th>Total Billed</th>
+                <th>Received</th>
+                <th>Outstanding Due</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {clients.length ? (
+                clients.map((item, index) => (
+                  <tr key={item.client.id}>
+                    <td>{index + 1}</td>
+                    <td><b>{item.client.firmName}</b></td>
+                    <td>{item.client.ownerName || "—"}</td>
+                    <td>{item.client.mobile || "—"}</td>
+                    <td style={{ textAlign: "center" }}>{item.campaignsCount}</td>
+                    <td style={{ textAlign: "center" }}>{item.invoicesCount}</td>
+                    <td>{money(item.overall.billed)}</td>
+                    <td>{money(item.overall.received)}</td>
+                    <td style={{ color: item.overall.outstanding > 0 ? "#9a493d" : "#1f6a53", fontWeight: 700 }}>
+                      {money(item.overall.balance)}
+                    </td>
+                    <td>
+                      <span style={{
+                        padding: "2px 6px",
+                        borderRadius: "3px",
+                        fontSize: "10.5px",
+                        fontWeight: 700,
+                        backgroundColor: item.overall.outstanding > 0 ? "#fef2f2" : "#f0fdf4",
+                        color: item.overall.outstanding > 0 ? "#b91c1c" : "#15803d",
+                      }}>
+                        {item.overall.outstanding > 0 ? "Outstanding" : "Settled"}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={10} style={{ textAlign: "center", padding: "20px" }}>
+                    No client accounts match the selected period / category
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: "#f8faf9", fontWeight: 700 }}>
+                <td colSpan={6} style={{ textAlign: "right", padding: "10px" }}>
+                  Grand Total ({clients.length} client accounts):
+                </td>
+                <td>{money(totalBilled)}</td>
+                <td>{money(totalReceived)}</td>
+                <td style={{ color: "#9a493d", fontSize: "14px" }}>{money(totalOutstanding)}</td>
+                <td>—</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <section className="op-invoice-total">
+            <p>
+              <span>Total Net Outstanding Receivables across Clients</span>
+              <strong style={{ color: "#9a493d" }}>
+                {money(totalOutstanding)}
+              </strong>
+            </p>
+          </section>
+
+          <footer className="invoice-footer">
+            <div>
+              <h3>Bank details for RTGS / NEFT</h3>
+              <p><b>Account:</b> {store.company.accountName}</p>
+              <p><b>Bank:</b> {store.company.bankName} · {store.company.branch}</p>
+              <p><b>A/C No:</b> {store.company.accountNumber || "Update in company settings"}</p>
+              <p><b>IFSC:</b> {store.company.ifsc || "Update in company settings"}</p>
+            </div>
+            <div className="invoice-signature">
+              <p>For {store.company.name}</p>
+              <Image
+                className="invoice-signature-mark"
+                src="/sign.png"
+                alt="Authorized Signatory"
+                width={700}
+                height={278}
+              />
+              <b>Authorized Signatory</b>
+            </div>
+          </footer>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+export function EmployeeSummaryPrintModal({
+  store,
+  periodLabel,
+  rows,
+  totalGross,
+  totalAdvances,
+  totalDeducted,
+  totalCarryForward,
+  totalAttendanceDays,
+  close,
+}: {
+  store: FleetStore;
+  periodLabel: string;
+  rows: {
+    employee: FleetStore["employees"][number];
+    location: string;
+    dailyRate: number;
+    presentDays: number;
+    grossEarned: number;
+    advancesInMonth: number;
+    deductedFromAdvance: number;
+    carryForwardBalance: number;
+    status: string;
+  }[];
+  totalGross: number;
+  totalAdvances: number;
+  totalDeducted: number;
+  totalCarryForward: number;
+  totalAttendanceDays: number;
+  close: () => void;
+}) {
+  return (
+    <div className="invoice-backdrop">
+      <div className="invoice-dialog op-plain-ledger-dialog">
+        <div className="invoice-toolbar">
+          <Button secondary onClick={close}>
+            <X size={17} />
+            Close
+          </Button>
+          <Button onClick={() => window.print()}>
+            <Printer size={17} />
+            Print Employee Summary / PDF
+          </Button>
+        </div>
+        <article className="invoice-sheet op-client-statement-sheet">
+          <header className="invoice-brand">
+            <UsersRound size={30} />
+            <h2>{store.company.name}</h2>
+          </header>
+          <h1>EMPLOYEE WORKFORCE & SALARY SUMMARY STATEMENT</h1>
+          <section className="invoice-company">
+            <p>{store.company.address}</p>
+            <p>
+              Mobile: {store.company.mobile} | Email: {store.company.email}
+            </p>
+          </section>
+          <section className="invoice-meta">
+            <p>
+              <b>Statement Period</b>
+              <br />
+              {periodLabel}
+            </p>
+            <p>
+              <b>Report Generated</b>
+              <br />
+              {fmt(isoToday())}
+            </p>
+            <p className="invoice-bill-to">
+              <b>Workforce Scope</b>
+              <br />
+              <strong>{rows.length} Staff Member{rows.length === 1 ? "" : "s"}</strong>
+              <br />
+              <span>Attendance, gross earnings, advances, recoveries, and net balances</span>
+            </p>
+          </section>
+
+          {/* Financial Summary */}
+          <section className="op-client-print-summary" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+            <p>
+              <span>Workforce Gross Earned</span>
+              <strong>{money(totalGross)}</strong>
+            </p>
+            <p>
+              <span>Advances Issued</span>
+              <strong style={{ color: "#9a493d" }}>{money(totalAdvances)}</strong>
+            </p>
+            <p>
+              <span>Deducted / Recovered</span>
+              <strong style={{ color: "#1f6a53" }}>{money(totalDeducted)}</strong>
+            </p>
+            <p>
+              <span>Net Salary Due</span>
+              <strong style={{ color: "#14493a" }}>{money(totalCarryForward)}</strong>
+            </p>
+            <p>
+              <span>Total Present Days</span>
+              <strong>{totalAttendanceDays} Days</strong>
+            </p>
+          </section>
+
+          <h2 className="op-print-section-title">Itemized Staff Attendance & Salary Breakdown</h2>
+          <table className="invoice-expenses op-client-print-table">
+            <thead>
+              <tr>
+                <th style={{ width: "35px" }}>#</th>
+                <th>Employee Name & ID</th>
+                <th>Location & Rate</th>
+                <th style={{ width: "80px" }}>Attendance</th>
+                <th>Gross Earned</th>
+                <th>Advance Paid</th>
+                <th>Deducted</th>
+                <th>Balance Due / Carry</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length ? (
+                rows.map((item, index) => (
+                  <tr key={item.employee.id}>
+                    <td>{index + 1}</td>
+                    <td>
+                      <b>{item.employee.name}</b>
+                      <br />
+                      <small style={{ color: "#555" }}>ID #{item.employee.id}</small>
+                    </td>
+                    <td>
+                      <b>{item.location}</b>
+                      <br />
+                      <small style={{ color: "#555" }}>{money(item.dailyRate)}/day</small>
+                    </td>
+                    <td style={{ textAlign: "center" }}>
+                      <b>{item.presentDays}d</b>
+                    </td>
+                    <td style={{ color: "#1f6a53", fontWeight: 700 }}>{money(item.grossEarned)}</td>
+                    <td style={{ color: item.advancesInMonth > 0 ? "#9a493d" : "#555" }}>
+                      {money(item.advancesInMonth)}
+                    </td>
+                    <td style={{ color: item.deductedFromAdvance > 0 ? "#1f6a53" : "#555" }}>
+                      {money(item.deductedFromAdvance)}
+                    </td>
+                    <td style={{ color: item.carryForwardBalance >= 0 ? "#14493a" : "#9a493d", fontWeight: 700 }}>
+                      {item.carryForwardBalance >= 0 ? "+" : "−"}{money(Math.abs(item.carryForwardBalance))}
+                      <br />
+                      <small style={{ fontWeight: 600 }}>{item.carryForwardBalance >= 0 ? "Salary Due" : "Advance Due"}</small>
+                    </td>
+                    <td>
+                      <span style={{
+                        padding: "2px 6px",
+                        borderRadius: "3px",
+                        fontSize: "10.5px",
+                        fontWeight: 700,
+                        backgroundColor: item.status === "Active" ? "#f0fdf4" : "#f1f5f9",
+                        color: item.status === "Active" ? "#15803d" : "#475569",
+                      }}>
+                        {item.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={9} style={{ textAlign: "center", padding: "20px" }}>
+                    No employee records found in the selected period
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: "#f8faf9", fontWeight: 700 }}>
+                <td colSpan={3} style={{ textAlign: "right", padding: "10px" }}>
+                  Grand Total ({rows.length} employees):
+                </td>
+                <td style={{ textAlign: "center" }}>{totalAttendanceDays}d</td>
+                <td>{money(totalGross)}</td>
+                <td>{money(totalAdvances)}</td>
+                <td>{money(totalDeducted)}</td>
+                <td style={{ color: "#14493a", fontSize: "14px" }}>+{money(totalCarryForward)}</td>
+                <td>—</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <section className="op-invoice-total">
+            <p>
+              <span>Net Workforce Salary Balance Payable</span>
+              <strong style={{ color: "#14493a" }}>
+                {money(totalCarryForward)}
+              </strong>
+            </p>
+          </section>
+
+          <footer className="invoice-footer">
+            <div>
+              <h3>MMT Agency Payroll Department</h3>
+              <p>Workforce attendance verified against daily operating registers.</p>
+              <p>Salary advances and deductions reconciled with payment receipts.</p>
+            </div>
+            <div className="invoice-signature">
+              <p>For {store.company.name}</p>
+              <Image
+                className="invoice-signature-mark"
+                src="/sign.png"
+                alt="Authorized Signatory"
+                width={700}
+                height={278}
+              />
+              <b>Authorized Signatory</b>
+            </div>
+          </footer>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+export function EmployeeOutstandingPrintModal({
+  store,
+  periodLabel,
+  rows,
+  totalGross,
+  totalAdvances,
+  totalDeducted,
+  totalCarryForward,
+  close,
+}: {
+  store: FleetStore;
+  periodLabel: string;
+  rows: {
+    employee: FleetStore["employees"][number];
+    location: string;
+    dailyRate: number;
+    presentDays: number;
+    grossEarned: number;
+    advancesInMonth: number;
+    deductedFromAdvance: number;
+    carryForwardBalance: number;
+    status: string;
+  }[];
+  totalGross: number;
+  totalAdvances: number;
+  totalDeducted: number;
+  totalCarryForward: number;
+  close: () => void;
+}) {
+  const salaryPayableTotal = rows.filter((r) => r.carryForwardBalance > 0).reduce((sum, r) => sum + r.carryForwardBalance, 0);
+  const advanceRecoverableTotal = rows.filter((r) => r.carryForwardBalance < 0).reduce((sum, r) => sum + Math.abs(r.carryForwardBalance), 0);
+
+  return (
+    <div className="invoice-backdrop">
+      <div className="invoice-dialog op-plain-ledger-dialog">
+        <div className="invoice-toolbar">
+          <Button secondary onClick={close}>
+            <X size={17} />
+            Close
+          </Button>
+          <Button onClick={() => window.print()}>
+            <Printer size={17} />
+            Print Outstanding Dues / PDF
+          </Button>
+        </div>
+        <article className="invoice-sheet op-client-statement-sheet">
+          <header className="invoice-brand">
+            <WalletCards size={30} />
+            <h2>{store.company.name}</h2>
+          </header>
+          <h1>EMPLOYEE OUTSTANDING SALARY & ADVANCES STATEMENT</h1>
+          <section className="invoice-company">
+            <p>{store.company.address}</p>
+            <p>
+              Mobile: {store.company.mobile} | Email: {store.company.email}
+            </p>
+          </section>
+          <section className="invoice-meta">
+            <p>
+              <b>Statement Period</b>
+              <br />
+              {periodLabel}
+            </p>
+            <p>
+              <b>Report Generated</b>
+              <br />
+              {fmt(isoToday())}
+            </p>
+            <p className="invoice-bill-to">
+              <b>Outstanding Dues Scope</b>
+              <br />
+              <strong>{rows.length} Staff Member{rows.length === 1 ? "" : "s"} with Pending Balances</strong>
+              <br />
+              <span>Pending salary payouts and unrecovered advance balances</span>
+            </p>
+          </section>
+
+          {/* Financial Summary */}
+          <section className="op-client-print-summary" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <p>
+              <span>Net Salary Due (Payable)</span>
+              <strong style={{ color: "#14493a" }}>{money(salaryPayableTotal)}</strong>
+            </p>
+            <p>
+              <span>Advance Due (Recoverable)</span>
+              <strong style={{ color: "#9a493d" }}>{money(advanceRecoverableTotal)}</strong>
+            </p>
+            <p>
+              <span>Net Workforce Balance</span>
+              <strong style={{ color: salaryPayableTotal >= advanceRecoverableTotal ? "#14493a" : "#9a493d" }}>
+                {salaryPayableTotal >= advanceRecoverableTotal ? "+" : "−"}{money(Math.abs(salaryPayableTotal - advanceRecoverableTotal))}
+              </strong>
+            </p>
+          </section>
+
+          <h2 className="op-print-section-title">Itemized Outstanding Workforce Dues</h2>
+          <table className="invoice-expenses op-client-print-table">
+            <thead>
+              <tr>
+                <th style={{ width: "35px" }}>#</th>
+                <th>Employee Name & ID</th>
+                <th>Location & Rate</th>
+                <th style={{ width: "80px" }}>Attendance</th>
+                <th>Gross Earned</th>
+                <th>Advances Taken</th>
+                <th>Salary Due (Payable)</th>
+                <th>Advance Due (Recoverable)</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length ? (
+                rows.map((item, index) => (
+                  <tr key={item.employee.id}>
+                    <td>{index + 1}</td>
+                    <td>
+                      <b>{item.employee.name}</b>
+                      <br />
+                      <small style={{ color: "#555" }}>ID #{item.employee.id}</small>
+                    </td>
+                    <td>
+                      <b>{item.location}</b>
+                      <br />
+                      <small style={{ color: "#555" }}>{money(item.dailyRate)}/day</small>
+                    </td>
+                    <td style={{ textAlign: "center" }}>{item.presentDays}d</td>
+                    <td>{money(item.grossEarned)}</td>
+                    <td>{money(item.advancesInMonth)}</td>
+                    <td style={{ color: "#14493a", fontWeight: 700 }}>
+                      {item.carryForwardBalance > 0 ? `+${money(item.carryForwardBalance)}` : "—"}
+                    </td>
+                    <td style={{ color: "#9a493d", fontWeight: 700 }}>
+                      {item.carryForwardBalance < 0 ? `−${money(Math.abs(item.carryForwardBalance))}` : "—"}
+                    </td>
+                    <td>
+                      <span style={{
+                        padding: "2px 6px",
+                        borderRadius: "3px",
+                        fontSize: "10.5px",
+                        fontWeight: 700,
+                        backgroundColor: item.carryForwardBalance > 0 ? "#ecfdf5" : "#fff7ed",
+                        color: item.carryForwardBalance > 0 ? "#047857" : "#c2410c",
+                      }}>
+                        {item.carryForwardBalance > 0 ? "Salary Payable" : item.carryForwardBalance < 0 ? "Advance Due" : "Settled"}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={9} style={{ textAlign: "center", padding: "20px" }}>
+                    No staff members with outstanding dues in the selected period
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: "#f8faf9", fontWeight: 700 }}>
+                <td colSpan={6} style={{ textAlign: "right", padding: "10px" }}>
+                  Grand Total ({rows.length} staff):
+                </td>
+                <td style={{ color: "#14493a", fontSize: "14px" }}>+{money(salaryPayableTotal)}</td>
+                <td style={{ color: "#9a493d", fontSize: "14px" }}>−{money(advanceRecoverableTotal)}</td>
+                <td>—</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <section className="op-invoice-total">
+            <p>
+              <span>Net Salary Due Payable to Staff</span>
+              <strong style={{ color: "#14493a" }}>
+                {money(salaryPayableTotal)}
+              </strong>
+            </p>
+          </section>
+
+          <footer className="invoice-footer">
+            <div>
+              <h3>MMT Agency Payroll Department</h3>
+              <p>Outstanding balance statement generated from workforce ledger.</p>
+            </div>
+            <div className="invoice-signature">
+              <p>For {store.company.name}</p>
+              <Image
+                className="invoice-signature-mark"
+                src="/sign.png"
+                alt="Authorized Signatory"
+                width={700}
+                height={278}
+              />
+              <b>Authorized Signatory</b>
+            </div>
+          </footer>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+export function MaintenanceSummaryPrintModal({
+  store,
+  periodLabel,
+  categoryFilter,
+  records,
+  totalBilled,
+  totalPaid,
+  totalBalance,
+  close,
+}: {
+  store: FleetStore;
+  periodLabel: string;
+  categoryFilter: string;
+  records: FleetStore["businessExpenses"];
+  totalBilled: number;
+  totalPaid: number;
+  totalBalance: number;
+  close: () => void;
+}) {
+  return (
+    <div className="invoice-backdrop">
+      <div className="invoice-dialog op-plain-ledger-dialog">
+        <div className="invoice-toolbar">
+          <Button secondary onClick={close}>
+            <X size={17} />
+            Close
+          </Button>
+          <Button onClick={() => window.print()}>
+            <Printer size={17} />
+            Print Maintenance Summary / PDF
+          </Button>
+        </div>
+        <article className="invoice-sheet op-client-statement-sheet">
+          <header className="invoice-brand">
+            <Wrench size={30} />
+            <h2>{store.company.name}</h2>
+          </header>
+          <h1>MAINTENANCE & SUPPLIER WORK EXPENSES STATEMENT</h1>
+          <section className="invoice-company">
+            <p>{store.company.address}</p>
+            <p>
+              Mobile: {store.company.mobile} | Email: {store.company.email}
+            </p>
+          </section>
+          <section className="invoice-meta">
+            <p>
+              <b>Statement Period</b>
+              <br />
+              {periodLabel}
+            </p>
+            <p>
+              <b>Report Generated</b>
+              <br />
+              {fmt(isoToday())}
+            </p>
+            <p className="invoice-bill-to">
+              <b>Maintenance Scope</b>
+              <br />
+              <strong>{records.length} Work Record{records.length === 1 ? "" : "s"}</strong>
+              {categoryFilter !== "All" ? ` · Category: ${categoryFilter}` : ""}
+              <br />
+              <span>Supplier work, printing, vehicle repairs, purchases, and payments</span>
+            </p>
+          </section>
+
+          {/* Financial Summary */}
+          <section className="op-client-print-summary" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+            <p>
+              <span>Total Supplier Work Bills</span>
+              <strong>{money(totalBilled)}</strong>
+            </p>
+            <p>
+              <span>Payments Cleared</span>
+              <strong style={{ color: "#1f6a53" }}>{money(totalPaid)}</strong>
+            </p>
+            <p>
+              <span>Outstanding Payable</span>
+              <strong style={{ color: "#9a493d" }}>{money(totalBalance)}</strong>
+            </p>
+            <p>
+              <span>Total Work Records</span>
+              <strong>{records.length} Records</strong>
+            </p>
+          </section>
+
+          <h2 className="op-print-section-title">Itemized Maintenance & Supplier Records</h2>
+          <table className="invoice-expenses op-client-print-table">
+            <thead>
+              <tr>
+                <th style={{ width: "35px" }}>#</th>
+                <th>Date</th>
+                <th>Supplier / Worker</th>
+                <th>Work Description</th>
+                <th>Category</th>
+                <th>Client / Reference</th>
+                <th>Total Bill</th>
+                <th>Paid Amount</th>
+                <th>Balance Payable</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.length ? (
+                [...records]
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .map((expense, index) => {
+                    const paid = supplierPaid(expense);
+                    const balance = supplierBalance(expense);
+                    return (
+                      <tr key={expense.id}>
+                        <td>{index + 1}</td>
+                        <td>{fmt(expense.date)}</td>
+                        <td>
+                          <b>{expense.paidTo || "Unassigned Supplier"}</b>
+                          {expense.reference && (
+                            <>
+                              <br />
+                              <small style={{ color: "#555" }}>{expense.reference}</small>
+                            </>
+                          )}
+                        </td>
+                        <td>
+                          <b>{expense.description}</b>
+                          {expense.purpose && (
+                            <>
+                              <br />
+                              <small style={{ color: "#555" }}>{expense.purpose}</small>
+                            </>
+                          )}
+                        </td>
+                        <td>{expense.category === "Printing" ? "Banner Printing" : expense.category}</td>
+                        <td>{expense.clientName || "Internal Agency"}</td>
+                        <td>{money(expense.amount)}</td>
+                        <td style={{ color: "#1f6a53" }}>{money(paid)}</td>
+                        <td style={{ color: balance > 0 ? "#9a493d" : "#1f6a53", fontWeight: 700 }}>
+                          {money(balance)}
+                        </td>
+                        <td>
+                          <span style={{
+                            padding: "2px 6px",
+                            borderRadius: "3px",
+                            fontSize: "10.5px",
+                            fontWeight: 700,
+                            backgroundColor: balance > 0 ? "#fef2f2" : "#f0fdf4",
+                            color: balance > 0 ? "#b91c1c" : "#15803d",
+                          }}>
+                            {balance > 0 ? "Payable" : "Cleared"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+              ) : (
+                <tr>
+                  <td colSpan={10} style={{ textAlign: "center", padding: "20px" }}>
+                    No maintenance records found in the selected period / category
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: "#f8faf9", fontWeight: 700 }}>
+                <td colSpan={6} style={{ textAlign: "right", padding: "10px" }}>
+                  Grand Total ({records.length} records):
+                </td>
+                <td>{money(totalBilled)}</td>
+                <td>{money(totalPaid)}</td>
+                <td style={{ color: "#9a493d", fontSize: "14px" }}>{money(totalBalance)}</td>
+                <td>—</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <section className="op-invoice-total">
+            <p>
+              <span>Total Remaining Supplier Payable Balance</span>
+              <strong style={{ color: "#9a493d" }}>
+                {money(totalBalance)}
+              </strong>
+            </p>
+          </section>
+
+          <footer className="invoice-footer">
+            <div>
+              <h3>MMT Agency Fleet & Maintenance Department</h3>
+              <p>All supplier work orders and materials verified against purchase receipts.</p>
+            </div>
+            <div className="invoice-signature">
+              <p>For {store.company.name}</p>
+              <Image
+                className="invoice-signature-mark"
+                src="/sign.png"
+                alt="Authorized Signatory"
+                width={700}
+                height={278}
+              />
+              <b>Authorized Signatory</b>
+            </div>
+          </footer>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+export function MaintenanceOutstandingPrintModal({
+  store,
+  periodLabel,
+  categoryFilter,
+  records,
+  totalBilled,
+  totalPaid,
+  totalBalance,
+  close,
+}: {
+  store: FleetStore;
+  periodLabel: string;
+  categoryFilter: string;
+  records: FleetStore["businessExpenses"];
+  totalBilled: number;
+  totalPaid: number;
+  totalBalance: number;
+  close: () => void;
+}) {
+  return (
+    <div className="invoice-backdrop">
+      <div className="invoice-dialog op-plain-ledger-dialog">
+        <div className="invoice-toolbar">
+          <Button secondary onClick={close}>
+            <X size={17} />
+            Close
+          </Button>
+          <Button onClick={() => window.print()}>
+            <Printer size={17} />
+            Print Outstanding Payables / PDF
+          </Button>
+        </div>
+        <article className="invoice-sheet op-client-statement-sheet">
+          <header className="invoice-brand">
+            <WalletCards size={30} />
+            <h2>{store.company.name}</h2>
+          </header>
+          <h1>MAINTENANCE OUTSTANDING BILLS & PAYABLES STATEMENT</h1>
+          <section className="invoice-company">
+            <p>{store.company.address}</p>
+            <p>
+              Mobile: {store.company.mobile} | Email: {store.company.email}
+            </p>
+          </section>
+          <section className="invoice-meta">
+            <p>
+              <b>Statement Period</b>
+              <br />
+              {periodLabel}
+            </p>
+            <p>
+              <b>Report Generated</b>
+              <br />
+              {fmt(isoToday())}
+            </p>
+            <p className="invoice-bill-to">
+              <b>Outstanding Payables Scope</b>
+              <br />
+              <strong>{records.length} Unpaid Work Record{records.length === 1 ? "" : "s"}</strong>
+              {categoryFilter !== "All" ? ` · Category: ${categoryFilter}` : ""}
+              <br />
+              <span>Pending supplier balances, vendor dues, and contractor payables</span>
+            </p>
+          </section>
+
+          {/* Financial Summary */}
+          <section className="op-client-print-summary" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <p>
+              <span>Total Unpaid Work Invoices</span>
+              <strong>{money(totalBilled)}</strong>
+            </p>
+            <p>
+              <span>Partial Payments Made</span>
+              <strong style={{ color: "#1f6a53" }}>{money(totalPaid)}</strong>
+            </p>
+            <p>
+              <span>Net Balance Due to Pay</span>
+              <strong style={{ color: "#9a493d" }}>{money(totalBalance)}</strong>
+            </p>
+          </section>
+
+          <h2 className="op-print-section-title">Itemized Outstanding Supplier Bills</h2>
+          <table className="invoice-expenses op-client-print-table">
+            <thead>
+              <tr>
+                <th style={{ width: "35px" }}>#</th>
+                <th>Date</th>
+                <th>Supplier / Worker</th>
+                <th>Work Description</th>
+                <th>Category</th>
+                <th>Client / Reference</th>
+                <th>Total Bill</th>
+                <th>Paid So Far</th>
+                <th>Balance Due</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.length ? (
+                [...records]
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .map((expense, index) => {
+                    const paid = supplierPaid(expense);
+                    const balance = supplierBalance(expense);
+                    return (
+                      <tr key={expense.id}>
+                        <td>{index + 1}</td>
+                        <td>{fmt(expense.date)}</td>
+                        <td>
+                          <b>{expense.paidTo || "Unassigned Supplier"}</b>
+                          {expense.reference && (
+                            <>
+                              <br />
+                              <small style={{ color: "#555" }}>{expense.reference}</small>
+                            </>
+                          )}
+                        </td>
+                        <td>
+                          <b>{expense.description}</b>
+                          {expense.purpose && (
+                            <>
+                              <br />
+                              <small style={{ color: "#555" }}>{expense.purpose}</small>
+                            </>
+                          )}
+                        </td>
+                        <td>{expense.category === "Printing" ? "Banner Printing" : expense.category}</td>
+                        <td>{expense.clientName || "Internal Agency"}</td>
+                        <td>{money(expense.amount)}</td>
+                        <td style={{ color: "#1f6a53" }}>{money(paid)}</td>
+                        <td style={{ color: "#9a493d", fontWeight: 700 }}>{money(balance)}</td>
+                        <td>
+                          <span style={{
+                            padding: "2px 6px",
+                            borderRadius: "3px",
+                            fontSize: "10.5px",
+                            fontWeight: 700,
+                            backgroundColor: "#fef2f2",
+                            color: "#b91c1c",
+                          }}>
+                            Pending Due
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+              ) : (
+                <tr>
+                  <td colSpan={10} style={{ textAlign: "center", padding: "20px" }}>
+                    All maintenance bills are settled! No outstanding payables.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: "#f8faf9", fontWeight: 700 }}>
+                <td colSpan={6} style={{ textAlign: "right", padding: "10px" }}>
+                  Grand Total ({records.length} unpaid records):
+                </td>
+                <td>{money(totalBilled)}</td>
+                <td>{money(totalPaid)}</td>
+                <td style={{ color: "#9a493d", fontSize: "14px" }}>{money(totalBalance)}</td>
+                <td>—</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <section className="op-invoice-total">
+            <p>
+              <span>Total Remaining Supplier Payable Balance</span>
+              <strong style={{ color: "#9a493d" }}>
+                {money(totalBalance)}
+              </strong>
+            </p>
+          </section>
+
+          <footer className="invoice-footer">
+            <div>
+              <h3>MMT Agency Fleet & Maintenance Department</h3>
+              <p>Supplier payables reconciliation record.</p>
+            </div>
+            <div className="invoice-signature">
+              <p>For {store.company.name}</p>
+              <Image
+                className="invoice-signature-mark"
+                src="/sign.png"
+                alt="Authorized Signatory"
+                width={700}
+                height={278}
+              />
+              <b>Authorized Signatory</b>
+            </div>
+          </footer>
+        </article>
+      </div>
+    </div>
+  );
+}
+
 export function ReportsView({
   store,
   initialTab = "business",
@@ -411,6 +1431,9 @@ export function ReportsView({
   const [employeeReportFrom, setEmployeeReportFrom] = useState<string>(`${currentMonthStr}-01`);
   const [employeeReportTo, setEmployeeReportTo] = useState<string>(isoToday());
   const [employeeSearch, setEmployeeSearch] = useState<string>("");
+  const [employeeReportSubTab, setEmployeeReportSubTab] = useState<"accounts" | "outstanding">("accounts");
+  const [employeeSummaryPrintOpen, setEmployeeSummaryPrintOpen] = useState(false);
+  const [employeeOutstandingPrintOpen, setEmployeeOutstandingPrintOpen] = useState(false);
   const [selectedEmployeeRecordId, setSelectedEmployeeRecordId] = useState<number | null>(null);
 
   // Client Report Period State
@@ -424,6 +1447,7 @@ export function ReportsView({
   const [clientSearch, setClientSearch] = useState<string>("");
   const [clientCategoryFilter, setClientCategoryFilter] = useState<ClientCategory | "All">("All");
   const [clientReportSubTab, setClientReportSubTab] = useState<"accounts" | "outstandingBills">("accounts");
+  const [clientAccountsPrintOpen, setClientAccountsPrintOpen] = useState(false);
   const [outstandingBillsPrintOpen, setOutstandingBillsPrintOpen] = useState(false);
   const [selectedClientLedgerId, setSelectedClientLedgerId] = useState<number | null>(null);
 
@@ -437,6 +1461,9 @@ export function ReportsView({
   const [maintenanceTo, setMaintenanceTo] = useState<string>(isoToday());
   const [maintenanceSearch, setMaintenanceSearch] = useState<string>("");
   const [maintenanceCategoryFilter, setMaintenanceCategoryFilter] = useState<BusinessExpenseCategory | "All">("All");
+  const [maintenanceReportSubTab, setMaintenanceReportSubTab] = useState<"records" | "outstanding">("records");
+  const [maintenanceSummaryPrintOpen, setMaintenanceSummaryPrintOpen] = useState(false);
+  const [maintenanceOutstandingPrintOpen, setMaintenanceOutstandingPrintOpen] = useState(false);
 
   // Effective Ranges
   const empRange = computeReportRange(employeeReportPeriod, employeeReportMonth, employeeReportQuarter, employeeReportQuarterYear, employeeReportYear, employeeReportFrom, employeeReportTo);
@@ -509,6 +1536,10 @@ export function ReportsView({
       row.status.toLowerCase().includes(q)
     );
   });
+
+  const filteredOutstandingEmployees = filteredEmployeeRows.filter(
+    (row) => row.carryForwardBalance !== 0 || row.advancesInMonth > 0 || getAdvanceOutstanding(store, row.employee.id) > 0
+  );
 
   const empTotalGross = employeeRows.reduce((sum, r) => sum + r.grossEarned, 0);
   const empTotalAdvancesInMonth = employeeRows.reduce((sum, r) => sum + r.advancesInMonth, 0);
@@ -708,6 +1739,13 @@ export function ReportsView({
   const maintTotalPaid = allMaintenanceExpenses.reduce((sum, e) => sum + supplierPaid(e), 0);
   const maintTotalBalance = allMaintenanceExpenses.reduce((sum, e) => sum + supplierBalance(e), 0);
 
+  const filteredOutstandingMaintenance = allMaintenanceExpenses.filter(
+    (e) => supplierBalance(e) > 0
+  );
+  const maintOutstandingTotalBilled = filteredOutstandingMaintenance.reduce((sum, e) => sum + e.amount, 0);
+  const maintOutstandingTotalPaid = filteredOutstandingMaintenance.reduce((sum, e) => sum + supplierPaid(e), 0);
+  const maintOutstandingTotalBalance = filteredOutstandingMaintenance.reduce((sum, e) => sum + supplierBalance(e), 0);
+
   return (
     <>
       <PageHead
@@ -728,6 +1766,30 @@ export function ReportsView({
             : activeReportTab === "maintenance"
             ? "Supplier work, vendor expenses, repairs, payment history, and payable balances"
             : "Revenue, outstanding, expenses, and profit by work category"
+        }
+        printLabel={
+          activeReportTab === "clients"
+            ? clientReportSubTab === "outstandingBills"
+              ? "Print Outstanding List"
+              : "Print Accounts Summary"
+            : activeReportTab === "employees"
+            ? employeeReportSubTab === "outstanding"
+              ? "Print Outstanding Dues"
+              : "Print Employee Summary"
+            : activeReportTab === "maintenance"
+            ? maintenanceReportSubTab === "outstanding"
+              ? "Print Outstanding Payables"
+              : "Print Maintenance Summary"
+            : undefined
+        }
+        onPrint={
+          activeReportTab === "clients"
+            ? () => (clientReportSubTab === "outstandingBills" ? setOutstandingBillsPrintOpen(true) : setClientAccountsPrintOpen(true))
+            : activeReportTab === "employees"
+            ? () => (employeeReportSubTab === "outstanding" ? setEmployeeOutstandingPrintOpen(true) : setEmployeeSummaryPrintOpen(true))
+            : activeReportTab === "maintenance"
+            ? () => (maintenanceReportSubTab === "outstanding" ? setMaintenanceOutstandingPrintOpen(true) : setMaintenanceSummaryPrintOpen(true))
+            : undefined
         }
       />
 
@@ -1420,94 +2482,223 @@ export function ReportsView({
               detail="Settled against salary earnings"
               icon={Check}
             />
-            <Metric
-              label={isEmpAllTime ? "All-Time Net Salary Due" : "Net Salary Due"}
-              value={money(empTotalCarryForward)}
-              detail="Carry forward balance due"
-              icon={TrendingUp}
-            />
+            <div
+              style={{ cursor: "pointer" }}
+              onClick={() => setEmployeeReportSubTab("outstanding")}
+              title="Click to view full Outstanding Dues List"
+            >
+              <Metric
+                label={isEmpAllTime ? "All-Time Net Salary Due" : "Net Salary Due"}
+                value={money(empTotalCarryForward)}
+                detail="Click to view full dues list →"
+                icon={TrendingUp}
+              />
+            </div>
           </section>
 
+          {/* Sub Navigation Tabs: Employee Accounts vs Outstanding Dues List */}
+          <div className="op-salary-tabs" style={{ margin: "16px 0 10px 0" }}>
+            <button
+              type="button"
+              className={employeeReportSubTab === "accounts" ? "active" : ""}
+              onClick={() => setEmployeeReportSubTab("accounts")}
+            >
+              Employee Accounts Summary ({filteredEmployeeRows.length})
+            </button>
+            <button
+              type="button"
+              className={employeeReportSubTab === "outstanding" ? "active" : ""}
+              onClick={() => setEmployeeReportSubTab("outstanding")}
+              style={{
+                backgroundColor: employeeReportSubTab === "outstanding" ? "#b91c1c" : undefined,
+                borderColor: employeeReportSubTab === "outstanding" ? "#b91c1c" : undefined,
+                color: employeeReportSubTab === "outstanding" ? "#ffffff" : undefined,
+                fontWeight: 700,
+              }}
+            >
+              Outstanding Dues List ({filteredOutstandingEmployees.length})
+              {empTotalCarryForward > 0 ? ` · ${money(empTotalCarryForward)} Due` : ""}
+            </button>
+          </div>
+
           {/* Search Toolbar */}
-          <div className="op-toolbar" style={{ marginTop: "18px" }}>
+          <div className="op-toolbar">
             <label className="op-search">
               <Search />
               <input
-                placeholder="Search employee by name, location, or status"
+                placeholder={
+                  employeeReportSubTab === "outstanding"
+                    ? "Search staff with outstanding dues by name, location, or status..."
+                    : "Search employee by name, location, or status..."
+                }
                 value={employeeSearch}
                 onChange={(e) => setEmployeeSearch(e.target.value)}
               />
             </label>
             <p>
-              Showing <b>{filteredEmployeeRows.length}</b> of <b>{employeeRows.length}</b> employees ({empRange.label})
+              {employeeReportSubTab === "outstanding" ? (
+                <>
+                  Showing <b>{filteredOutstandingEmployees.length}</b> staff with pending dues ({empRange.label})
+                </>
+              ) : (
+                <>
+                  Showing <b>{filteredEmployeeRows.length}</b> of <b>{employeeRows.length}</b> employees ({empRange.label})
+                </>
+              )}
             </p>
+            {employeeReportSubTab === "outstanding" ? (
+              <Button secondary onClick={() => setEmployeeOutstandingPrintOpen(true)}>
+                <Printer size={16} />
+                Print Outstanding Dues
+              </Button>
+            ) : (
+              <Button secondary onClick={() => setEmployeeSummaryPrintOpen(true)}>
+                <Printer size={16} />
+                Print Employee Summary
+              </Button>
+            )}
           </div>
 
-          {/* Employee Monthly Payroll Table */}
-          {filteredEmployeeRows.length ? (
-            <Table
-              headers={[
-                "Employee",
-                "Location & Rate",
-                isEmpAllTime ? "Total Attendance" : "Period Attendance",
-                "Salary Earned",
-                "Advance Paid",
-                "Deducted",
-                "Balance Due / Carry",
-                "Status",
-                "",
-              ]}
-            >
-              {filteredEmployeeRows.map((row) => (
-                <Row key={row.employee.id}>
-                  <b>
-                    <button
-                      type="button"
-                      className="op-link-button"
-                      style={{ textDecoration: "none", fontWeight: 700, color: "#14493a", textAlign: "left" }}
-                      onClick={() => setSelectedEmployeeRecordId(row.employee.id)}
-                    >
-                      {row.employee.name}
-                    </button>
-                    <small>ID #{row.employee.id} {row.employee.monthlySalary > 0 ? `· Base ${money(row.employee.monthlySalary)}` : ""}</small>
-                  </b>
-                  <span>
-                    <b>{row.location}</b>
-                    <small>{money(row.dailyRate)}/day</small>
-                  </span>
-                  <span>
-                    <b>{row.presentDays} {row.presentDays === 1 ? "day present" : "days present"}</b>
-                    <small>{row.presentDays > 0 ? `${row.presentDays}d × ${money(row.dailyRate)}` : "No attendance"}</small>
-                  </span>
-                  <strong style={{ color: "#1f6a53" }}>
-                    {money(row.grossEarned)}
-                  </strong>
-                  <span style={{ color: row.advancesInMonth > 0 ? "#9a493d" : "#556760" }}>
-                    <b>{money(row.advancesInMonth)}</b>
-                  </span>
-                  <span style={{ color: row.deductedFromAdvance > 0 ? "#1f6a53" : "#74817d" }}>
-                    <b>{money(row.deductedFromAdvance)}</b>
-                  </span>
-                  <span>
-                    <b style={{ color: row.carryForwardBalance >= 0 ? "#14493a" : "#9a493d", fontSize: "14px" }}>
-                      {row.carryForwardBalance >= 0 ? "+" : "−"}{money(Math.abs(row.carryForwardBalance))}
+          {/* Conditional View Rendering: Outstanding Dues vs Employee Accounts */}
+          {employeeReportSubTab === "outstanding" ? (
+            filteredOutstandingEmployees.length ? (
+              <Table
+                headers={[
+                  "Employee",
+                  "Location & Rate",
+                  "Attendance",
+                  "Gross Earned",
+                  "Advance Paid",
+                  "Deducted",
+                  "Salary Due (Payable)",
+                  "Advance Due (Recoverable)",
+                  "Status",
+                  "",
+                ]}
+              >
+                {filteredOutstandingEmployees.map((row) => (
+                  <Row key={row.employee.id}>
+                    <b>
+                      <button
+                        type="button"
+                        className="op-link-button"
+                        style={{ textDecoration: "none", fontWeight: 700, color: "#14493a", textAlign: "left" }}
+                        onClick={() => setSelectedEmployeeRecordId(row.employee.id)}
+                      >
+                        {row.employee.name}
+                      </button>
+                      <small>ID #{row.employee.id} {row.employee.monthlySalary > 0 ? `· Base ${money(row.employee.monthlySalary)}` : ""}</small>
                     </b>
-                    <small>{row.carryForwardBalance >= 0 ? "Salary Due" : "Advance Due"}</small>
-                  </span>
-                  <Status>{row.status}</Status>
-                  <Button secondary onClick={() => setSelectedEmployeeRecordId(row.employee.id)}>
-                    <FileText size={15} />
-                    View record
-                  </Button>
-                </Row>
-              ))}
-            </Table>
+                    <span>
+                      <b>{row.location}</b>
+                      <small>{money(row.dailyRate)}/day</small>
+                    </span>
+                    <span style={{ textAlign: "center" }}>
+                      <b>{row.presentDays}d</b>
+                    </span>
+                    <strong style={{ color: "#1f6a53" }}>
+                      {money(row.grossEarned)}
+                    </strong>
+                    <span style={{ color: row.advancesInMonth > 0 ? "#9a493d" : "#556760" }}>
+                      <b>{money(row.advancesInMonth)}</b>
+                    </span>
+                    <span style={{ color: row.deductedFromAdvance > 0 ? "#1f6a53" : "#74817d" }}>
+                      <b>{money(row.deductedFromAdvance)}</b>
+                    </span>
+                    <span>
+                      <b style={{ color: "#14493a", fontSize: "14px" }}>
+                        {row.carryForwardBalance > 0 ? `+${money(row.carryForwardBalance)}` : "—"}
+                      </b>
+                      {row.carryForwardBalance > 0 && <small style={{ color: "#14493a", fontWeight: 700 }}>Salary Due</small>}
+                    </span>
+                    <span>
+                      <b style={{ color: "#9a493d", fontSize: "14px" }}>
+                        {row.carryForwardBalance < 0 ? `−${money(Math.abs(row.carryForwardBalance))}` : "—"}
+                      </b>
+                      {row.carryForwardBalance < 0 && <small style={{ color: "#9a493d", fontWeight: 700 }}>Advance Due</small>}
+                    </span>
+                    <Status>{row.status}</Status>
+                    <Button secondary onClick={() => setSelectedEmployeeRecordId(row.employee.id)}>
+                      <FileText size={15} />
+                      View record
+                    </Button>
+                  </Row>
+                ))}
+              </Table>
+            ) : (
+              <div className="op-empty-state">
+                <Check />
+                <h2>No outstanding employee dues</h2>
+                <p>All employee salary payments and advances are fully settled in this period.</p>
+              </div>
+            )
           ) : (
-            <div className="op-empty-state">
-              <UsersRound />
-              <h2>No employees found</h2>
-              <p>Try searching for a different name or clear the search filter.</p>
-            </div>
+            /* Employee Monthly Payroll Table */
+            filteredEmployeeRows.length ? (
+              <Table
+                headers={[
+                  "Employee",
+                  "Location & Rate",
+                  isEmpAllTime ? "Total Attendance" : "Period Attendance",
+                  "Salary Earned",
+                  "Advance Paid",
+                  "Deducted",
+                  "Balance Due / Carry",
+                  "Status",
+                  "",
+                ]}
+              >
+                {filteredEmployeeRows.map((row) => (
+                  <Row key={row.employee.id}>
+                    <b>
+                      <button
+                        type="button"
+                        className="op-link-button"
+                        style={{ textDecoration: "none", fontWeight: 700, color: "#14493a", textAlign: "left" }}
+                        onClick={() => setSelectedEmployeeRecordId(row.employee.id)}
+                      >
+                        {row.employee.name}
+                      </button>
+                      <small>ID #{row.employee.id} {row.employee.monthlySalary > 0 ? `· Base ${money(row.employee.monthlySalary)}` : ""}</small>
+                    </b>
+                    <span>
+                      <b>{row.location}</b>
+                      <small>{money(row.dailyRate)}/day</small>
+                    </span>
+                    <span>
+                      <b>{row.presentDays} {row.presentDays === 1 ? "day present" : "days present"}</b>
+                      <small>{row.presentDays > 0 ? `${row.presentDays}d × ${money(row.dailyRate)}` : "No attendance"}</small>
+                    </span>
+                    <strong style={{ color: "#1f6a53" }}>
+                      {money(row.grossEarned)}
+                    </strong>
+                    <span style={{ color: row.advancesInMonth > 0 ? "#9a493d" : "#556760" }}>
+                      <b>{money(row.advancesInMonth)}</b>
+                    </span>
+                    <span style={{ color: row.deductedFromAdvance > 0 ? "#1f6a53" : "#74817d" }}>
+                      <b>{money(row.deductedFromAdvance)}</b>
+                    </span>
+                    <span>
+                      <b style={{ color: row.carryForwardBalance >= 0 ? "#14493a" : "#9a493d", fontSize: "14px" }}>
+                        {row.carryForwardBalance >= 0 ? "+" : "−"}{money(Math.abs(row.carryForwardBalance))}
+                      </b>
+                      <small>{row.carryForwardBalance >= 0 ? "Salary Due" : "Advance Due"}</small>
+                    </span>
+                    <Status>{row.status}</Status>
+                    <Button secondary onClick={() => setSelectedEmployeeRecordId(row.employee.id)}>
+                      <FileText size={15} />
+                      View record
+                    </Button>
+                  </Row>
+                ))}
+              </Table>
+            ) : (
+              <div className="op-empty-state">
+                <UsersRound />
+                <h2>No employees found</h2>
+                <p>Try searching for a different name or clear the search filter.</p>
+              </div>
+            )
           )}
         </>
       )}
@@ -1880,10 +3071,15 @@ export function ReportsView({
                 </>
               )}
             </p>
-            {clientReportSubTab === "outstandingBills" && (
+            {clientReportSubTab === "outstandingBills" ? (
               <Button secondary onClick={() => setOutstandingBillsPrintOpen(true)}>
                 <Printer size={16} />
                 Print Outstanding List
+              </Button>
+            ) : (
+              <Button secondary onClick={() => setClientAccountsPrintOpen(true)}>
+                <Printer size={16} />
+                Print Accounts Summary
               </Button>
             )}
           </div>
@@ -2325,12 +3521,18 @@ export function ReportsView({
               detail="Opening and installment payments recorded"
               icon={Check}
             />
-            <Metric
-              label="Outstanding Payable"
-              value={money(maintTotalBalance)}
-              detail="Remaining supplier balance to clear"
-              icon={WalletCards}
-            />
+            <div
+              style={{ cursor: "pointer" }}
+              onClick={() => setMaintenanceReportSubTab("outstanding")}
+              title="Click to view full Outstanding Payables List"
+            >
+              <Metric
+                label="Outstanding Payable"
+                value={money(maintTotalBalance)}
+                detail="Click to view full payables list →"
+                icon={WalletCards}
+              />
+            </div>
             <Metric
               label="Work Records"
               value={String(allMaintenanceExpenses.length)}
@@ -2352,90 +3554,211 @@ export function ReportsView({
             ))}
           </div>
 
+          {/* Sub Navigation Tabs: Maintenance Work Summary vs Outstanding Payables List */}
+          <div className="op-salary-tabs" style={{ margin: "16px 0 10px 0" }}>
+            <button
+              type="button"
+              className={maintenanceReportSubTab === "records" ? "active" : ""}
+              onClick={() => setMaintenanceReportSubTab("records")}
+            >
+              Maintenance Work Summary ({allMaintenanceExpenses.length})
+            </button>
+            <button
+              type="button"
+              className={maintenanceReportSubTab === "outstanding" ? "active" : ""}
+              onClick={() => setMaintenanceReportSubTab("outstanding")}
+              style={{
+                backgroundColor: maintenanceReportSubTab === "outstanding" ? "#b91c1c" : undefined,
+                borderColor: maintenanceReportSubTab === "outstanding" ? "#b91c1c" : undefined,
+                color: maintenanceReportSubTab === "outstanding" ? "#ffffff" : undefined,
+                fontWeight: 700,
+              }}
+            >
+              Outstanding Payables List ({filteredOutstandingMaintenance.length})
+              {maintTotalBalance > 0 ? ` · ${money(maintTotalBalance)} Payable` : ""}
+            </button>
+          </div>
+
           {/* Search Toolbar */}
           <div className="op-toolbar">
             <label className="op-search">
               <Search />
               <input
-                placeholder="Search by supplier name, work description, or client..."
+                placeholder={
+                  maintenanceReportSubTab === "outstanding"
+                    ? "Search unpaid supplier bills by name, work, or category..."
+                    : "Search by supplier name, work description, or client..."
+                }
                 value={maintenanceSearch}
                 onChange={(e) => setMaintenanceSearch(e.target.value)}
               />
             </label>
             <p>
-              Showing <b>{allMaintenanceExpenses.length}</b> records
+              {maintenanceReportSubTab === "outstanding" ? (
+                <>
+                  Showing <b>{filteredOutstandingMaintenance.length}</b> unpaid work records ({maintRange.label})
+                </>
+              ) : (
+                <>
+                  Showing <b>{allMaintenanceExpenses.length}</b> records ({maintRange.label})
+                </>
+              )}
             </p>
+            {maintenanceReportSubTab === "outstanding" ? (
+              <Button secondary onClick={() => setMaintenanceOutstandingPrintOpen(true)}>
+                <Printer size={16} />
+                Print Outstanding Payables
+              </Button>
+            ) : (
+              <Button secondary onClick={() => setMaintenanceSummaryPrintOpen(true)}>
+                <Printer size={16} />
+                Print Maintenance Summary
+              </Button>
+            )}
           </div>
 
-          {/* Maintenance Records Table */}
-          {allMaintenanceExpenses.length ? (
-            <Table
-              headers={[
-                "Date",
-                "Supplier / Worker",
-                "Work / Item",
-                "Category",
-                "Client / Reference",
-                "Bill",
-                "Paid",
-                "Balance",
-              ]}
-            >
-              {[...allMaintenanceExpenses]
-                .sort((a, b) => b.date.localeCompare(a.date))
-                .map((expense) => {
-                  const paid = supplierPaid(expense);
-                  const balance = supplierBalance(expense);
-                  return (
-                    <Row key={expense.id}>
-                      <span>{fmt(expense.date)}</span>
-                      <b>
-                        {expense.paidTo || "Unassigned Supplier"}
-                        <small>{expense.reference || "No reference"}</small>
-                      </b>
-                      <span>
-                        <b>{expense.description}</b>
-                        {expense.purpose && <small>{expense.purpose}</small>}
-                      </span>
-                      <span>
-                        <span
-                          style={{
-                            padding: "3px 8px",
-                            borderRadius: "4px",
-                            fontSize: "11px",
-                            fontWeight: 700,
-                            backgroundColor: "#edf4f1",
-                            color: "#185b47",
-                          }}
-                        >
-                          {expense.category === "Printing" ? "Banner Printing" : expense.category}
-                        </span>
-                      </span>
-                      <span>
-                        <b>{expense.clientName || "Internal Agency"}</b>
-                      </span>
-                      <strong>{money(expense.amount)}</strong>
-                      <span style={{ color: "#1f6a53" }}>
-                        <b>{money(paid)}</b>
-                      </span>
-                      <span>
-                        <b style={{ color: balance > 0 ? "#9a493d" : "#1f6a53" }}>
-                          {money(balance)}
+          {/* Conditional View Rendering: Outstanding Payables vs All Maintenance Records */}
+          {maintenanceReportSubTab === "outstanding" ? (
+            filteredOutstandingMaintenance.length ? (
+              <Table
+                headers={[
+                  "Date",
+                  "Supplier / Worker",
+                  "Work / Item",
+                  "Category",
+                  "Client / Reference",
+                  "Total Bill",
+                  "Paid So Far",
+                  "Outstanding Due",
+                  "Status",
+                ]}
+              >
+                {[...filteredOutstandingMaintenance]
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .map((expense) => {
+                    const paid = supplierPaid(expense);
+                    const balance = supplierBalance(expense);
+                    return (
+                      <Row key={expense.id}>
+                        <span>{fmt(expense.date)}</span>
+                        <b>
+                          {expense.paidTo || "Unassigned Supplier"}
+                          <small>{expense.reference || "No reference"}</small>
                         </b>
-                        <small style={{ color: balance > 0 ? "#9a493d" : "#1f6a53" }}>
-                          {balance > 0 ? "Payable" : "Cleared"}
-                        </small>
-                      </span>
-                    </Row>
-                  );
-                })}
-            </Table>
+                        <span>
+                          <b>{expense.description}</b>
+                          {expense.purpose && <small>{expense.purpose}</small>}
+                        </span>
+                        <span>
+                          <span
+                            style={{
+                              padding: "3px 8px",
+                              borderRadius: "4px",
+                              fontSize: "11px",
+                              fontWeight: 700,
+                              backgroundColor: "#edf4f1",
+                              color: "#185b47",
+                            }}
+                          >
+                            {expense.category === "Printing" ? "Banner Printing" : expense.category}
+                          </span>
+                        </span>
+                        <span>
+                          <b>{expense.clientName || "Internal Agency"}</b>
+                        </span>
+                        <strong>{money(expense.amount)}</strong>
+                        <span style={{ color: "#1f6a53" }}>
+                          <b>{money(paid)}</b>
+                        </span>
+                        <span>
+                          <b style={{ color: "#9a493d", fontSize: "14px" }}>
+                            {money(balance)}
+                          </b>
+                          <small style={{ color: "#9a493d", fontWeight: 700 }}>Payable Due</small>
+                        </span>
+                        <Status>Pending Due</Status>
+                      </Row>
+                    );
+                  })}
+              </Table>
+            ) : (
+              <div className="op-empty-state">
+                <Check />
+                <h2>No outstanding supplier payables</h2>
+                <p>All maintenance work records are cleared or no unpaid records match your filters.</p>
+              </div>
+            )
           ) : (
-            <div className="op-empty-state">
-              <Wrench />
-              <h2>No maintenance records found</h2>
-              <p>Try refining your search query or selecting a different month/category.</p>
-            </div>
+            /* Maintenance Records Table */
+            allMaintenanceExpenses.length ? (
+              <Table
+                headers={[
+                  "Date",
+                  "Supplier / Worker",
+                  "Work / Item",
+                  "Category",
+                  "Client / Reference",
+                  "Bill",
+                  "Paid",
+                  "Balance",
+                ]}
+              >
+                {[...allMaintenanceExpenses]
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .map((expense) => {
+                    const paid = supplierPaid(expense);
+                    const balance = supplierBalance(expense);
+                    return (
+                      <Row key={expense.id}>
+                        <span>{fmt(expense.date)}</span>
+                        <b>
+                          {expense.paidTo || "Unassigned Supplier"}
+                          <small>{expense.reference || "No reference"}</small>
+                        </b>
+                        <span>
+                          <b>{expense.description}</b>
+                          {expense.purpose && <small>{expense.purpose}</small>}
+                        </span>
+                        <span>
+                          <span
+                            style={{
+                              padding: "3px 8px",
+                              borderRadius: "4px",
+                              fontSize: "11px",
+                              fontWeight: 700,
+                              backgroundColor: "#edf4f1",
+                              color: "#185b47",
+                            }}
+                          >
+                            {expense.category === "Printing" ? "Banner Printing" : expense.category}
+                          </span>
+                        </span>
+                        <span>
+                          <b>{expense.clientName || "Internal Agency"}</b>
+                        </span>
+                        <strong>{money(expense.amount)}</strong>
+                        <span style={{ color: "#1f6a53" }}>
+                          <b>{money(paid)}</b>
+                        </span>
+                        <span>
+                          <b style={{ color: balance > 0 ? "#9a493d" : "#1f6a53" }}>
+                            {money(balance)}
+                          </b>
+                          <small style={{ color: balance > 0 ? "#9a493d" : "#1f6a53" }}>
+                            {balance > 0 ? "Payable" : "Cleared"}
+                          </small>
+                        </span>
+                      </Row>
+                    );
+                  })}
+              </Table>
+            ) : (
+              <div className="op-empty-state">
+                <Wrench />
+                <h2>No maintenance records found</h2>
+                <p>Try refining your search query or selecting a different month/category.</p>
+              </div>
+            )
           )}
         </>
       )}
@@ -2457,6 +3780,20 @@ export function ReportsView({
         />
       )}
 
+      {clientAccountsPrintOpen && (
+        <ClientAccountsSummaryPrintModal
+          store={store}
+          periodLabel={clientRange.label}
+          categoryFilter={clientCategoryFilter}
+          clients={filteredClientMetrics}
+          totalBilled={clientTotalBilled}
+          totalReceived={clientTotalReceived}
+          totalOutstanding={clientTotalOutstanding}
+          activeCampaigns={clientTotalActiveCampaigns}
+          close={() => setClientAccountsPrintOpen(false)}
+        />
+      )}
+
       {outstandingBillsPrintOpen && (
         <OutstandingBillsPrintModal
           store={store}
@@ -2466,6 +3803,59 @@ export function ReportsView({
           totalReceived={filteredOutstandingBills.reduce((sum, b) => sum + b.paid, 0)}
           totalOutstanding={totalOutstandingBillAmount}
           close={() => setOutstandingBillsPrintOpen(false)}
+        />
+      )}
+
+      {employeeSummaryPrintOpen && (
+        <EmployeeSummaryPrintModal
+          store={store}
+          periodLabel={empRange.label}
+          rows={filteredEmployeeRows}
+          totalGross={empTotalGross}
+          totalAdvances={empTotalAdvancesInMonth}
+          totalDeducted={empTotalDeducted}
+          totalCarryForward={empTotalCarryForward}
+          totalAttendanceDays={empTotalAttendanceDays}
+          close={() => setEmployeeSummaryPrintOpen(false)}
+        />
+      )}
+
+      {employeeOutstandingPrintOpen && (
+        <EmployeeOutstandingPrintModal
+          store={store}
+          periodLabel={empRange.label}
+          rows={filteredOutstandingEmployees}
+          totalGross={empTotalGross}
+          totalAdvances={empTotalAdvancesInMonth}
+          totalDeducted={empTotalDeducted}
+          totalCarryForward={empTotalCarryForward}
+          close={() => setEmployeeOutstandingPrintOpen(false)}
+        />
+      )}
+
+      {maintenanceSummaryPrintOpen && (
+        <MaintenanceSummaryPrintModal
+          store={store}
+          periodLabel={maintRange.label}
+          categoryFilter={maintenanceCategoryFilter}
+          records={allMaintenanceExpenses}
+          totalBilled={maintTotalBilled}
+          totalPaid={maintTotalPaid}
+          totalBalance={maintTotalBalance}
+          close={() => setMaintenanceSummaryPrintOpen(false)}
+        />
+      )}
+
+      {maintenanceOutstandingPrintOpen && (
+        <MaintenanceOutstandingPrintModal
+          store={store}
+          periodLabel={maintRange.label}
+          categoryFilter={maintenanceCategoryFilter}
+          records={filteredOutstandingMaintenance}
+          totalBilled={maintOutstandingTotalBilled}
+          totalPaid={maintOutstandingTotalPaid}
+          totalBalance={maintOutstandingTotalBalance}
+          close={() => setMaintenanceOutstandingPrintOpen(false)}
         />
       )}
     </>

@@ -47,11 +47,15 @@ export function PageHead({
   detail,
   action,
   onAction,
+  printLabel,
+  onPrint,
 }: {
   title: string;
   detail: string;
   action?: string;
   onAction?: () => void;
+  printLabel?: string;
+  onPrint?: () => void;
 }) {
   const printableSupplierLedger = title === "Maintenance payment ledger";
   const printablePayroll = title === "Weekly payroll";
@@ -68,13 +72,19 @@ export function PageHead({
         <h1>{visibleTitle}</h1>
       </div>
       <span className="op-page-head-actions">
-        {printableSupplierLedger && (
+        {onPrint && (
+          <Button secondary onClick={onPrint}>
+            <Printer size={17} />
+            {printLabel || "Print"}
+          </Button>
+        )}
+        {printableSupplierLedger && !onPrint && (
           <Button secondary onClick={() => window.print()}>
             <Printer size={17} />
             Print ledger
           </Button>
         )}
-        {printablePayroll && (
+        {printablePayroll && !onPrint && (
           <Button secondary onClick={() => window.print()}>
             <Printer size={17} />
             Print salary
