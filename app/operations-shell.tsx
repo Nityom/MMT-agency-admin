@@ -1,10 +1,11 @@
 "use client";
 
 import {
-  Banknote, BarChart3, CalendarDays, ChevronDown, FileText, Gauge, Menu,
+  Banknote, BarChart3, CalendarDays, ChevronDown, FileText, Gauge, LogOut, Menu,
   ReceiptText, Truck, UserRound, UsersRound, WalletCards, Wrench, X,
 } from "lucide-react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { useAuth } from "./auth";
 
 export type View = "overview" | "attendance" | "employees" | "employeeExpenses" | "employeeAdvances" | "vehicles" | "vehicleAttendance" | "clients" | "quotations" | "ledgers" | "campaigns" | "payroll" | "billing" | "otherBilling" | "otherBillLedgers" | "expenses" | "selfExpenses" | "maintenance" | "maintenanceLedger" | "maintenanceProfile" | "supplierProfiles" | "bannerPrinting" | "pasting" | "recording" | "purchase" | "labourCharges" | "reports" | "employeeReports" | "clientReports" | "maintenanceReports";
 
@@ -48,5 +49,60 @@ export function OperationsShell({
   setOpenNavSections: Dispatch<SetStateAction<Set<string>>>;
   view: View;
 }) {
-  return <div className="op-shell"><aside className={menu ? "open" : ""}><div className="op-brand"><Gauge/><span><b>MMT Agency</b><small>OPERATIONS</small></span><button onClick={() => setMenu(false)}><X/></button></div><nav>{navSections.map((section) => { const expanded = openNavSections.has(section.label), SectionIcon = section.icon; return <section className={`op-nav-section ${expanded ? "expanded" : ""}`} key={section.label}><button className="op-nav-parent" aria-expanded={expanded} onClick={() => setOpenNavSections((current) => { const next = new Set(current); if (next.has(section.label)) next.delete(section.label); else next.add(section.label); return next; })}><SectionIcon size={20}/><span>{section.label}</span><ChevronDown className="op-nav-chevron" size={17}/></button>{expanded && <div className="op-nav-children">{section.items.map((item) => { const Icon = item.icon; return <button className={view === item.view ? "active" : ""} key={item.key} onClick={() => go(item.view)}><Icon size={18}/><span>{item.label}</span>{item.key === "payroll" && <i>{pendingPayrollCount}</i>}</button>; })}</div>}</section>; })}</nav></aside>{menu && <button className="op-menu-scrim" aria-label="Close navigation" onClick={() => setMenu(false)}/>}<main><header className="op-mobile-head"><button aria-label="Open navigation" onClick={() => setMenu(true)}><Menu/></button><b>MMT Agency</b></header><div className="op-content">{children}</div></main>{dialogContent}</div>;
+  const { logout } = useAuth();
+
+  return (
+    <div className="op-shell">
+      <aside className={menu ? "open" : ""} style={{ display: "flex", flexDirection: "column" }}>
+        <div className="op-brand">
+          <Gauge/>
+          <span><b>MMT Agency</b><small>OPERATIONS</small></span>
+          <button onClick={() => setMenu(false)}><X/></button>
+        </div>
+        <nav style={{ flex: 1 }}>
+          {navSections.map((section) => {
+            const expanded = openNavSections.has(section.label), SectionIcon = section.icon;
+            return (
+              <section className={`op-nav-section ${expanded ? "expanded" : ""}`} key={section.label}>
+                <button className="op-nav-parent" aria-expanded={expanded} onClick={() => setOpenNavSections((current) => { const next = new Set(current); if (next.has(section.label)) next.delete(section.label); else next.add(section.label); return next; })}>
+                  <SectionIcon size={20}/>
+                  <span>{section.label}</span>
+                  <ChevronDown className="op-nav-chevron" size={17}/>
+                </button>
+                {expanded && (
+                  <div className="op-nav-children">
+                    {section.items.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <button className={view === item.view ? "active" : ""} key={item.key} onClick={() => go(item.view)}>
+                          <Icon size={18}/><span>{item.label}</span>
+                          {item.key === "payroll" && <i>{pendingPayrollCount}</i>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </nav>
+        <div className="op-sidebar-foot">
+          <div className="op-sidebar-divider" />
+          <button id="sidebar-logout" className="op-logout-btn" onClick={logout}>
+            <LogOut size={16}/>
+            <span>Log out</span>
+          </button>
+        </div>
+      </aside>
+      {menu && <button className="op-menu-scrim" aria-label="Close navigation" onClick={() => setMenu(false)}/>}
+      <main>
+        <header className="op-mobile-head">
+          <button aria-label="Open navigation" onClick={() => setMenu(true)}><Menu/></button>
+          <b>MMT Agency</b>
+        </header>
+        <div className="op-content">{children}</div>
+      </main>
+      {dialogContent}
+    </div>
+  );
 }
