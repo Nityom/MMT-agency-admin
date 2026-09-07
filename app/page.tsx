@@ -1,18 +1,6 @@
-"use client";
-
-import { AuthProvider, useAuth } from "./auth";
-import LoginPage from "./login-page";
-import OperationsApp from "./operations-app";
-
-function AppRoot() {
-  const { isAuthenticated } = useAuth();
-  return isAuthenticated ? <OperationsApp /> : <LoginPage />;
-}
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return (
-    <AuthProvider>
-      <AppRoot />
-    </AuthProvider>
-  );
+  redirect("/overview");
 }
+

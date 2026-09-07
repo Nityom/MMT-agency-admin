@@ -5,7 +5,9 @@ import {
   FileText, Printer, ReceiptText, Search, Trash2, Truck,
   UsersRound, WalletCards, Wrench, X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { VIEW_TO_SLUG } from "./view-routes";
 import {
   addDays, Bill, BillCharge, BillVehicleLine, BusinessExpenseCategory, CampaignBooking,
   calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange,
@@ -53,9 +55,10 @@ export { SupplierLedgerPrint, SupplierProfilesView, SupplierStatementPrint } fro
 
 type ImportedContact = { id: number; firmName: string; mobile: string; alternatePhone?: string };
 
-export default function OperationsApp() {
+export default function OperationsApp({ initialView = "overview" }: { initialView?: View }) {
+  const router = useRouter();
   const { store, setStore, storageReady } = useFleetStore();
-  const [view, setView] = useState<View>("overview"), [menu, setMenu] = useState(false), [dialog, setDialog] = useState<Dialog>(null), [toast, setToast] = useState(""), [search, setSearch] = useState(""), [clientSearch, setClientSearch] = useState(""), [campaignSearch, setCampaignSearch] = useState(""), [campaignMonth, setCampaignMonth] = useState(""), [ledgerSearch, setLedgerSearch] = useState(""), [billingSearch, setBillingSearch] = useState(""), [clientCampaignFilter, setClientCampaignFilter] = useState<"Search" | "Ongoing" | "Completed">("Search"), [clientCategoryFilter, setClientCategoryFilter] = useState<ClientCategory | "All">("All");
+  const [view, setView] = useState<View>(initialView), [menu, setMenu] = useState(false), [dialog, setDialog] = useState<Dialog>(null), [toast, setToast] = useState(""), [search, setSearch] = useState(""), [clientSearch, setClientSearch] = useState(""), [campaignSearch, setCampaignSearch] = useState(""), [campaignMonth, setCampaignMonth] = useState(""), [ledgerSearch, setLedgerSearch] = useState(""), [billingSearch, setBillingSearch] = useState(""), [clientCampaignFilter, setClientCampaignFilter] = useState<"Search" | "Ongoing" | "Completed">("Search"), [clientCategoryFilter, setClientCategoryFilter] = useState<ClientCategory | "All">("All");
   const [openNavSections, setOpenNavSections] = useState<Set<string>>(() => new Set());
   const [editingEmployeeId, setEditingEmployeeId] = useState<number | null>(null);
   const [editingAdvanceId, setEditingAdvanceId] = useState<number | null>(null);
@@ -99,6 +102,9 @@ export default function OperationsApp() {
   const [advanceSearch, setAdvanceSearch] = useState("");
   const [advanceHistoryEmployeeId, setAdvanceHistoryEmployeeId] = useState<number | null>(null);
 
+  // Sync view state when the URL-driven initialView prop changes
+  // (handles direct URL access, browser back/forward, and page refresh)
+  useEffect(() => { setView(initialView); }, [initialView]);
 
   useEffect(() => {
     if (!storageReady) return;
@@ -271,7 +277,7 @@ export default function OperationsApp() {
     if (invoice?.id === id) setInvoice(null);
     notify("Bill deleted successfully");
   };
-  const go = (next: View) => { setView(next); setMenu(false); setComposeBill(false); };
+  const go = (next: View) => { setView(next); setMenu(false); setComposeBill(false); router.push(`/${VIEW_TO_SLUG[next]}`); };
   const activeEmployees = store.employees.filter((item) => item.status === "Active");
   const attendanceEmployees = store.employees.filter((item) => isEmployeeActiveOnDate(item, attendanceDate));
   const activeEmployeeIds = attendanceEmployees.map((employee) => employee.id);
@@ -1106,10 +1112,10 @@ export default function OperationsApp() {
         store={store}
         initialTab={view === "employeeReports" ? "employees" : view === "clientReports" ? "clients" : view === "maintenanceReports" ? "maintenance" : "business"}
         onTabChange={(tab) => {
-          if (tab === "employees") setView("employeeReports");
-          else if (tab === "clients") setView("clientReports");
-          else if (tab === "maintenance") setView("maintenanceReports");
-          else setView("reports");
+          if (tab === "employees") { setView("employeeReports"); router.push(`/${VIEW_TO_SLUG["employeeReports"]}`); }
+          else if (tab === "clients") { setView("clientReports"); router.push(`/${VIEW_TO_SLUG["clientReports"]}`); }
+          else if (tab === "maintenance") { setView("maintenanceReports"); router.push(`/${VIEW_TO_SLUG["maintenanceReports"]}`); }
+          else { setView("reports"); router.push(`/${VIEW_TO_SLUG["reports"]}`); }
         }}
         reportPeriod={reportPeriod}
         setReportPeriod={setReportPeriod}

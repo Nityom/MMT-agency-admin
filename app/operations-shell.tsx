@@ -100,7 +100,7 @@ export function OperationsShell({
           <button aria-label="Open navigation" onClick={() => setMenu(true)}><Menu/></button>
           <b>MMT Agency</b>
         </header>
-        <div className="op-content">{children}</div>
+        <div className="op-content" key={view}>{children}</div>
       </main>
       {dialogContent}
     </div>

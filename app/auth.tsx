@@ -5,8 +5,14 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 const SESSION_KEY = "mmt_admin_session";
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-const ADMIN_EMAIL = "admin@mmtagency.in";
-const ADMIN_PASSWORD = "Admin@4658";
+const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
+
+if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+  throw new Error(
+    "[auth] NEXT_PUBLIC_ADMIN_EMAIL and NEXT_PUBLIC_ADMIN_PASSWORD must be set in your .env.local file."
+  );
+}
 
 interface Session {
   email: string;
