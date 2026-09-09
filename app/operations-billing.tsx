@@ -18,6 +18,7 @@ import {
   nextBillNumber,
 } from "./fleet-domain";
 import { Button, FormField, Modal } from "./operations-components";
+import { InvoiceHeader } from "./invoice-header";
 import { PageHead } from "./operations-reports";
 import {
   amount,
@@ -1598,17 +1599,10 @@ export function ConsolidatedInvoice({
           </Button>
         </div>
         <article className="invoice-sheet op-invoice op-consolidated-invoice">
-          <header className="invoice-brand">
-            <Gauge size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>CONSOLIDATED INVOICE</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="CONSOLIDATED INVOICE"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Statement Date:</b> {fmt(isoToday())}
@@ -1745,17 +1739,10 @@ export function ConsolidatedInvoice({
           </Button>
         </div>
         <article className="invoice-sheet op-invoice op-consolidated-invoice">
-          <header className="invoice-brand">
-            <Gauge size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>CONSOLIDATED INVOICE</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="CONSOLIDATED INVOICE"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Statement Date:</b> {fmt(isoToday())}
@@ -1901,17 +1888,11 @@ export function Invoice({
           </Button>
         </div>
         <article className="invoice-sheet op-invoice">
-          <header className="invoice-brand">
-            <Gauge size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>{quotation ? "QUOTATION" : "INVOICE"}</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title={quotation ? "QUOTATION" : "INVOICE"}
+            badge={quotation ? "ESTIMATE / QUOTATION" : undefined}
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>{quotation ? "Quotation No:" : "Bill No:"}</b>{" "}
@@ -2139,20 +2120,11 @@ export function CampaignQuotation({
           </Button>
         </div>
         <article className="invoice-sheet op-invoice op-quotation">
-          <header className="invoice-brand">
-            <Gauge size={28} />
-            <div>
-              <h2>{store.company.name}</h2>
-              <p>{store.company.address} · Mobile: {store.company.mobile}</p>
-            </div>
-          </header>
-          <h1>QUOTATION</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="QUOTATION"
+            badge="ESTIMATE / QUOTATION"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Quotation No:</b> QTN-{String(booking.id).padStart(4, "0")}
@@ -2363,14 +2335,11 @@ export function BillReceipt({
           </Button>
         </div>
         <article className="invoice-sheet op-invoice">
-          <header className="invoice-brand">
-            <Gauge size={28} />
-            <div>
-              <h2>{store.company.name}</h2>
-              <p>{store.company.address} · Mobile: {store.company.mobile}</p>
-            </div>
-          </header>
-          <h1>PAYMENT RECEIPT</h1>
+          <InvoiceHeader
+            title="PAYMENT RECEIPT"
+            badge="OFFICIAL RECEIPT"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Receipt No:</b> {receiptNo}

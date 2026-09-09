@@ -3,6 +3,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { addDays, Bill, BillCharge, calculateBillTotal, FleetStore, inclusiveDays } from "./fleet-domain";
 import { Button, Modal, Status } from "./operations-components";
+import { InvoiceHeader } from "./invoice-header";
 import { BillReceipt } from "./operations-billing";
 import {
   billBalance,
@@ -60,17 +61,11 @@ export function ClientLedgerPrintModal({
           </Button>
         </div>
         <article className="invoice-sheet op-client-statement-sheet">
-          <header className="invoice-brand">
-            <ReceiptText size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>CLIENT STATEMENT OF ACCOUNT & LEDGER</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="CLIENT STATEMENT OF ACCOUNT & LEDGER"
+            badge="CLIENT STATEMENT"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Statement Period</b>

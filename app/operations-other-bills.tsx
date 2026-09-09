@@ -31,6 +31,7 @@ import {
   Status,
   Table,
 } from "./operations-components";
+import { InvoiceHeader } from "./invoice-header";
 import { Metric, PageHead } from "./operations-reports";
 import {
   amount,
@@ -414,17 +415,10 @@ function OtherBillPrint({
           </Button>
         </div>
         <article className="invoice-sheet op-invoice op-other-bill-print">
-          <header className="invoice-brand">
-            <Gauge size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>{bill.category.toUpperCase()} BILL</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title={`${bill.category.toUpperCase()} BILL`}
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Bill No:</b> OTH-{String(bill.number).padStart(4, "0")}

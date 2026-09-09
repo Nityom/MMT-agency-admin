@@ -16,6 +16,7 @@ import Image from "next/image";
 import { FormEvent, useState } from "react";
 import { BusinessExpenseCategory, FleetStore } from "./fleet-domain";
 import { Button, FormField, Modal } from "./operations-components";
+import { InvoiceHeader } from "./invoice-header";
 import { Metric, PageHead } from "./operations-reports";
 import {
   amount,
@@ -299,17 +300,11 @@ export function SelfExpensesPrintModal({
           </Button>
         </div>
         <article className="invoice-sheet op-client-statement-sheet">
-          <header className="invoice-brand">
-            <ReceiptText size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>SELF EXPENSES STATEMENT (TRAVEL & STAY)</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="SELF EXPENSES STATEMENT (TRAVEL & STAY)"
+            badge="EXPENSE REPORT"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Statement Period</b>

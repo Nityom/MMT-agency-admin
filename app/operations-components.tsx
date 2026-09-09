@@ -44,7 +44,7 @@ export function PaymentReceiptModal({
         </div>
         <article className="invoice-sheet" style={{ minHeight: "auto", padding: "24px" }}>
           <header className="invoice-brand" style={{ marginBottom: "16px", borderRadius: "6px" }}>
-            <ReceiptText size={32} />
+            <img src="/logo.png" alt="Mrunal Multi Task Agency" />
             <div>
               <h2>{store.company.name}</h2>
               <p>{store.company.address} · {store.company.mobile}</p>

@@ -36,6 +36,7 @@ import {
   type PayrollPreview,
 } from "./fleet-domain";
 import { Actions, AttendanceCalendar, Button, Modal, Row, Status, Table } from "./operations-components";
+import { InvoiceHeader } from "./invoice-header";
 import { Metric, PageHead } from "./operations-reports";
 import { calcEmployeeSettlement, fmt, isoToday, money } from "./operations-utils";
 
@@ -899,21 +900,11 @@ export function SalarySlipModal({
         </div>
 
         <article className="invoice-sheet op-salary-slip-sheet">
-          <header className="invoice-brand">
-            <Gauge size={30} />
-            <div>
-              <h2>{store.company.name}</h2>
-            </div>
-          </header>
-
-          <h1>EMPLOYEE SALARY & ADVANCE STATEMENT</h1>
-
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} &nbsp; | &nbsp; Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="EMPLOYEE SALARY & ADVANCE STATEMENT"
+            badge="SALARY SLIP"
+            company={store.company}
+          />
 
           <section className="invoice-meta">
             <p>

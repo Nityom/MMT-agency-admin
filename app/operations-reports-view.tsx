@@ -34,6 +34,7 @@ import {
   TrendGraph,
 } from "./operations-reports";
 import { Button, Row, Status, Table } from "./operations-components";
+import { InvoiceHeader } from "./invoice-header";
 import { EmployeeRecordModal } from "./operations-records";
 import { ClientLedgerModal } from "./operations-client-ledger";
 import {
@@ -167,17 +168,11 @@ export function OutstandingBillsPrintModal({
           </Button>
         </div>
         <article className="invoice-sheet op-client-statement-sheet">
-          <header className="invoice-brand">
-            <ReceiptText size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>CLIENT OUTSTANDING BILLS & RECEIVABLES STATEMENT</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="CLIENT OUTSTANDING BILLS & RECEIVABLES STATEMENT"
+            badge="RECEIVABLES STATEMENT"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Statement Period</b>
@@ -350,17 +345,11 @@ export function ClientAccountsSummaryPrintModal({
           </Button>
         </div>
         <article className="invoice-sheet op-client-statement-sheet">
-          <header className="invoice-brand">
-            <ReceiptText size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>CLIENT ACCOUNTS FINANCIAL SUMMARY STATEMENT</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="CLIENT ACCOUNTS FINANCIAL SUMMARY STATEMENT"
+            badge="FINANCIAL STATEMENT"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Statement Period</b>
@@ -550,17 +539,11 @@ export function EmployeeSummaryPrintModal({
           </Button>
         </div>
         <article className="invoice-sheet op-client-statement-sheet">
-          <header className="invoice-brand">
-            <UsersRound size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>EMPLOYEE WORKFORCE & SALARY SUMMARY STATEMENT</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="EMPLOYEE WORKFORCE & SALARY SUMMARY STATEMENT"
+            badge="PAYROLL STATEMENT"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Statement Period</b>
@@ -766,17 +749,11 @@ export function EmployeeOutstandingPrintModal({
           </Button>
         </div>
         <article className="invoice-sheet op-client-statement-sheet">
-          <header className="invoice-brand">
-            <WalletCards size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>EMPLOYEE OUTSTANDING SALARY & ADVANCES STATEMENT</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="EMPLOYEE OUTSTANDING SALARY & ADVANCES STATEMENT"
+            badge="PAYROLL DUES STATEMENT"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Statement Period</b>
@@ -953,17 +930,11 @@ export function MaintenanceSummaryPrintModal({
           </Button>
         </div>
         <article className="invoice-sheet op-client-statement-sheet">
-          <header className="invoice-brand">
-            <Wrench size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>MAINTENANCE & SUPPLIER WORK EXPENSES STATEMENT</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="MAINTENANCE & SUPPLIER WORK EXPENSES STATEMENT"
+            badge="EXPENSE STATEMENT"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Statement Period</b>
@@ -1158,17 +1129,11 @@ export function MaintenanceOutstandingPrintModal({
           </Button>
         </div>
         <article className="invoice-sheet op-client-statement-sheet">
-          <header className="invoice-brand">
-            <WalletCards size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>MAINTENANCE OUTSTANDING BILLS & PAYABLES STATEMENT</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="MAINTENANCE OUTSTANDING BILLS & PAYABLES STATEMENT"
+            badge="PAYABLES STATEMENT"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Statement Period</b>

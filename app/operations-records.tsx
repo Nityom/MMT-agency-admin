@@ -7,6 +7,7 @@ import {
   addDays, Bill, BillCharge, calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange, FleetStore, getAdvanceOutstanding, getEmployeeAdvancesWithRecoveries, getEmployeeCurrentStatus, groupAttendanceRanges, inclusiveDays, rateOnDate,
 } from "./fleet-domain";
 import { Button, Modal, Status } from "./operations-components";
+import { InvoiceHeader } from "./invoice-header";
 import {
   billBalance, billPaid, bookingEnd, bookingStatus, bookingVehicleLines,
   calcEmployeeSettlement, campaignSlotKey, fmt, isoToday, money,
@@ -94,17 +95,11 @@ export function EmployeeRecordPrintModal({
           </Button>
         </div>
         <article className="invoice-sheet op-client-statement-sheet">
-          <header className="invoice-brand">
-            <ReceiptText size={30} />
-            <h2>{store.company.name}</h2>
-          </header>
-          <h1>EMPLOYEE STATEMENT OF ACCOUNT & LEDGER</h1>
-          <section className="invoice-company">
-            <p>{store.company.address}</p>
-            <p>
-              Mobile: {store.company.mobile} | Email: {store.company.email}
-            </p>
-          </section>
+          <InvoiceHeader
+            title="EMPLOYEE STATEMENT OF ACCOUNT & LEDGER"
+            badge="EMPLOYEE LEDGER"
+            company={store.company}
+          />
           <section className="invoice-meta">
             <p>
               <b>Statement Period</b>
