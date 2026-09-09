@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, useConvex } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
 import { emptyStore, FleetStore, migrateStore } from "./fleet-domain";
@@ -120,13 +120,14 @@ async function runMutationQueue(tasks: (() => Promise<unknown>)[]) {
 export function useFleetStore() {
   const [store, setStore] = useState<FleetStore>(emptyStore);
   const [storageReady, setStorageReady] = useState(false);
-  const [targetRevision, setTargetRevision] = useState<number | null>(null);
 
+  // Only getRevision is a live reactive query — reads a single row, very cheap.
   const remoteRevision = useQuery(api.adminStore.getRevision, { key: STORE_KEY });
-  const remoteStore = useQuery(
-    api.adminStore.get,
-    targetRevision !== null ? { key: STORE_KEY } : "skip",
-  );
+
+  // Use the Convex client for one-shot (non-reactive) fetches of the full store.
+  // adminStore.get will NEVER be maintained as a live Convex subscription,
+  // so Convex will NOT re-run the expensive 19-table scan on every local mutation.
+  const convex = useConvex();
 
   const saveSettings = useMutation(api.adminStore.saveSettings);
   const saveEntities = useMutation(api.adminStore.saveEntities);
@@ -136,11 +137,18 @@ export function useFleetStore() {
   const revision = useRef<number | null>(null);
   const saveQueue = useRef(Promise.resolve());
   const initialMount = useRef(true);
+  // Track which revision is currently being fetched to prevent duplicate concurrent fetches.
+  const fetchingRevision = useRef<number | null>(null);
 
-  // Initial load from cache or trigger remote load
+  // Load store whenever the remote revision differs from what we have locally.
   useEffect(() => {
     if (remoteRevision === undefined) return;
+    // Already up to date — nothing to do.
+    if (remoteRevision === revision.current) return;
+    // Already fetching this exact revision — wait for it.
+    if (fetchingRevision.current === remoteRevision) return;
 
+    // On first load, try localStorage cache before doing any network call.
     if (initialMount.current) {
       initialMount.current = false;
       const cached = readStoreCache();
@@ -153,35 +161,38 @@ export function useFleetStore() {
       }
     }
 
-    // If remote revision differs from what we currently have
-    if (remoteRevision !== revision.current) {
-      setTargetRevision(remoteRevision);
-    }
-  }, [remoteRevision]);
+    // One-shot fetch — NOT a live subscription.
+    // adminStore.get is called exactly once per revision change, not kept open.
+    fetchingRevision.current = remoteRevision;
+    const targetRevision = remoteRevision;
+    convex.query(api.adminStore.get, { key: STORE_KEY }).then((remoteStore: Awaited<ReturnType<typeof convex.query<typeof api.adminStore.get>>>) => {
+      fetchingRevision.current = null;
+      if (!remoteStore) return;
 
-  // When remote store data arrives from Convex
+      let loadedStore = emptyStore;
+      try {
+        loadedStore = migrateStore(JSON.parse(remoteStore.payload), emptyStore);
+      } catch {
+        loadedStore = emptyStore;
+      }
+
+      persisted.current = createSnapshot(loadedStore);
+      revision.current = targetRevision;
+      writeStoreCache(loadedStore, targetRevision);
+      setStore(loadedStore);
+      setStorageReady(true);
+    }).catch((error: unknown) => {
+      fetchingRevision.current = null;
+      console.error("Unable to load admin store from Convex", error);
+    });
+  }, [remoteRevision, convex]);
+
+  // Auto-save local changes to Convex.
   useEffect(() => {
-    if (targetRevision === null || remoteStore === undefined || remoteStore === null) return;
-
-    let loadedStore = emptyStore;
-    try {
-      loadedStore = migrateStore(JSON.parse(remoteStore.payload), emptyStore);
-    } catch {
-      loadedStore = emptyStore;
-    }
-
-    persisted.current = createSnapshot(loadedStore);
-    revision.current = targetRevision;
-    writeStoreCache(loadedStore, targetRevision);
-    setStore(loadedStore);
-    setStorageReady(true);
-    setTargetRevision(null);
-  }, [remoteStore, targetRevision]);
-
-  // Auto-save local changes to Convex
-  useEffect(() => {
-    if (!storageReady || targetRevision !== null) return;
+    if (!storageReady) return;
     const timeout = window.setTimeout(() => {
+      // Skip saving while a remote load is in flight.
+      if (fetchingRevision.current !== null) return;
       const nextStore = store;
       saveQueue.current = saveQueue.current.then(async () => {
         const previous = persisted.current;
@@ -224,6 +235,8 @@ export function useFleetStore() {
 
         await runMutationQueue(mutations);
 
+        // Update local revision so that when getRevision returns this updatedAt value,
+        // the load effect skips the reload — we already have the latest data locally.
         persisted.current = createSnapshot(nextStore);
         revision.current = updatedAt;
         writeStoreCache(nextStore, updatedAt);
@@ -232,7 +245,7 @@ export function useFleetStore() {
       });
     }, SAVE_DELAY_MS);
     return () => window.clearTimeout(timeout);
-  }, [deleteEntities, saveEntities, saveSettings, storageReady, store, targetRevision]);
+  }, [deleteEntities, saveEntities, saveSettings, storageReady, store]);
 
   return { store, setStore, storageReady };
 }
