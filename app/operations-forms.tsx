@@ -236,12 +236,12 @@ export function EntryForm({
           ]
         : store.employeeRates;
       const inputStatus = (input(data, "status") || (editingEmployee ? editingEmployee.status : "Active")) as "Active" | "Inactive";
-      // Only accept a future date for scheduling; past/today dates are ignored
+      // Save the date if it's today or in the future; discard past dates
       const activeFromRaw = input(data, "activeFrom") || undefined;
       const inactiveFromRaw = input(data, "inactiveFrom") || undefined;
-      const activeFrom = activeFromRaw && activeFromRaw > isoToday() ? activeFromRaw : undefined;
-      const inactiveFrom = inactiveFromRaw && inactiveFromRaw > isoToday() ? inactiveFromRaw : undefined;
-      // The dropdown selection is the immediate status; optional dates only schedule a future flip
+      const activeFrom = activeFromRaw && activeFromRaw >= isoToday() ? activeFromRaw : undefined;
+      const inactiveFrom = inactiveFromRaw && inactiveFromRaw >= isoToday() ? inactiveFromRaw : undefined;
+      // The dropdown selection is the immediate status; the domain functions use activeFrom/inactiveFrom to compute the real current status
       const finalStatus: "Active" | "Inactive" = inputStatus;
 
       updated = {

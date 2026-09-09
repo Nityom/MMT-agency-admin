@@ -18,25 +18,26 @@ export type Employee = {
 };
 
 export function isEmployeeActiveOnDate(employee: Employee, date: ISODate): boolean {
+  // If a future active-date hasn't arrived yet, employee is not yet active
   if (employee.activeFrom && date < employee.activeFrom) return false;
+  // If an inactive date has been reached or passed, employee is inactive
   if (employee.inactiveFrom && date >= employee.inactiveFrom) return false;
-  if (employee.status === "Inactive" && !employee.activeFrom) return false;
-  if (employee.status === "Inactive" && (!employee.inactiveFrom || date >= employee.inactiveFrom)) return false;
-  return true;
+  // If status is Inactive but an activeFrom date exists and has been reached, treat as active
+  if (employee.activeFrom && date >= employee.activeFrom) return true;
+  // Fall back to the stored status
+  return employee.status === "Active";
 }
 
 export function getEmployeeCurrentStatus(employee: Employee, asOfDate?: ISODate): EmployeeStatus {
   const date = asOfDate || (typeof window !== "undefined" ? new Date().toISOString().slice(0, 10) : "2026-09-01");
-  if (employee.inactiveFrom && date >= employee.inactiveFrom) {
-    return "Inactive";
-  }
-  if (employee.status === "Inactive") {
-    return "Inactive";
-  }
-  if (employee.activeFrom && date < employee.activeFrom) {
-    return "Inactive";
-  }
-  return "Active";
+  // An inactiveFrom date that has been reached overrides everything
+  if (employee.inactiveFrom && date >= employee.inactiveFrom) return "Inactive";
+  // An activeFrom date that has been reached reactivates even an Inactive employee
+  if (employee.activeFrom && date >= employee.activeFrom) return "Active";
+  // A future activeFrom means still inactive until that date
+  if (employee.activeFrom && date < employee.activeFrom) return "Inactive";
+  // Fall back to the stored status
+  return employee.status;
 }
 
 export type EmployeeRate = {
