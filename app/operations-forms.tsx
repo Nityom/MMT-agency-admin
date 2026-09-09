@@ -236,23 +236,13 @@ export function EntryForm({
           ]
         : store.employeeRates;
       const inputStatus = (input(data, "status") || (editingEmployee ? editingEmployee.status : "Active")) as "Active" | "Inactive";
-      const activeFrom = input(data, "activeFrom") || undefined;
-      const inactiveFrom = input(data, "inactiveFrom") || undefined;
-      let finalStatus: "Active" | "Inactive" = inputStatus;
-
-      if (inputStatus === "Inactive") {
-        if (activeFrom && isoToday() >= activeFrom) {
-          finalStatus = "Active";
-        } else {
-          finalStatus = "Inactive";
-        }
-      } else {
-        if (inactiveFrom && isoToday() >= inactiveFrom) {
-          finalStatus = "Inactive";
-        } else {
-          finalStatus = "Active";
-        }
-      }
+      // Only accept a future date for scheduling; past/today dates are ignored
+      const activeFromRaw = input(data, "activeFrom") || undefined;
+      const inactiveFromRaw = input(data, "inactiveFrom") || undefined;
+      const activeFrom = activeFromRaw && activeFromRaw > isoToday() ? activeFromRaw : undefined;
+      const inactiveFrom = inactiveFromRaw && inactiveFromRaw > isoToday() ? inactiveFromRaw : undefined;
+      // The dropdown selection is the immediate status; optional dates only schedule a future flip
+      const finalStatus: "Active" | "Inactive" = inputStatus;
 
       updated = {
         ...store,
@@ -521,6 +511,8 @@ export function EntryForm({
                   name="activeFrom"
                   type="date"
                   defaultValue=""
+                  min={isoToday()}
+                  placeholder={isoToday()}
                 />
               ) : (
                 <FormField
@@ -528,6 +520,8 @@ export function EntryForm({
                   name="inactiveFrom"
                   type="date"
                   defaultValue=""
+                  min={isoToday()}
+                  placeholder={isoToday()}
                 />
               )}
               <FormField
