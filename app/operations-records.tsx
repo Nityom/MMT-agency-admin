@@ -303,13 +303,7 @@ export function EmployeeRecordModal({
   ].sort((left, right) => right.date.localeCompare(left.date));
 
   const currentStatus = getEmployeeCurrentStatus(employee, to || undefined);
-  const statusDateText = currentStatus === "Inactive"
-    ? employee.activeFrom
-      ? `Active from: ${fmt(employee.activeFrom)}`
-      : employee.inactiveFrom
-      ? `Inactive from: ${fmt(employee.inactiveFrom)}`
-      : ""
-    : employee.inactiveFrom
+  const statusDateText = employee.inactiveFrom
     ? `Inactive from: ${fmt(employee.inactiveFrom)}`
     : "";
 

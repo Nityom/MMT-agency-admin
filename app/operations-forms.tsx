@@ -236,12 +236,8 @@ export function EntryForm({
           ]
         : store.employeeRates;
       const inputStatus = (input(data, "status") || (editingEmployee ? editingEmployee.status : "Active")) as "Active" | "Inactive";
-      // Save the date if it's today or in the future; discard past dates
-      const activeFromRaw = input(data, "activeFrom") || undefined;
       const inactiveFromRaw = input(data, "inactiveFrom") || undefined;
-      const activeFrom = activeFromRaw && activeFromRaw >= isoToday() ? activeFromRaw : undefined;
-      const inactiveFrom = inactiveFromRaw && inactiveFromRaw >= isoToday() ? inactiveFromRaw : undefined;
-      // The dropdown selection is the immediate status; the domain functions use activeFrom/inactiveFrom to compute the real current status
+      const inactiveFrom = inactiveFromRaw || undefined;
       const finalStatus: "Active" | "Inactive" = inputStatus;
 
       updated = {
@@ -254,7 +250,7 @@ export function EntryForm({
                     name: input(data, "name"),
                     status: finalStatus,
                     monthlySalary: amount(data, "monthlySalary"),
-                    activeFrom,
+                    activeFrom: undefined,
                     inactiveFrom,
                   }
                 : employee,
@@ -266,7 +262,6 @@ export function EntryForm({
                 name: input(data, "name"),
                 status: finalStatus,
                 monthlySalary: amount(data, "monthlySalary"),
-                activeFrom,
                 inactiveFrom,
               },
             ],
@@ -505,25 +500,13 @@ export function EntryForm({
               />
             </div>
             <div className="op-form-grid">
-              {employeeStatus === "Inactive" ? (
-                <FormField
-                  label="Active date (Optional)"
-                  name="activeFrom"
-                  type="date"
-                  defaultValue=""
-                  min={isoToday()}
-                  placeholder={isoToday()}
-                />
-              ) : (
-                <FormField
-                  label="Inactive date (Optional)"
-                  name="inactiveFrom"
-                  type="date"
-                  defaultValue=""
-                  min={isoToday()}
-                  placeholder={isoToday()}
-                />
-              )}
+              <FormField
+                key={`inactive-${editingEmployee?.id ?? "new"}`}
+                label="Inactive date (Optional)"
+                name="inactiveFrom"
+                type="date"
+                defaultValue={editingEmployee?.inactiveFrom ?? ""}
+              />
               <FormField
                 label={editingEmployee ? "Rate effective from" : "Rate effective from"}
                 name="effectiveFrom"

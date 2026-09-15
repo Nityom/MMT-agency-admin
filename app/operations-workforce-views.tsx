@@ -270,7 +270,7 @@ export function EmployeesView({
           "Employee",
           "Current location",
           "Daily rate",
-          "Inactive / Active date",
+          "Inactive date",
           "Overall balance",
           "Effective from",
           "Status",
@@ -280,13 +280,7 @@ export function EmployeesView({
         {employeeRows.map(({ employee, rate }) => {
           const overallBalance = calculateEmployeeLedger(store, employee.id).remainingBalance;
           const currentStatus = getEmployeeCurrentStatus(employee);
-          const scheduleText = currentStatus === "Inactive"
-            ? employee.activeFrom
-              ? `Active: ${fmt(employee.activeFrom)}`
-              : employee.inactiveFrom
-              ? `Inactive: ${fmt(employee.inactiveFrom)}`
-              : "—"
-            : employee.inactiveFrom
+          const scheduleText = employee.inactiveFrom
             ? `Inactive: ${fmt(employee.inactiveFrom)}`
             : "—";
           return (
