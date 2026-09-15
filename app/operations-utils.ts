@@ -98,7 +98,21 @@ export const campaignMonthOptions = (bookings: CampaignBooking[]) => Array.from(
   }
   return months;
 }))).sort((left, right) => right.localeCompare(left));
-export const bookingStatus = (booking: CampaignBooking) => booking.generatedBillId ? "Billed" : isoToday() < booking.startDate ? "Scheduled" : isoToday() >= bookingEnd(booking) ? booking.stoppedAt ? "Stopped" : "Completed" : "Active";
+export const bookingStatus = (booking: CampaignBooking, store?: FleetStore) => {
+  if (store) {
+    const hasCurrentBill = findCampaignBillForRange(store, booking, booking.startDate, bookingEnd(booking));
+    if (hasCurrentBill) return "Billed";
+  } else if (booking.generatedBillId) {
+    return "Billed";
+  }
+  return isoToday() < booking.startDate
+    ? "Scheduled"
+    : isoToday() >= bookingEnd(booking)
+      ? booking.stoppedAt
+        ? "Stopped"
+        : "Completed"
+      : "Active";
+};
 export const vehiclePresentDays = (store: FleetStore, vehicleId: number, from: string, to: string) => Object.entries(store.vehicleAttendance).filter(([date, attendance]) => date >= from && date <= to && attendance[vehicleId]).length;
 export const campaignSlotKey = (bookingId: number, periodId: number, slotIndex: number) => `${bookingId}:${periodId}:${slotIndex}`;
 export const campaignSlotPresentDays = (store: FleetStore, bookingId: number, periodId: number, slotIndex: number, from: string, to: string, legacyVehicleId?: number) => Array.from({ length: inclusiveDays(from, to) }, (_, offset) => addDays(from, offset)).filter((date) => store.campaignAttendance[date]?.[campaignSlotKey(bookingId, periodId, slotIndex)] ?? (legacyVehicleId ? store.vehicleAttendance[date]?.[legacyVehicleId] : false)).length;
@@ -115,8 +129,8 @@ export const findCampaignBillForRange = (store: FleetStore, booking: CampaignBoo
   if (booking.generatedBillId) {
     const direct = store.bills.find((b) => b.id === booking.generatedBillId);
     if (direct) {
-      const lineMatch = direct.vehicleLines.some((l) => l.startDate === fromDate && l.endDate === toDate);
-      if (lineMatch || (fromDate === booking.startDate && toDate === bookingEnd(booking))) {
+      const lineMatch = direct.vehicleLines.some((l) => (l.startDate === fromDate && l.endDate === toDate) || (l.startDate <= fromDate && l.endDate >= toDate));
+      if (lineMatch) {
         return direct;
       }
     }
@@ -124,7 +138,7 @@ export const findCampaignBillForRange = (store: FleetStore, booking: CampaignBoo
   const bookingVehicleBill = store.bills.find((bill) =>
     bill.vehicleLines.some((line) => {
       const isLinked = line.vehicleId < 0 && Math.floor(Math.abs(line.vehicleId) / 10000) === booking.id;
-      return isLinked && line.startDate === fromDate && line.endDate === toDate;
+      return isLinked && ((line.startDate === fromDate && line.endDate === toDate) || (line.startDate <= fromDate && line.endDate >= toDate));
     })
   );
   if (bookingVehicleBill) return bookingVehicleBill;
@@ -133,7 +147,7 @@ export const findCampaignBillForRange = (store: FleetStore, booking: CampaignBoo
   return store.bills.find((bill) => {
     const isSameClient = bill.clientId === actualClientId || (clientFirm && bill.client?.firmName?.trim().toLowerCase() === clientFirm);
     if (!isSameClient) return false;
-    return bill.vehicleLines.some((line) => line.startDate === fromDate && line.endDate === toDate);
+    return bill.vehicleLines.some((line) => (line.startDate === fromDate && line.endDate === toDate) || (line.startDate <= fromDate && line.endDate >= toDate));
   });
 };
 export const findAllCampaignBills = (store: FleetStore, booking: CampaignBooking): Bill[] => {

@@ -1437,21 +1437,19 @@ export function CampaignBillModeModal({
           </div>
         )}
 
-        {!currentExistingBill && (
-          <label className="op-field">
-            <span>Payment Mode</span>
-            <select
-              value={paymentMode}
-              onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
-            >
-              <option>Cash</option>
-              <option>UPI</option>
-              <option>Cheque</option>
-              <option>Bank transfer</option>
-              <option>Online</option>
-            </select>
-          </label>
-        )}
+        <label className="op-field">
+          <span>Payment Mode</span>
+          <select
+            value={paymentMode}
+            onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+          >
+            <option>Cash</option>
+            <option>UPI</option>
+            <option>Cheque</option>
+            <option>Bank transfer</option>
+            <option>Online</option>
+          </select>
+        </label>
 
         <footer>
           <Button secondary onClick={close}>
@@ -1463,9 +1461,41 @@ export function CampaignBillModeModal({
               View bill
             </Button>
           )}
+          {currentExistingBill && (
+            <Button
+              secondary
+              onClick={() => {
+                if (scope === "monthly" && monthlyPeriods[selectedPeriodIdx]) {
+                  const p = monthlyPeriods[selectedPeriodIdx];
+                  generate(paymentMode, {
+                    billScope: "monthly",
+                    fromDate: p.from,
+                    toDate: p.to,
+                    billLabel: p.label,
+                  });
+                } else if (scope === "custom") {
+                  generate(paymentMode, {
+                    billScope: "custom",
+                    fromDate: customFrom,
+                    toDate: customTo,
+                    billLabel: `${fmt(customFrom)} to ${fmt(customTo)}`,
+                  });
+                } else {
+                  generate(paymentMode, {
+                    billScope: "full",
+                    fromDate: booking.startDate,
+                    toDate: endDate,
+                  });
+                }
+              }}
+            >
+              <FileText size={17} />
+              Generate new bill anyway
+            </Button>
+          )}
           <Button onClick={handleGenerate}>
             <FileText size={17} />
-            {currentExistingBill ? `Edit existing bill (INV-${String(currentExistingBill.number).padStart(4, "0")})` : "Generate Bill"}
+            {currentExistingBill ? `Edit existing bill (INV-${String(currentExistingBill.number).padStart(4, "0")})` : `Generate Bill (${fmt(effectiveFrom)} to ${fmt(effectiveTo)})`}
           </Button>
         </footer>
       </div>

@@ -61,6 +61,10 @@ export function CampaignBookingForm({
   const initialEndDate =
     booking?.endDate ??
     `${initialMonth}-${new Date(Number(initialMonth.slice(0, 4)), Number(initialMonth.slice(5, 7)), 0).getDate()}`;
+  const clientById = booking?.clientId
+    ? store.clients.find((c) => c.id === booking.clientId)
+    : undefined;
+
   const clientByFirm = booking?.client?.firmName
     ? store.clients.find(
         (c) =>
@@ -69,32 +73,27 @@ export function CampaignBookingForm({
       )
     : undefined;
 
-  const clientById = booking?.clientId
-    ? store.clients.find((c) => c.id === booking.clientId)
+  const cleanBookingMobile = (booking?.client?.mobile ?? "").replace(/\D/g, "");
+  const clientByMobile = cleanBookingMobile.length >= 5
+    ? store.clients.find((c) => {
+        const m = (c.mobile ?? "").replace(/\D/g, "");
+        const a = (c.alternatePhone ?? "").replace(/\D/g, "");
+        return (m && (m === cleanBookingMobile || cleanBookingMobile.endsWith(m) || m.endsWith(cleanBookingMobile))) ||
+               (a && (a === cleanBookingMobile || cleanBookingMobile.endsWith(a) || a.endsWith(cleanBookingMobile)));
+      })
     : undefined;
 
-  const matchedBookingClient =
-    clientByFirm ??
-    (booking?.client?.firmName &&
-    clientById &&
-    clientById.firmName.trim().toLowerCase() !==
-      booking.client.firmName.trim().toLowerCase()
-      ? undefined
-      : clientById);
+  const matchedBookingClient = clientById ?? clientByFirm ?? clientByMobile;
 
   const [clientId, setClientId] = useState(
     matchedBookingClient?.id ??
       booking?.clientId ??
-      store.clients.find((client) => client.status === "Active")?.id ??
       0,
   );
-  const [clientQuery, setClientQuery] = useState(
-    booking ? booking.client.mobile || booking.client.firmName : "",
-  );
+  const [clientQuery, setClientQuery] = useState("");
   const [campaignClientName, setCampaignClientName] = useState(
     booking?.client.firmName ??
       matchedBookingClient?.firmName ??
-      store.clients.find((client) => client.status === "Active")?.firmName ??
       "",
   );
   const [clientResultLimit, setClientResultLimit] = useState(100);
@@ -122,18 +121,43 @@ export function CampaignBookingForm({
   );
   const [formError, setFormError] = useState("");
   const client =
-    store.clients.find((item) => item.id === clientId) ?? matchedBookingClient;
+    store.clients.find((item) => item.id === clientId) ??
+    matchedBookingClient ??
+    (booking
+      ? {
+          id: booking.clientId || 0,
+          firmName: campaignClientName || booking.client.firmName,
+          ownerName: booking.client.ownerName || "",
+          address: booking.client.address || "",
+          mobile: booking.client.mobile || "",
+          email: booking.client.email || "",
+          categories: [],
+          status: "Active" as const,
+        }
+      : undefined);
   const normalizedClientQuery = clientQuery.trim().toLowerCase();
+  const cleanDigits = clientQuery.replace(/\D/g, "");
   const matchingClients = store.clients
-    .filter((item) => item.status === "Active" || item.id === booking?.clientId)
-    .filter(
-      (item) =>
-        !normalizedClientQuery ||
-        `${item.firmName} ${item.ownerName} ${item.mobile} ${item.alternatePhone ?? ""}`
-          .toLowerCase()
-          .includes(normalizedClientQuery),
-    );
-  const clientMatches = matchingClients.slice(0, clientResultLimit);
+    .filter((item) => item.status === "Active" || item.id === booking?.clientId || (!normalizedClientQuery && item.id === clientId))
+    .filter((item) => {
+      if (!normalizedClientQuery) return true;
+      const textMatch = `${item.firmName} ${item.ownerName} ${item.mobile} ${item.alternatePhone ?? ""}`
+        .toLowerCase()
+        .includes(normalizedClientQuery);
+      if (textMatch) return true;
+      if (cleanDigits.length >= 5) {
+        const m = (item.mobile ?? "").replace(/\D/g, "");
+        const a = (item.alternatePhone ?? "").replace(/\D/g, "");
+        return (m && (m.includes(cleanDigits) || cleanDigits.includes(m))) ||
+               (a && (a.includes(cleanDigits) || cleanDigits.includes(a)));
+      }
+      return false;
+    });
+  const rawMatches = matchingClients.slice(0, clientResultLimit);
+  const selectedStoreClient = store.clients.find((item) => item.id === clientId);
+  const clientMatches = !normalizedClientQuery && selectedStoreClient && !rawMatches.some((item) => item.id === selectedStoreClient.id)
+    ? [selectedStoreClient, ...rawMatches]
+    : rawMatches;
   const updateFacility = (index: number, patch: Partial<ChargeDraft>) =>
     setFacilities((current) =>
       current.map((facility, itemIndex) =>
@@ -260,14 +284,20 @@ export function CampaignBookingForm({
             onChange={(event) => {
               const nextClientId = Number(event.target.value);
               setClientId(nextClientId);
-              setCampaignClientName(
-                store.clients.find((item) => item.id === nextClientId)
-                  ?.firmName ?? "",
-              );
+              const selected = store.clients.find((item) => item.id === nextClientId);
+              if (selected) {
+                setCampaignClientName(selected.firmName);
+              } else {
+                setCampaignClientName("");
+              }
             }}
             required
           >
-            <option value="">Select client</option>
+            <option value="">
+              {matchingClients.length
+                ? `Select client (${matchingClients.length} matches)`
+                : "Select client"}
+            </option>
             {clientMatches.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.firmName}
@@ -573,7 +603,7 @@ function LegacyCampaignBookingCard({
   generateBill: () => void;
   viewBill?: (bill: Bill) => void;
 }) {
-  const status = bookingStatus(booking),
+  const status = bookingStatus(booking, store),
     isOngoing =
       !booking.stoppedAt &&
       isoToday() >= booking.startDate &&
@@ -788,7 +818,7 @@ function CampaignSlotCardContent({
         viewBill={viewBill}
       />
     );
-  const status = bookingStatus(booking);
+  const status = bookingStatus(booking, store);
   const isOngoing =
     !booking.stoppedAt &&
     isoToday() >= booking.startDate &&
@@ -1036,12 +1066,12 @@ export function CampaignAttendanceReportModal({
         b.client.firmName.toLowerCase().includes(q) ||
         (b.client.ownerName || "").toLowerCase().includes(q) ||
         b.client.mobile.includes(q) ||
-        bookingStatus(b).toLowerCase().includes(q)
+        bookingStatus(b, store).toLowerCase().includes(q)
       );
     })
     .sort((a, b) => {
-      const statusA = bookingStatus(a);
-      const statusB = bookingStatus(b);
+      const statusA = bookingStatus(a, store);
+      const statusB = bookingStatus(b, store);
       if (statusA === "Active" && statusB !== "Active") return -1;
       if (statusA !== "Active" && statusB === "Active") return 1;
       return b.startDate.localeCompare(a.startDate);
@@ -1089,7 +1119,7 @@ export function CampaignAttendanceReportModal({
             ]}
           >
             {reportCampaigns.map((booking) => {
-              const status = bookingStatus(booking);
+              const status = bookingStatus(booking, store);
               const start = booking.startDate > reportFrom ? booking.startDate : reportFrom;
               const end = bookingEnd(booking) < reportTo ? bookingEnd(booking) : reportTo;
               let presentSlots = 0;
@@ -1196,8 +1226,8 @@ export function CampaignAttendanceView({
     .filter(({ periods }) => periods.length > 0);
 
   const bookings = [...rawBookings].sort((a, b) => {
-    const statusA = bookingStatus(a.booking);
-    const statusB = bookingStatus(b.booking);
+    const statusA = bookingStatus(a.booking, store);
+    const statusB = bookingStatus(b.booking, store);
     if (statusA === "Active" && statusB !== "Active") return -1;
     if (statusA !== "Active" && statusB === "Active") return 1;
     return a.booking.client.firmName.localeCompare(b.booking.client.firmName);
@@ -1306,7 +1336,7 @@ export function CampaignAttendanceView({
                         {fmt(booking.startDate)} to {fmt(bookingEnd(booking))}
                       </p>
                     </div>
-                    <Status>{bookingStatus(booking)}</Status>
+                    <Status>{bookingStatus(booking, store)}</Status>
                   </header>
                   {periods.map((period) => (
                     <section key={period.id}>
