@@ -697,9 +697,9 @@ const defaultCompany: CompanyProfile = {
   pan: "BEYPB6075B",
   bankName: "Bank of India",
   accountName: "Mrunal Multi Task Agency",
-  accountNumber: "23213213213",
-  ifsc: "ABCD000211",
-  branch: "Wardha",
+  accountNumber: "972130110000004",
+  ifsc: "BKID0009721",
+  branch: "MGAHV",
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -724,13 +724,13 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
     const migrated = { ...fallback, ...source } as FleetStore;
     const company = {
       ...migrated.company,
-      name: migrated.company.name === "MMT Agency" ? "Mrunal Multi Task Agency" : migrated.company.name,
+      name: migrated.company.name === "MMT Agency" ? "Mrunal Multi Task Agency" : (migrated.company.name || fallback.company.name),
       pan: migrated.company.pan || fallback.company.pan,
-      accountName: "Mrunal Multi Task Agency",
-      bankName: "Bank of India",
-      branch: "Wardha",
-      accountNumber: "23213213213",
-      ifsc: "ABCD000211",
+      accountName: migrated.company.accountName || "Mrunal Multi Task Agency",
+      bankName: migrated.company.bankName || "Bank of India",
+      branch: (migrated.company.branch && migrated.company.branch !== "Wardha") ? migrated.company.branch : "MGAHV",
+      accountNumber: (migrated.company.accountNumber && migrated.company.accountNumber !== "23213213213") ? migrated.company.accountNumber : "972130110000004",
+      ifsc: (migrated.company.ifsc && migrated.company.ifsc !== "ABCD000211") ? migrated.company.ifsc : "BKID0009721",
     };
     const suppliers = Array.isArray(migrated.suppliers) ? migrated.suppliers : Array.from(new Map(migrated.businessExpenses.map((expense) => expense.paidTo.trim()).filter(Boolean).map((name) => [name.toLowerCase(), name])).values()).map((name, index) => ({ id: index + 1, name, createdAt: new Date().toISOString().slice(0, 10) }));
     return {
