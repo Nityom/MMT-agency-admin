@@ -124,11 +124,21 @@ export function EntryForm({
   const [employeeStatus, setEmployeeStatus] = useState<"Active" | "Inactive">(
     editingEmployee ? getEmployeeCurrentStatus(editingEmployee) : "Active"
   );
+  const [statusDate, setStatusDate] = useState<string>("");
   useEffect(() => {
     if (editingEmployee) {
-      setEmployeeStatus(getEmployeeCurrentStatus(editingEmployee));
+      const currentStatus = getEmployeeCurrentStatus(editingEmployee);
+      setEmployeeStatus(currentStatus);
+      if (currentStatus === "Active") {
+        setStatusDate(editingEmployee.activeFrom ?? "");
+      } else {
+        setStatusDate(editingEmployee.inactiveFrom ?? "");
+      }
+    } else {
+      setEmployeeStatus("Active");
+      setStatusDate("");
     }
-  }, [editingEmployee]);
+  }, [editingEmployee, dialog]);
   const currentEmployeeRate = editingEmployee
     ? rateOnDate(store.employeeRates, editingEmployee.id, isoToday())
     : undefined;
@@ -235,10 +245,10 @@ export function EntryForm({
             },
           ]
         : store.employeeRates;
-      const inputStatus = (input(data, "status") || (editingEmployee ? editingEmployee.status : "Active")) as "Active" | "Inactive";
-      const inactiveFromRaw = input(data, "inactiveFrom") || undefined;
-      const inactiveFrom = inactiveFromRaw || undefined;
-      const finalStatus: "Active" | "Inactive" = inputStatus;
+      const finalStatus = employeeStatus;
+      const dateVal = statusDate.trim() || input(data, finalStatus === "Active" ? "activeFrom" : "inactiveFrom").trim();
+      const activeFrom = finalStatus === "Active" ? (dateVal || undefined) : undefined;
+      const inactiveFrom = finalStatus === "Inactive" ? (dateVal || undefined) : undefined;
 
       updated = {
         ...store,
@@ -250,7 +260,7 @@ export function EntryForm({
                     name: input(data, "name"),
                     status: finalStatus,
                     monthlySalary: amount(data, "monthlySalary"),
-                    activeFrom: undefined,
+                    activeFrom,
                     inactiveFrom,
                   }
                 : employee,
@@ -262,6 +272,7 @@ export function EntryForm({
                 name: input(data, "name"),
                 status: finalStatus,
                 monthlySalary: amount(data, "monthlySalary"),
+                activeFrom,
                 inactiveFrom,
               },
             ],
@@ -476,7 +487,11 @@ export function EntryForm({
                 <select
                   name="status"
                   value={employeeStatus}
-                  onChange={(e) => setEmployeeStatus(e.target.value as "Active" | "Inactive")}
+                  onChange={(e) => {
+                    const nextStatus = e.target.value as "Active" | "Inactive";
+                    setEmployeeStatus(nextStatus);
+                    setStatusDate(isoToday());
+                  }}
                   required
                 >
                   <option value="Active">Active</option>
@@ -500,13 +515,15 @@ export function EntryForm({
               />
             </div>
             <div className="op-form-grid">
-              <FormField
-                key={`inactive-${editingEmployee?.id ?? "new"}`}
-                label="Inactive date (Optional)"
-                name="inactiveFrom"
-                type="date"
-                defaultValue={editingEmployee?.inactiveFrom ?? ""}
-              />
+              <label className="op-field">
+                <span>{employeeStatus === "Active" ? "Active from" : "Inactive from"}</span>
+                <input
+                  name={employeeStatus === "Active" ? "activeFrom" : "inactiveFrom"}
+                  type="date"
+                  value={statusDate}
+                  onChange={(e) => setStatusDate(e.target.value)}
+                />
+              </label>
               <FormField
                 label={editingEmployee ? "Rate effective from" : "Rate effective from"}
                 name="effectiveFrom"

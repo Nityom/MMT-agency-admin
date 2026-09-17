@@ -270,7 +270,7 @@ export function EmployeesView({
           "Employee",
           "Current location",
           "Daily rate",
-          "Inactive date",
+          "Active / Inactive date",
           "Overall balance",
           "Effective from",
           "Status",
@@ -282,7 +282,9 @@ export function EmployeesView({
           const currentStatus = getEmployeeCurrentStatus(employee);
           const scheduleText = employee.inactiveFrom
             ? `Inactive: ${fmt(employee.inactiveFrom)}`
-            : "—";
+            : employee.activeFrom
+              ? `Active: ${fmt(employee.activeFrom)}`
+              : "—";
           return (
             <Row key={employee.id}>
               <button

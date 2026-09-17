@@ -305,7 +305,9 @@ export function EmployeeRecordModal({
   const currentStatus = getEmployeeCurrentStatus(employee, to || undefined);
   const statusDateText = employee.inactiveFrom
     ? `Inactive from: ${fmt(employee.inactiveFrom)}`
-    : "";
+    : employee.activeFrom
+      ? `Active from: ${fmt(employee.activeFrom)}`
+      : "";
 
   return (
     <>

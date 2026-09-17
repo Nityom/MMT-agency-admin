@@ -18,10 +18,22 @@ export type Employee = {
 };
 
 export function isEmployeeActiveOnDate(employee: Employee, date: ISODate): boolean {
-  if (employee.inactiveFrom) {
-    return date < employee.inactiveFrom;
+  if (employee.status === "Inactive") {
+    if (employee.activeFrom && date >= employee.activeFrom) {
+      return true;
+    }
+    if (employee.inactiveFrom && date < employee.inactiveFrom) {
+      return true;
+    }
+    return false;
   }
-  return employee.status === "Active";
+  if (employee.inactiveFrom && date >= employee.inactiveFrom) {
+    return false;
+  }
+  if (employee.activeFrom && date < employee.activeFrom) {
+    return false;
+  }
+  return true;
 }
 
 export function getEmployeeCurrentStatus(employee: Employee, asOfDate?: ISODate): EmployeeStatus {
