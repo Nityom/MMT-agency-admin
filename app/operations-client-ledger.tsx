@@ -17,7 +17,9 @@ import {
   isoToday,
   money,
   otherBillBalance,
+  otherBillCost,
   otherBillPaid,
+  otherBillProfit,
 } from "./operations-utils";
 
 export function ClientLedgerPrintModal({
@@ -309,7 +311,7 @@ export function ClientLedgerModal({
     key: `otherbill-${bill.id}`,
     date: bill.billDate,
     type: `Other Bill #${String(bill.number).padStart(4, "0")} (${bill.category})`,
-    detail: `${bill.items.length} items · Billed ${money(bill.total)} · Balance ${money(otherBillBalance(bill))}`,
+    detail: `${bill.items.length} items · Billed ${money(bill.total)} · Cost ${money(otherBillCost(bill))} · Profit ${money(otherBillProfit(bill))} · Balance ${money(otherBillBalance(bill))}`,
     status: "Billed",
     amount: bill.total,
     isCredit: false,
@@ -424,6 +426,14 @@ export function ClientLedgerModal({
               <span>Overall Present Attendance</span>
               <b style={{ color: "#1f6a53" }}>{overallTotalPresentDays} days</b>
             </p>
+            {overall.otherBillCount > 0 && (
+              <p>
+                <span>Other Bills Profit</span>
+                <b style={{ color: overall.otherBillProfit < 0 ? "#9a493d" : "#1f6a53" }}>
+                  {money(overall.otherBillProfit)}
+                </b>
+              </p>
+            )}
             {totalPresentDays !== overallTotalPresentDays && (
               <p>
                 <span>In-Range Present</span>

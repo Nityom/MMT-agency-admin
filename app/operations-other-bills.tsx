@@ -3,6 +3,7 @@
 import {
   Banknote,
   Check,
+  CircleDollarSign,
   FileText,
   Gauge,
   Plus,
@@ -41,7 +42,9 @@ import {
   money,
   nextId,
   otherBillBalance,
+  otherBillCost,
   otherBillPaid,
+  otherBillProfit,
 } from "./operations-utils";
 
 function OtherBillForm({
@@ -63,7 +66,26 @@ function OtherBillForm({
     bill?.category ?? "Paper",
   );
   const [discount, setDiscount] = useState(bill?.discount ?? 0);
-  const clients = store.clients.filter((client) => `${client.firmName} ${client.ownerName} ${client.mobile}`.toLowerCase().includes(clientSearch.trim().toLowerCase()));
+  const selectedClient =
+    store.clients.find((item) => item.id === clientId) ||
+    (bill && bill.clientId === clientId
+      ? {
+          id: bill.clientId,
+          firmName: bill.client.firmName,
+          ownerName: bill.client.ownerName,
+          address: bill.client.address,
+          mobile: bill.client.mobile,
+          email: bill.client.email,
+        }
+      : store.clients[0]);
+  const normalizedSearch = clientSearch.trim().toLowerCase();
+  const matchingClients = normalizedSearch
+    ? store.clients.filter((client) =>
+        `${client.firmName} ${client.ownerName ?? ""} ${client.mobile ?? ""}`
+          .toLowerCase()
+          .includes(normalizedSearch),
+      )
+    : store.clients;
   const [items, setItems] = useState(
     (
       bill?.items ?? [
@@ -98,7 +120,18 @@ function OtherBillForm({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget),
-      client = store.clients.find((item) => item.id === clientId);
+      client =
+        store.clients.find((item) => item.id === clientId) ||
+        (bill && bill.clientId === clientId
+          ? {
+              id: bill.clientId,
+              firmName: bill.client.firmName,
+              ownerName: bill.client.ownerName,
+              address: bill.client.address,
+              mobile: bill.client.mobile,
+              email: bill.client.email,
+            }
+          : undefined);
     if (
       !client ||
       !items.length ||
@@ -118,7 +151,7 @@ function OtherBillForm({
       id: bill?.id ?? nextId(store.otherBills),
       number: bill?.number ?? store.nextOtherBillNumber,
       billDate: input(data, "billDate"),
-      clientId,
+      clientId: client.id,
       client: {
         firmName: client.firmName,
         ownerName: client.ownerName,
@@ -148,21 +181,109 @@ function OtherBillForm({
     >
       <form className="op-form op-other-bill-form" onSubmit={submit}>
         <div className="op-form-grid">
-          <label className="op-field">
+          <div className="op-field" style={{ position: "relative" }}>
             <span>Client profile</span>
-            <input placeholder="Search client name or number" value={clientSearch} onChange={(event) => setClientSearch(event.target.value)} />
+            <input
+              placeholder="Search client name or number"
+              value={clientSearch}
+              onChange={(event) => setClientSearch(event.target.value)}
+            />
+            {clientSearch.trim() && (
+              <div
+                style={{
+                  maxHeight: 180,
+                  overflowY: "auto",
+                  border: "1px solid #cdd8d3",
+                  borderRadius: 6,
+                  background: "white",
+                  boxShadow: "0 4px 14px rgba(0,0,0,0.12)",
+                  display: "flex",
+                  flexDirection: "column",
+                  marginTop: -2,
+                  zIndex: 20,
+                }}
+              >
+                {matchingClients.length > 0 ? (
+                  matchingClients.slice(0, 15).map((client) => (
+                    <button
+                      key={client.id}
+                      type="button"
+                      onClick={() => {
+                        setClientId(client.id);
+                        setClientSearch("");
+                      }}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        padding: "8px 12px",
+                        border: "none",
+                        borderBottom: "1px solid #f0f2f5",
+                        background: client.id === clientId ? "#e8f4f0" : "transparent",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        width: "100%",
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, color: "#172321", fontSize: 13 }}>
+                        {client.firmName}
+                      </span>
+                      <span style={{ fontSize: 11, color: "#61716b" }}>
+                        {client.ownerName ? `${client.ownerName} · ` : ""}
+                        {client.mobile || "No phone"}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div style={{ padding: "10px 12px", fontSize: 12, color: "#61716b" }}>
+                    No clients matching &quot;{clientSearch}&quot;
+                  </div>
+                )}
+              </div>
+            )}
             <select
-              value={clientId}
-              onChange={(event) => setClientId(Number(event.target.value))}
+              value={
+                matchingClients.some((client) => client.id === clientId)
+                  ? clientId
+                  : selectedClient?.id ?? ""
+              }
+              onChange={(event) => {
+                const nextId = Number(event.target.value);
+                if (nextId) setClientId(nextId);
+              }}
               required
             >
-              {clients.map((client) => (
+              {!matchingClients.some((client) => client.id === clientId) && selectedClient && (
+                <option value={selectedClient.id}>
+                  {selectedClient.firmName} · {selectedClient.ownerName || selectedClient.mobile} (Currently selected)
+                </option>
+              )}
+              {matchingClients.map((client) => (
                 <option value={client.id} key={client.id}>
                   {client.firmName} · {client.ownerName || client.mobile}
                 </option>
               ))}
             </select>
-          </label>
+            {selectedClient && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginTop: 2,
+                  fontSize: 12,
+                  color: "#1f6a53",
+                  fontWeight: 600,
+                }}
+              >
+                <Check size={14} />
+                <span>
+                  Selected: {selectedClient.firmName}
+                  {selectedClient.ownerName ? ` · ${selectedClient.ownerName}` : ""}
+                </span>
+              </div>
+            )}
+          </div>
           <label className="op-field">
             <span>Bill category</span>
             <select
@@ -259,7 +380,7 @@ function OtherBillForm({
               <input type="number" min="0" step="1" value={item.quantity} onChange={(event) => updateItem(index, { quantity: Math.max(0, Number(event.target.value)) })} />
             </label>
             <label>
-              <span>Supplier rate / day or month</span>
+              <span>Client rate / day or month</span>
               <input
                 type="number"
                 min="0"
@@ -270,7 +391,7 @@ function OtherBillForm({
               />
             </label>
             <label>
-              <span>Cost rate</span>
+              <span>Supplier rate / day or month</span>
               <input
                 type="number"
                 min="0"
@@ -280,7 +401,12 @@ function OtherBillForm({
                 }
               />
             </label>
-            <strong>{money(itemQuantity(item) * item.rate)}</strong>
+            <div className="op-other-bill-item-figures">
+              <strong>{money(itemQuantity(item) * item.rate)}</strong>
+              <small className={itemQuantity(item) * (item.rate - (item.costRate ?? 0)) < 0 ? "op-loss" : "op-profit"}>
+                Profit: {money(itemQuantity(item) * (item.rate - (item.costRate ?? 0)))}
+              </small>
+            </div>
             <button
               type="button"
               title="Remove item"
@@ -297,8 +423,8 @@ function OtherBillForm({
         <section className="op-maintenance-calculation">
           <span>Discount</span><input className="op-number-input" type="number" min="0" step="0.01" value={discount || ""} onChange={(event) => setDiscount(Number(event.target.value))} />
           <span>Billing amount {money(total)}</span>
-          <span>Cost {money(costTotal)}</span>
-          <strong>Profit {money(total - costTotal)}</strong>
+          <span>Supplier cost {money(costTotal)}</span>
+          <strong className={total - costTotal < 0 ? "op-loss" : "op-profit"}>Profit of client {money(total - costTotal)}</strong>
           <small>{items.length} item records</small>
         </section>
         <footer>
@@ -443,7 +569,7 @@ function OtherBillPrint({
               <tr>
                 <th>Item</th>
                 <th>Days / months</th>
-                <th>Supplier rate / day or month</th>
+                <th>Rate / day or month</th>
                 <th>Amount</th>
               </tr>
             </thead>
@@ -551,6 +677,8 @@ function OtherBillClientLedger({
       .sort((left, right) => right.billDate.localeCompare(left.billDate));
   if (!client) return null;
   const billed = bills.reduce((sum, bill) => sum + bill.total, 0),
+    cost = bills.reduce((sum, bill) => sum + otherBillCost(bill), 0),
+    profit = billed - cost,
     received = bills.reduce((sum, bill) => sum + otherBillPaid(bill), 0);
   const records = bills
     .flatMap((bill) => [
@@ -558,7 +686,7 @@ function OtherBillClientLedger({
         key: `bill-${bill.id}`,
         date: bill.billDate,
         type: `${bill.category} bill`,
-        detail: `OTH-${String(bill.number).padStart(4, "0")} · ${bill.items.length} items`,
+        detail: `OTH-${String(bill.number).padStart(4, "0")} · ${bill.items.length} items · Cost ${money(otherBillCost(bill))} · Profit ${money(otherBillProfit(bill))}`,
         amount: bill.total,
         bill,
       },
@@ -588,6 +716,14 @@ function OtherBillClientLedger({
           <p>
             <span>Total billed</span>
             <b>{money(billed)}</b>
+          </p>
+          <p>
+            <span>Supplier cost</span>
+            <b>{money(cost)}</b>
+          </p>
+          <p>
+            <span>Profit</span>
+            <b className={profit < 0 ? "op-loss" : "op-profit"}>{money(profit)}</b>
           </p>
           <p>
             <span>Total received</span>
@@ -667,6 +803,11 @@ export function OtherBillsView({
     [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "Paid">("All");
 
   const billed = store.otherBills.reduce((sum, bill) => sum + bill.total, 0),
+    totalCost = store.otherBills.reduce(
+      (sum, bill) => sum + otherBillCost(bill),
+      0,
+    ),
+    totalProfit = billed - totalCost,
     received = store.otherBills.reduce(
       (sum, bill) => sum + otherBillPaid(bill),
       0,
@@ -741,6 +882,12 @@ export function OtherBillsView({
           icon={FileText}
         />
         <Metric
+          label="Estimated profit"
+          value={money(totalProfit)}
+          detail={`Supplier cost: ${money(totalCost)}`}
+          icon={CircleDollarSign}
+        />
+        <Metric
           label="Received"
           value={money(received)}
           detail="All recorded payments"
@@ -751,12 +898,6 @@ export function OtherBillsView({
           value={money(balance)}
           detail={`${pendingCount} unpaid bills`}
           icon={WalletCards}
-        />
-        <Metric
-          label="Paid bills"
-          value={String(paidCount)}
-          detail="Fully settled records"
-          icon={ReceiptText}
         />
       </section>
 
@@ -834,66 +975,76 @@ export function OtherBillsView({
             "Client",
             "Category",
             "Items",
-            "Total",
+            "Billed",
+            "Cost",
+            "Profit",
             "Received",
             "Balance",
             "Actions",
           ]}
         >
-          {filteredBills.map((bill) => (
-            <Row key={bill.id}>
-              <b>OTH-{String(bill.number).padStart(4, "0")}</b>
-              <span>{fmt(bill.billDate)}</span>
-              <b>
-                {bill.client.firmName}
-                <small>{bill.client.mobile}</small>
-              </b>
-              <Status>{bill.category}</Status>
-              <span>{bill.items.length} items</span>
-              <strong>{money(bill.total)}</strong>
-              <span>{money(otherBillPaid(bill))}</span>
-              <strong>{money(otherBillBalance(bill))}</strong>
-              <span className="op-actions">
-                {otherBillBalance(bill) > 0 && (
-                  <button
-                    title="Receive payment"
-                    onClick={() => setPaymentBill(bill)}
-                  >
-                    <Banknote size={16} />
+          {filteredBills.map((bill) => {
+            const cost = otherBillCost(bill);
+            const profit = bill.total - cost;
+            return (
+              <Row key={bill.id}>
+                <b>OTH-{String(bill.number).padStart(4, "0")}</b>
+                <span>{fmt(bill.billDate)}</span>
+                <b>
+                  {bill.client.firmName}
+                  <small>{bill.client.mobile}</small>
+                </b>
+                <Status>{bill.category}</Status>
+                <span>{bill.items.length} items</span>
+                <strong>{money(bill.total)}</strong>
+                <span>{money(cost)}</span>
+                <strong className={profit < 0 ? "op-loss" : "op-profit"}>
+                  {money(profit)}
+                </strong>
+                <span>{money(otherBillPaid(bill))}</span>
+                <strong>{money(otherBillBalance(bill))}</strong>
+                <span className="op-actions">
+                  {otherBillBalance(bill) > 0 && (
+                    <button
+                      title="Receive payment"
+                      onClick={() => setPaymentBill(bill)}
+                    >
+                      <Banknote size={16} />
+                    </button>
+                  )}
+                  <button title="Print bill" onClick={() => setPrintBill(bill)}>
+                    <Printer size={16} />
                   </button>
-                )}
-                <button title="Print bill" onClick={() => setPrintBill(bill)}>
-                  <Printer size={16} />
-                </button>
-                <button
-                  title="Edit bill"
-                  onClick={() => setEditingBill(bill)}
-                >
-                  <FileText size={16} />
-                </button>
-                <button
-                  className="delete"
-                  title="Delete bill"
-                  onClick={() => {
-                    if (
-                      !window.confirm(
-                        "Delete this other bill and its payments?",
+                  <button
+                    title="Edit bill"
+                    onClick={() => setEditingBill(bill)}
+                  >
+                    <FileText size={16} />
+                  </button>
+                  <button
+                    className="delete"
+                    title="Delete bill"
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          "Delete this other bill and its payments?",
+                        )
                       )
-                    )
-                      return;
-                    setStore((current) => ({
-                      ...current,
-                      otherBills: current.otherBills.filter(
-                        (item) => item.id !== bill.id,
-                      ),
-                    }));
-                  }}
-                >
-                  <Trash2 size={16} />
-                </button>
-              </span>
-            </Row>
-          ))}
+                        return;
+                      setStore((current) => ({
+                        ...current,
+                        otherBills: current.otherBills.filter(
+                          (item) => item.id !== bill.id,
+                        ),
+                      }));
+                    }}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </span>
+              </Row>
+            );
+          })}
         </Table>
       ) : (
         <div className="op-empty-state">
@@ -1003,6 +1154,8 @@ export function OtherBillLedgersView({ store }: { store: FleetStore }) {
             "Paper bills",
             "Calendar bills",
             "Total billed",
+            "Supplier cost",
+            "Profit",
             "Received",
             "Outstanding",
             "",
@@ -1013,6 +1166,8 @@ export function OtherBillLedgersView({ store }: { store: FleetStore }) {
                 (bill) => bill.clientId === client.id,
               ),
               billed = bills.reduce((sum, bill) => sum + bill.total, 0),
+              cost = bills.reduce((sum, bill) => sum + otherBillCost(bill), 0),
+              profit = billed - cost,
               received = bills.reduce(
                 (sum, bill) => sum + otherBillPaid(bill),
                 0,
@@ -1031,6 +1186,10 @@ export function OtherBillLedgersView({ store }: { store: FleetStore }) {
                   {bills.filter((bill) => bill.category === "Calendar").length}
                 </span>
                 <strong>{money(billed)}</strong>
+                <span>{money(cost)}</span>
+                <strong className={profit < 0 ? "op-loss" : "op-profit"}>
+                  {money(profit)}
+                </strong>
                 <span>{money(received)}</span>
                 <strong>{money(billed - received)}</strong>
                 <Button secondary onClick={() => setClientId(client.id)}>

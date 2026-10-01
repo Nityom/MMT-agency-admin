@@ -34,6 +34,7 @@ export const billBalance = (bill: Bill | OtherBill) => Math.max(0, bill.total - 
 export const otherBillPaid = (bill: OtherBill) => bill.payments.reduce((sum, payment) => sum + payment.amount, 0);
 export const otherBillBalance = (bill: OtherBill) => Math.max(0, bill.total - otherBillPaid(bill));
 export const otherBillCost = (bill: OtherBill) => bill.items.reduce((sum, item) => sum + (item.costAmount ?? item.quantity * (item.costRate ?? 0)), 0);
+export const otherBillProfit = (bill: OtherBill) => bill.total - otherBillCost(bill);
 
 export const clientOverallBalance = (store: FleetStore, clientId: number) => {
   const targetClient = store.clients.find((c) => c.id === clientId);
@@ -57,6 +58,14 @@ export const clientOverallBalance = (store: FleetStore, clientId: number) => {
   const billed =
     clientBills.reduce((sum, bill) => sum + bill.total, 0) +
     clientOtherBills.reduce((sum, bill) => sum + bill.total, 0);
+  const otherBillCostTotal = clientOtherBills.reduce(
+    (sum, bill) => sum + otherBillCost(bill),
+    0,
+  );
+  const otherBillProfitTotal = clientOtherBills.reduce(
+    (sum, bill) => sum + otherBillProfit(bill),
+    0,
+  );
   const received =
     clientBills.reduce((sum, bill) => sum + billPaid(bill), 0) +
     clientOtherBills.reduce((sum, bill) => sum + otherBillPaid(bill), 0);
@@ -68,6 +77,8 @@ export const clientOverallBalance = (store: FleetStore, clientId: number) => {
     outstanding: Math.max(0, balance),
     billCount: clientBills.length,
     otherBillCount: clientOtherBills.length,
+    otherBillCost: otherBillCostTotal,
+    otherBillProfit: otherBillProfitTotal,
   };
 };
 
