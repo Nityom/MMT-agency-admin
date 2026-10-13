@@ -12,6 +12,7 @@ import {
   CampaignBooking,
   calculateBillTotal,
   campaignDurationMonths,
+  ClientReceipt,
   FleetStore,
   inclusiveDays,
   PaymentMode,
@@ -55,7 +56,7 @@ export function BillingComposer({
   bill?: Bill | null;
   campaignBooking?: CampaignBooking | null;
   cancel: () => void;
-  save: (bill: Bill) => void;
+  save: (bill: Bill, appliedReceiptIds?: number[]) => void;
 }) {
   const linkedCampaign =
     campaignBooking ??
@@ -236,7 +237,46 @@ export function BillingComposer({
     0;
   const [clientId, setClientId] = useState(initialBillingClientId);
   const [billDate, setBillDate] = useState(initialBillDate);
-  const [advance, setAdvance] = useState(bill?.advanceReceived ?? 0);
+
+  const availableReceipts = (store.receipts ?? []).filter((r) => {
+    if (bill && r.billId === bill.id) return true;
+    if (r.status === "Billed" && r.billId && (!bill || r.billId !== bill.id)) return false;
+    const isClientMatch =
+      r.clientId === clientId ||
+      r.clientId === initialBillingClientId ||
+      (effectiveFirmName &&
+        r.client?.firmName &&
+        r.client.firmName.trim().toLowerCase() === effectiveFirmName.toLowerCase());
+    return isClientMatch;
+  });
+
+  const isExistingSavedBill = Boolean(bill && store.bills.some((b) => b.id === bill.id));
+
+  const [selectedReceiptIds, setSelectedReceiptIds] = useState<number[]>(() => {
+    if (isExistingSavedBill && bill) {
+      return (store.receipts ?? [])
+        .filter((r) => r.billId === bill.id)
+        .map((r) => r.id);
+    }
+    // For new bills (including generated campaign bills), auto-select all unbilled receipts
+    return availableReceipts.map((r) => r.id);
+  });
+
+  const selectedReceiptsTotal = availableReceipts
+    .filter((r) => selectedReceiptIds.includes(r.id))
+    .reduce((sum, r) => sum + r.amount, 0);
+
+  const [extraAdvance, setExtraAdvance] = useState<number>(() => {
+    if (isExistingSavedBill && bill) {
+      const initialLinkedReceiptsSum = (store.receipts ?? [])
+        .filter((r) => r.billId === bill.id)
+        .reduce((sum, r) => sum + r.amount, 0);
+      return Math.max(0, (bill.advanceReceived ?? 0) - initialLinkedReceiptsSum);
+    }
+    return 0;
+  });
+
+  const advance = selectedReceiptsTotal + (Number(extraAdvance) || 0);
   const [paymentMode] = useState<PaymentMode>(
     bill?.paymentMode ?? "Cash",
   );
@@ -363,7 +403,7 @@ export function BillingComposer({
       payments,
       total,
       status: paid >= total ? "Paid" : "Pending",
-    });
+    }, selectedReceiptIds);
   };
   return (
     <div className="op-workspace">
@@ -382,20 +422,25 @@ export function BillingComposer({
             <select
               value={clientId}
               onChange={(event) => {
-                const selectedClientId = Number(event.target.value),
-                  firstVehicleId =
-                    store.campaignBookings
-                      .filter(
-                        (booking) => booking.clientId === selectedClientId,
-                      )
-                      .flatMap((booking) =>
-                        booking.vehiclePeriods.flatMap(
-                          (period) => period.vehicleIds,
-                        ),
-                      )[0] ??
-                    store.vehicles[0]?.id ??
-                    0;
+                const selectedClientId = Number(event.target.value);
                 setClientId(selectedClientId);
+                const newClientUnbilled = (store.receipts ?? [])
+                  .filter((r) => r.clientId === selectedClientId && (r.status !== "Billed" || !r.billId))
+                  .map((r) => r.id);
+                setSelectedReceiptIds(newClientUnbilled);
+                setExtraAdvance(0);
+                const firstVehicleId =
+                  store.campaignBookings
+                    .filter(
+                      (booking) => booking.clientId === selectedClientId,
+                    )
+                    .flatMap((booking) =>
+                      booking.vehiclePeriods.flatMap(
+                        (period) => period.vehicleIds,
+                      ),
+                    )[0] ??
+                  store.vehicles[0]?.id ??
+                  0;
                 if (!bill) {
                   setLines([
                     campaignLine(firstVehicleId, selectedClientId, billDate),
@@ -688,16 +733,156 @@ export function BillingComposer({
             </button>
           </div>
         ))}
+        {availableReceipts.length > 0 && (
+          <div
+            style={{
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: "8px",
+              padding: "14px 16px",
+              margin: "12px 0 16px 0",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "10px",
+                flexWrap: "wrap",
+                gap: "8px",
+              }}
+            >
+              <div>
+                <b style={{ color: "#166534", fontSize: "14px" }}>
+                  Client Receipts Found ({availableReceipts.length} receipt{availableReceipts.length > 1 ? "s" : ""})
+                </b>
+                <p style={{ margin: "2px 0 0", fontSize: "12.5px", color: "#4b5563" }}>
+                  Selected receipts will be summed into this bill&apos;s advance received:
+                </p>
+              </div>
+              <Button
+                secondary
+                type="button"
+                style={{ fontSize: "12px", padding: "4px 10px" }}
+                onClick={() => {
+                  if (selectedReceiptIds.length === availableReceipts.length) {
+                    setSelectedReceiptIds([]);
+                  } else {
+                    setSelectedReceiptIds(availableReceipts.map((r) => r.id));
+                  }
+                }}
+              >
+                {selectedReceiptIds.length === availableReceipts.length
+                  ? "Deselect all"
+                  : "Select all"}
+              </Button>
+            </div>
+            <div style={{ display: "grid", gap: "8px" }}>
+              {availableReceipts.map((r) => {
+                const isSelected = selectedReceiptIds.includes(r.id);
+                return (
+                  <label
+                    key={r.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "8px 12px",
+                      borderRadius: "6px",
+                      background: isSelected ? "#dcfce7" : "#ffffff",
+                      border: `1px solid ${isSelected ? "#86efac" : "#e5e7eb"}`,
+                      cursor: "pointer",
+                      fontSize: "13px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedReceiptIds((curr) => [...curr, r.id]);
+                          } else {
+                            setSelectedReceiptIds((curr) =>
+                              curr.filter((id) => id !== r.id),
+                            );
+                          }
+                        }}
+                      />
+                      <div>
+                        <b>REC-{String(r.number).padStart(4, "0")}</b>
+                        <span style={{ color: "#4b5563", marginLeft: "8px" }}>
+                          {fmt(r.receiptDate)} · {r.paymentMode}
+                          {r.note ? ` · ${r.note}` : ""}
+                        </span>
+                      </div>
+                    </div>
+                    <strong style={{ color: "#166534" }}>{money(r.amount)}</strong>
+                  </label>
+                );
+              })}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: "10px",
+                paddingTop: "10px",
+                borderTop: "1px solid #bbf7d0",
+                fontSize: "13px",
+              }}
+            >
+              <span>Selected Receipts Sum:</span>
+              <strong style={{ color: "#166534", fontSize: "14px" }}>
+                {money(selectedReceiptsTotal)}
+              </strong>
+            </div>
+          </div>
+        )}
         <div className="op-bill-total">
-          <label className="op-field">
-            <span>Client advance received</span>
-            <input
-              type="number"
-              min="0"
-              value={advance}
-              onChange={(event) => setAdvance(Number(event.target.value))}
-            />
-          </label>
+          {availableReceipts.length > 0 ? (
+            <div style={{ display: "grid", gap: "6px" }}>
+              <label className="op-field">
+                <span>Additional manual advance (₹)</span>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={extraAdvance || ""}
+                  onChange={(event) =>
+                    setExtraAdvance(Math.max(0, Number(event.target.value)))
+                  }
+                />
+              </label>
+              <div
+                style={{
+                  fontSize: "13px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  background: "#f3f7f4",
+                  padding: "6px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #e2e8f0",
+                }}
+              >
+                <span>Total Advance Applied:</span>
+                <b style={{ color: "#1f6a53" }}>{money(advance)}</b>
+              </div>
+            </div>
+          ) : (
+            <label className="op-field">
+              <span>Client advance received</span>
+              <input
+                type="number"
+                min="0"
+                value={extraAdvance || ""}
+                onChange={(event) =>
+                  setExtraAdvance(Math.max(0, Number(event.target.value)))
+                }
+              />
+            </label>
+          )}
           {bill && (
             <div style={{ display: "grid", gap: "2px", textAlign: "right" }}>
               <span style={{ fontSize: "12px", color: "#687670" }}>Previously collected</span>
@@ -1178,6 +1363,10 @@ export function CampaignBillModeModal({
   generate,
   viewBill,
   onEditExisting,
+  generateReceipt,
+  viewReceipt,
+  editReceipt,
+  removeReceipt,
 }: {
   booking: CampaignBooking;
   store?: FleetStore;
@@ -1194,8 +1383,36 @@ export function CampaignBillModeModal({
   ) => void;
   viewBill?: (bill: Bill) => void;
   onEditExisting?: (bill: Bill) => void;
+  generateReceipt?: (clientId?: number) => void;
+  viewReceipt?: (receipt: ClientReceipt) => void;
+  editReceipt?: (receipt: ClientReceipt) => void;
+  removeReceipt?: (receiptId: number) => void;
 }) {
   const endDate = bookingEnd(booking);
+
+  const actualClientId =
+    (store?.clients ?? []).find(
+      (c) =>
+        c.id === booking.clientId ||
+        (booking.client.mobile && c.mobile === booking.client.mobile) ||
+        c.firmName.trim().toLowerCase() === booking.client.firmName.trim().toLowerCase()
+    )?.id ?? booking.clientId;
+
+  const campaignReceipts = (store?.receipts ?? []).filter((r) => {
+    if (actualClientId && r.clientId === actualClientId) return true;
+    if (
+      r.client?.firmName &&
+      booking.client.firmName &&
+      r.client.firmName.trim().toLowerCase() === booking.client.firmName.trim().toLowerCase()
+    ) {
+      return true;
+    }
+    return false;
+  });
+
+  const totalReceiptsAmount = campaignReceipts.reduce((sum, r) => sum + r.amount, 0);
+  const unbilledReceipts = campaignReceipts.filter((r) => r.status !== "Billed" && !r.billId);
+  const unbilledReceiptsAmount = unbilledReceipts.reduce((sum, r) => sum + r.amount, 0);
   
   // Calculate monthly periods for the campaign
   const monthlyPeriods: { label: string; from: string; to: string; existingBill?: Bill }[] = [];
@@ -1285,11 +1502,196 @@ export function CampaignBillModeModal({
   const allCampaignBills = store ? findAllCampaignBills(store, booking) : [];
 
   return (
-    <Modal title={`Campaign Billing & Invoices · ${booking.client.firmName}`} close={close}>
-      <div className="op-form">
+    <Modal
+      title={`Campaign Billing & Invoices · ${booking.client.firmName}`}
+      close={close}
+      width="min(1080px, 96vw)"
+      className="op-campaign-billing-modal"
+      style={{ width: "min(1080px, 96vw)", maxWidth: "96vw", overflowX: "hidden" }}
+    >
+      <div className="op-form op-campaign-billing-modal" style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box", overflowX: "hidden" }}>
         <p className="op-form-note">
           Campaign booking: <b>{fmt(booking.startDate)}</b> to <b>{fmt(endDate)}</b>
         </p>
+
+        {/* Client Receipts Section */}
+        <div
+          style={{
+            padding: "13px 15px",
+            borderRadius: "8px",
+            background: "#f7f2fc",
+            border: "1px solid #d9c8f3",
+            display: "grid",
+            gap: "8px",
+            boxSizing: "border-box",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "8px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <ReceiptText size={17} style={{ color: "#6b21a8" }} />
+              <span style={{ fontSize: "13px", fontWeight: 700, color: "#581c87" }}>
+                Client Advance Receipts ({campaignReceipts.length}):
+              </span>
+              {campaignReceipts.length > 0 && (
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: "#581c87",
+                    background: "#ede4f9",
+                    padding: "2px 8px",
+                    borderRadius: "12px",
+                    fontWeight: 600,
+                  }}
+                >
+                  Total: {money(totalReceiptsAmount)}
+                  {unbilledReceiptsAmount > 0 ? ` · ${money(unbilledReceiptsAmount)} Unbilled Advance` : ""}
+                </span>
+              )}
+            </div>
+            {generateReceipt && (
+              <Button
+                secondary
+                onClick={() => generateReceipt(actualClientId)}
+                style={{
+                  fontSize: "12px",
+                  padding: "4px 10px",
+                  minHeight: "32px",
+                  borderColor: "#c084fc",
+                  color: "#6b21a8",
+                  background: "white",
+                  fontWeight: 700,
+                  flexShrink: 0,
+                  marginLeft: "auto",
+                }}
+              >
+                <Plus size={14} /> + Generate receipt
+              </Button>
+            )}
+          </div>
+
+          {campaignReceipts.length === 0 ? (
+            <div
+              style={{
+                padding: "10px 14px",
+                background: "white",
+                borderRadius: "6px",
+                border: "1px dashed #d8cbef",
+                fontSize: "12px",
+                color: "#6b7280",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
+                flexWrap: "wrap",
+              }}
+            >
+              <span>No advance receipts recorded yet for this client. You can create payment receipts anytime to credit them into bills.</span>
+              {generateReceipt && (
+                <Button
+                  secondary
+                  onClick={() => generateReceipt(actualClientId)}
+                  style={{ fontSize: "12px", padding: "3px 8px", minHeight: "28px", marginLeft: "auto" }}
+                >
+                  <Plus size={13} /> Add receipt
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: "6px" }}>
+              {campaignReceipts.map((r) => (
+                <div
+                  key={r.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "10px",
+                    padding: "8px 12px",
+                    background: "white",
+                    borderRadius: "6px",
+                    border: "1px solid #dfd3f4",
+                    fontSize: "13px",
+                    flexWrap: "wrap",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px 8px", flexWrap: "wrap", minWidth: 0 }}>
+                    <b style={{ color: "#6b21a8", whiteSpace: "nowrap" }}>REC-{String(r.number).padStart(4, "0")}</b>
+                    <span style={{ color: "#9ca3af" }}>·</span>
+                    <span style={{ color: "#4b5563", whiteSpace: "nowrap" }}>{fmt(r.receiptDate)}</span>
+                    <span style={{ color: "#9ca3af" }}>·</span>
+                    <b style={{ color: "#165b47", whiteSpace: "nowrap" }}>{money(r.amount)}</b>
+                    <span style={{ color: "#9ca3af" }}>·</span>
+                    <span style={{ color: "#54645f", whiteSpace: "nowrap" }}>{r.paymentMode}</span>
+                    {r.reference ? (
+                      <span style={{ color: "#6b7280", fontSize: "12px" }}>({r.reference})</span>
+                    ) : null}
+                    <span style={{ color: "#9ca3af" }}>·</span>
+                    {r.status === "Billed" || r.billId ? (
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          padding: "2px 7px",
+                          borderRadius: "4px",
+                          background: "#e6f4ea",
+                          color: "#137333",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Billed {r.billNumber ? `(INV-${String(r.billNumber).padStart(4, "0")})` : ""}
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          padding: "2px 7px",
+                          borderRadius: "4px",
+                          background: "#fef3c7",
+                          color: "#92400e",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Advance Available (Unbilled)
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", flexShrink: 0, marginLeft: "auto" }}>
+                    {viewReceipt && (
+                      <Button secondary onClick={() => viewReceipt(r)} title="View printable receipt">
+                        <Printer size={14} /> View
+                      </Button>
+                    )}
+                    {editReceipt && (
+                      <Button secondary onClick={() => editReceipt(r)} title="Edit receipt details">
+                        <FileText size={14} /> Edit
+                      </Button>
+                    )}
+                    {removeReceipt && (
+                      <Button
+                        secondary
+                        style={{ color: "#a1483b" }}
+                        onClick={() => removeReceipt(r.id)}
+                        title="Delete receipt"
+                      >
+                        <Trash2 size={14} /> Delete
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {allCampaignBills.length > 0 && (
           <div
@@ -1300,6 +1702,7 @@ export function CampaignBillModeModal({
               border: "1px solid #b8ddd0",
               display: "grid",
               gap: "8px",
+              boxSizing: "border-box",
             }}
           >
             <span style={{ fontSize: "13px", fontWeight: 700, color: "#165b47" }}>
@@ -1319,24 +1722,26 @@ export function CampaignBillModeModal({
                     borderRadius: "6px",
                     border: "1px solid #cfe3da",
                     fontSize: "13px",
+                    flexWrap: "wrap",
+                    boxSizing: "border-box",
                   }}
                 >
-                  <div>
-                    <b style={{ color: "#165b47" }}>INV-{String(b.number).padStart(4, "0")}</b>
-                    <span style={{ color: "#54645f", margin: "0 6px" }}>·</span>
-                    <span style={{ color: "#54645f" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", minWidth: 0 }}>
+                    <b style={{ color: "#165b47", whiteSpace: "nowrap" }}>INV-{String(b.number).padStart(4, "0")}</b>
+                    <span style={{ color: "#54645f" }}>·</span>
+                    <span style={{ color: "#54645f", whiteSpace: "nowrap" }}>
                       {b.vehicleLines[0]?.startDate
                         ? `${fmt(b.vehicleLines[0].startDate)} to ${fmt(b.vehicleLines[0].endDate)}`
                         : fmt(b.billDate)}
                     </span>
-                    <span style={{ color: "#54645f", margin: "0 6px" }}>·</span>
-                    <b>{money(b.total)}</b>
-                    <span style={{ color: "#54645f", margin: "0 6px" }}>·</span>
-                    <span style={{ fontWeight: 600, color: b.status === "Paid" ? "#195f4b" : "#854d0e" }}>
+                    <span style={{ color: "#54645f" }}>·</span>
+                    <b style={{ whiteSpace: "nowrap" }}>{money(b.total)}</b>
+                    <span style={{ color: "#54645f" }}>·</span>
+                    <span style={{ fontWeight: 600, color: b.status === "Paid" ? "#195f4b" : "#854d0e", whiteSpace: "nowrap" }}>
                       {b.status}
                     </span>
                   </div>
-                  <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                  <div style={{ display: "flex", gap: "6px", flexShrink: 0, marginLeft: "auto" }}>
                     {viewBill && (
                       <Button secondary onClick={() => viewBill(b)}>
                         <Printer size={14} /> View
@@ -1455,6 +1860,16 @@ export function CampaignBillModeModal({
           <Button secondary onClick={close}>
             Cancel
           </Button>
+          {generateReceipt && (
+            <Button
+              secondary
+              onClick={() => generateReceipt(actualClientId)}
+              style={{ color: "#6b21a8", borderColor: "#d8cbef" }}
+            >
+              <ReceiptText size={16} />
+              + Generate receipt
+            </Button>
+          )}
           {currentExistingBill && viewBill && (
             <Button secondary onClick={() => viewBill(currentExistingBill)}>
               <Printer size={17} />
@@ -2025,14 +2440,41 @@ export function Invoice({
                   </tr>
                 </thead>
                 <tbody>
-                  {bill.advanceReceived > 0 && (
-                    <tr>
-                      <td>{fmt(bill.billDate)}</td>
-                      <td>{bill.paymentMode}</td>
-                      <td>Advance received</td>
-                      <td><b>{money(bill.advanceReceived)}</b></td>
-                    </tr>
-                  )}
+                  {bill.advanceReceived > 0 && (() => {
+                    const linkedReceipts = (store.receipts ?? []).filter(
+                      (r) => r.billId === bill.id,
+                    );
+                    return (
+                      <tr>
+                        <td>{fmt(bill.billDate)}</td>
+                        <td>{bill.paymentMode}</td>
+                        <td>
+                          Advance received
+                          {linkedReceipts.length > 0 && (
+                            <div
+                              style={{
+                                fontSize: "11.5px",
+                                color: "#166534",
+                                marginTop: "3px",
+                                fontWeight: 500,
+                              }}
+                            >
+                              Includes Receipts:{" "}
+                              {linkedReceipts
+                                .map(
+                                  (r) =>
+                                    `REC-${String(r.number).padStart(4, "0")} (${money(r.amount)})`,
+                                )
+                                .join(", ")}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <b>{money(bill.advanceReceived)}</b>
+                        </td>
+                      </tr>
+                    );
+                  })()}
                   {bill.payments.map((payment) => (
                     <tr key={payment.id}>
                       <td>{fmt(payment.date)}</td>

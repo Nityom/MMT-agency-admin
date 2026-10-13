@@ -19,6 +19,7 @@ export default defineSchema({
     nextBillNumber: v.number(),
     nextOtherBillNumber: v.number(),
     nextQuotationNumber: v.optional(v.number()),
+    nextReceiptNumber: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_store", ["storeKey"]),
   employees: entityTable(),
@@ -40,6 +41,7 @@ export default defineSchema({
   suppliers: entityTable(),
   supplierPayments: entityTable(),
   quotations: entityTable(),
+  clientReceipts: entityTable(),
 
   storeRevisions: defineTable({
     storeKey: v.string(),

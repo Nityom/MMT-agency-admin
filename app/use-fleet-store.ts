@@ -27,6 +27,7 @@ const arrayCollections = [
   ["suppliers", "suppliers"],
   ["supplierPayments", "supplierPayments"],
   ["quotations", "quotations"],
+  ["receipts", "clientReceipts"],
 ] as const;
 
 const attendanceCollections = [
@@ -75,6 +76,7 @@ function settingsSnapshot(store: FleetStore) {
     nextBillNumber: store.nextBillNumber,
     nextOtherBillNumber: store.nextOtherBillNumber,
     nextQuotationNumber: store.nextQuotationNumber ?? 1,
+    nextReceiptNumber: store.nextReceiptNumber ?? 1,
   });
 }
 

@@ -7,6 +7,7 @@ import {
   Check,
   CircleDollarSign,
   FileText,
+  Plus,
   Printer,
   ReceiptText,
   Search,
@@ -18,11 +19,13 @@ import {
   calculatePayroll,
   type Bill,
   type CampaignBooking,
+  type ClientReceipt,
   type FleetStore,
   type weekFor,
 } from "./fleet-domain";
 import { Actions, Button, Row, Status, Table } from "./operations-components";
 import { BusinessAccountLedger } from "./operations-expenses";
+import { ClientReceiptsRegister } from "./operations-receipts";
 import { Metric, PageHead } from "./operations-reports";
 import {
   billBalance,
@@ -175,6 +178,10 @@ export type BillingViewProps = {
   outstanding: number;
   setBillingSearch: (value: string) => void;
   generateBill: () => void;
+  generateReceipt: (clientId?: number) => void;
+  viewReceipt: (receipt: ClientReceipt) => void;
+  editReceipt: (receipt: ClientReceipt) => void;
+  removeReceipt: (receiptId: number) => void;
   openCompanyDetails: () => void;
   combineClientBills: () => void;
   editBill: (bill: Bill) => void;
@@ -191,6 +198,10 @@ export function BillingView({
   outstanding,
   setBillingSearch,
   generateBill,
+  generateReceipt,
+  viewReceipt,
+  editReceipt,
+  removeReceipt,
   openCompanyDetails,
   combineClientBills,
   editBill,
@@ -198,6 +209,7 @@ export function BillingView({
   viewBill,
   removeBill,
 }: BillingViewProps) {
+  const [billingTab, setBillingTab] = useState<"invoices" | "receipts">("invoices");
   const [periodMode, setPeriodMode] = useState<"all" | "month" | "range">("all");
   const [selectedMonth, setSelectedMonth] = useState(isoToday().slice(0, 7));
   const [fromDate, setFromDate] = useState(isoToday().slice(0, 8) + "01");
@@ -235,13 +247,61 @@ export function BillingView({
 
   return (
     <>
-      <PageHead
-        title="Client billing"
-        detail="Per vehicle, dates, running days, charges and installments"
-        action="Generate bill"
-        onAction={generateBill}
-      />
-      <div className="op-period-tabs" style={{ marginBottom: "14px", display: "flex", gap: "8px" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "16px",
+          flexWrap: "wrap",
+          gap: "10px",
+        }}
+      >
+        <div className="op-period-tabs" style={{ margin: 0, display: "flex", gap: "8px" }}>
+          <Button
+            secondary={billingTab !== "invoices"}
+            onClick={() => setBillingTab("invoices")}
+          >
+            <FileText size={16} />
+            Invoices ({store.bills.length})
+          </Button>
+          <Button
+            secondary={billingTab !== "receipts"}
+            onClick={() => setBillingTab("receipts")}
+          >
+            <ReceiptText size={16} />
+            Receipt Records ({(store.receipts ?? []).length})
+          </Button>
+        </div>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <Button onClick={generateBill}>
+            <Plus size={16} />
+            Generate bill
+          </Button>
+        </div>
+      </div>
+
+      {billingTab === "receipts" ? (
+        <ClientReceiptsRegister
+          store={store}
+          openCreateReceipt={generateReceipt}
+          viewReceipt={viewReceipt}
+          editReceipt={editReceipt}
+          removeReceipt={removeReceipt}
+          viewBill={(billNum) => {
+            const found = store.bills.find(
+              (b) => b.number === billNum || b.id === billNum,
+            );
+            if (found) viewBill(found);
+          }}
+        />
+      ) : (
+        <>
+          <PageHead
+            title="Client billing"
+            detail="Per vehicle, dates, running days, charges and installments"
+          />
+          <div className="op-period-tabs" style={{ marginBottom: "14px", display: "flex", gap: "8px" }}>
         <Button secondary={periodMode !== "all"} onClick={() => setPeriodMode("all")}>
           All Invoices
         </Button>
@@ -430,6 +490,8 @@ export function BillingView({
             Try a different invoice number, client name, phone number, or period filter.
           </p>
         </div>
+      )}
+        </>
       )}
     </>
   );

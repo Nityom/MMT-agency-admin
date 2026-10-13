@@ -11,7 +11,7 @@ import { VIEW_TO_SLUG } from "./view-routes";
 import {
   addDays, Bill, BillCharge, BillVehicleLine, BusinessExpenseCategory, CampaignBooking,
   calculateBillTotal, calculateEmployeeLedger, calculatePayrollRange,
-  Client, ClientCategory, EmployeeRate, FleetStore, getEmployeeAdvancesWithRecoveries, inclusiveDays, isEmployeeActiveOnDate, PaymentMode,
+  Client, ClientCategory, ClientReceipt, EmployeeRate, FleetStore, getEmployeeAdvancesWithRecoveries, inclusiveDays, isEmployeeActiveOnDate, PaymentMode,
   nextBillNumber, PayrollPayment, rateOnDate, weekFor,
 } from "./fleet-domain";
 import { Actions, AttendanceCalendar, Button, Row, Status, Table } from "./operations-components";
@@ -19,6 +19,7 @@ import {
   BillPaymentModal, BillReceipt, BillingComposer, CampaignBillModeModal, CampaignQuotation,
   ConsolidateBillsModal, ConsolidatedInvoice, Invoice, QuotationComposer,
 } from "./operations-billing";
+import { ClientReceiptFormModal, ClientReceiptViewModal } from "./operations-receipts";
 import { CampaignAttendanceView, CampaignBookingForm } from "./operations-campaigns";
 import { CampaignsView, ClientLedgersView, ClientsView } from "./operations-client-views";
 import { QuotationsView } from "./operations-quotations";
@@ -86,6 +87,10 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
   const [consolidateOpen, setConsolidateOpen] = useState(false);
   const [consolidatedBills, setConsolidatedBills] = useState<Bill[]>([]);
   const [attendanceDate, setAttendanceDate] = useState(isoToday()), [attendanceReportFrom, setAttendanceReportFrom] = useState(`${isoToday().slice(0, 7)}-01`), [attendanceReportTo, setAttendanceReportTo] = useState(isoToday()), [payrollWeek, setPayrollWeek] = useState(weekFor(isoToday()).start), [payrollPeriodEnd, setPayrollPeriodEnd] = useState(weekFor(isoToday()).end), [composeBill, setComposeBill] = useState(false), [billingClientId, setBillingClientId] = useState(0), [invoice, setInvoice] = useState<Bill | null>(null), [receipt, setReceipt] = useState<Bill | null>(null), [reportPeriod, setReportPeriod] = useState<"Month" | "Quarter" | "Year" | "Date range">("Month");
+  const [receiptFormOpen, setReceiptFormOpen] = useState(false);
+  const [receiptFormClientId, setReceiptFormClientId] = useState<number | null | undefined>(undefined);
+  const [editingReceipt, setEditingReceipt] = useState<ClientReceipt | null>(null);
+  const [viewingReceipt, setViewingReceipt] = useState<ClientReceipt | null>(null);
   const [reportFrom, setReportFrom] = useState(`${isoToday().slice(0, 7)}-01`), [reportTo, setReportTo] = useState(isoToday());
   const [reportMonth, setReportMonth] = useState(() => isoToday().slice(0, 7));
   const [reportQuarter, setReportQuarter] = useState(() => Math.floor((Number(isoToday().slice(5, 7)) - 1) / 3) + 1);
@@ -273,9 +278,63 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
       campaignBookings: current.campaignBookings.map((c) =>
         c.generatedBillId === id ? { ...c, generatedBillId: undefined } : c
       ),
+      receipts: (current.receipts ?? []).map((r) =>
+        r.billId === id
+          ? { ...r, status: "Unbilled" as const, billId: undefined, billNumber: undefined }
+          : r
+      ),
     }));
     if (invoice?.id === id) setInvoice(null);
     notify("Bill deleted successfully");
+  };
+  const openCreateReceipt = (clientId?: number) => {
+    setEditingReceipt(null);
+    setReceiptFormClientId(clientId);
+    setReceiptFormOpen(true);
+  };
+  const openEditReceipt = (receiptToEdit: ClientReceipt) => {
+    setEditingReceipt(receiptToEdit);
+    setReceiptFormClientId(receiptToEdit.clientId);
+    setReceiptFormOpen(true);
+  };
+  const removeReceipt = (receiptId: number) => {
+    const target = (store.receipts ?? []).find((r) => r.id === receiptId);
+    if (!target) return;
+    if (
+      !window.confirm(
+        `Are you sure you want to delete receipt REC-${String(target.number).padStart(4, "0")} of ${money(
+          target.amount,
+        )}?`,
+      )
+    )
+      return;
+    setStore((current) => ({
+      ...current,
+      receipts: (current.receipts ?? []).filter((r) => r.id !== receiptId),
+    }));
+    notify("Receipt deleted");
+  };
+  const saveReceipt = (savedReceipt: ClientReceipt) => {
+    setStore((current) => {
+      const existing = current.receipts ?? [];
+      const isNew = !existing.some((r) => r.id === savedReceipt.id);
+      const updated = isNew
+        ? [...existing, savedReceipt]
+        : existing.map((r) => (r.id === savedReceipt.id ? savedReceipt : r));
+      return {
+        ...current,
+        receipts: updated,
+        nextReceiptNumber: Math.max(
+          current.nextReceiptNumber ?? 1,
+          savedReceipt.number + 1,
+        ),
+      };
+    });
+    setReceiptFormOpen(false);
+    setEditingReceipt(null);
+    setReceiptFormClientId(undefined);
+    setViewingReceipt(savedReceipt);
+    notify(`Receipt REC-${String(savedReceipt.number).padStart(4, "0")} saved`);
   };
   const go = (next: View) => { setView(next); setMenu(false); setComposeBill(false); router.push(`/${VIEW_TO_SLUG[next]}`); };
   const activeEmployees = store.employees.filter((item) => item.status === "Active");
@@ -471,6 +530,22 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
 
     const actualClientId = matchedClient?.id ?? booking.clientId;
 
+    const unbilledReceipts = (store.receipts ?? []).filter((r) => {
+      if (r.status === "Billed" || r.billId) return false;
+      const isClientMatch =
+        r.clientId === actualClientId ||
+        r.clientId === booking.clientId ||
+        (booking.client?.firmName &&
+          r.client?.firmName &&
+          r.client.firmName.trim().toLowerCase() ===
+            booking.client.firmName.trim().toLowerCase());
+      return isClientMatch;
+    });
+    const advanceFromReceipts = unbilledReceipts.reduce(
+      (sum, r) => sum + r.amount,
+      0,
+    );
+
     const bill: Bill = {
       id: nextId(store.bills),
       number: nextBillNumber(store.bills, store.nextBillNumber),
@@ -487,7 +562,7 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
         : booking.client,
       vehicleLines,
       charges,
-      advanceReceived: 0,
+      advanceReceived: advanceFromReceipts,
       paymentMode,
       payments: [],
       total: calculateBillTotal(vehicleLines, charges),
@@ -836,10 +911,86 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
 
   const pendingPayrollCount = store.payrollPayments.filter((payment) => payment.status === "Pending").length;
 
-  if (composeBill) return <BillingComposer store={store} initialClientId={billingClientId} bill={editingBill} campaignBooking={draftCampaignBooking} cancel={() => { setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); }} save={(bill) => { const isExisting = store.bills.some((item) => item.id === bill.id); setStore((current) => ({ ...current, bills: isExisting ? current.bills.map((item) => item.id === bill.id ? bill : item) : [...current.bills, bill], nextBillNumber: isExisting ? current.nextBillNumber : bill.number + 1, campaignBookings: draftCampaignBooking ? current.campaignBookings.map((item) => item.id === draftCampaignBooking.id ? { ...item, generatedBillId: bill.id } : item) : current.campaignBookings })); setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); setInvoice(bill); notify("Bill saved and receipt ready"); }}/>;
+  if (composeBill) return <BillingComposer store={store} initialClientId={billingClientId} bill={editingBill} campaignBooking={draftCampaignBooking} cancel={() => { setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); }} save={(bill, appliedReceiptIds) => {
+    const isExisting = store.bills.some((item) => item.id === bill.id);
+    const receiptIdsToBill = new Set(appliedReceiptIds ?? []);
+    setStore((current) => ({
+      ...current,
+      bills: isExisting ? current.bills.map((item) => item.id === bill.id ? bill : item) : [...current.bills, bill],
+      nextBillNumber: isExisting ? current.nextBillNumber : bill.number + 1,
+      campaignBookings: draftCampaignBooking ? current.campaignBookings.map((item) => item.id === draftCampaignBooking.id ? { ...item, generatedBillId: bill.id } : item) : current.campaignBookings,
+      receipts: (current.receipts ?? []).map((r) => {
+        if (receiptIdsToBill.has(r.id)) {
+          return { ...r, status: "Billed" as const, billId: bill.id, billNumber: bill.number };
+        }
+        if (isExisting && r.billId === bill.id && !receiptIdsToBill.has(r.id)) {
+          return { ...r, status: "Unbilled" as const, billId: undefined, billNumber: undefined };
+        }
+        return r;
+      }),
+    }));
+    setComposeBill(false);
+    setEditingBill(null);
+    setDraftCampaignBooking(null);
+    setInvoice(bill);
+    notify("Bill saved and receipt ready");
+  }}/>;
   if (composeQuotation) return <QuotationComposer store={store} cancel={() => setComposeQuotation(false)} preview={(quotation) => { setComposeQuotation(false); setQuotationDraft(quotation); }}/>;
   if (quotationDraft) return <Invoice bill={quotationDraft} store={store} quotation close={() => setQuotationDraft(null)}/>;
-  if (campaignBillBooking) return <CampaignBillModeModal booking={campaignBillBooking} store={store} close={() => setCampaignBillBooking(null)} generate={(paymentMode, options) => generateCampaignBill(campaignBillBooking, paymentMode, options)} viewBill={(bill) => { setCampaignBillBooking(null); setInvoice(bill); }} onEditExisting={(bill) => { setCampaignBillBooking(null); setDraftCampaignBooking(campaignBillBooking); setEditingBill(bill); setBillingClientId(bill.clientId); setComposeBill(true); notify(`Editing existing bill INV-${String(bill.number).padStart(4, "0")}`); }}/>;
+  if (campaignBillBooking)
+    return (
+      <>
+        <CampaignBillModeModal
+          booking={campaignBillBooking}
+          store={store}
+          close={() => setCampaignBillBooking(null)}
+          generate={(paymentMode, options) => generateCampaignBill(campaignBillBooking, paymentMode, options)}
+          viewBill={(bill) => {
+            setCampaignBillBooking(null);
+            setInvoice(bill);
+          }}
+          onEditExisting={(bill) => {
+            setCampaignBillBooking(null);
+            setDraftCampaignBooking(campaignBillBooking);
+            setEditingBill(bill);
+            setBillingClientId(bill.clientId);
+            setComposeBill(true);
+            notify(`Editing existing bill INV-${String(bill.number).padStart(4, "0")}`);
+          }}
+          generateReceipt={openCreateReceipt}
+          viewReceipt={(r) => setViewingReceipt(r)}
+          editReceipt={openEditReceipt}
+          removeReceipt={removeReceipt}
+        />
+        {receiptFormOpen && (
+          <ClientReceiptFormModal
+            store={store}
+            receipt={editingReceipt}
+            initialClientId={receiptFormClientId}
+            close={() => {
+              setReceiptFormOpen(false);
+              setEditingReceipt(null);
+              setReceiptFormClientId(null);
+            }}
+            save={saveReceipt}
+            remove={removeReceipt}
+          />
+        )}
+        {viewingReceipt && (
+          <ClientReceiptViewModal
+            receipt={viewingReceipt}
+            store={store}
+            close={() => setViewingReceipt(null)}
+            edit={() => {
+              const target = viewingReceipt;
+              setViewingReceipt(null);
+              openEditReceipt(target);
+            }}
+            remove={removeReceipt}
+          />
+        )}
+      </>
+    );
   if (quotationBooking) return <CampaignQuotation booking={quotationBooking} store={store} close={() => setQuotationBooking(null)}/>;
   if (employeeRecordId) return <EmployeeRecordModal store={store} employeeId={employeeRecordId} close={() => setEmployeeRecordId(null)}/>;
   if (advanceHistoryEmployeeId)
@@ -1055,17 +1206,17 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
 
 
   const finalDialogContent = <>
-    {dialog && <EntryForm dialog={dialog} store={store} employeeId={editingEmployeeId} clientId={editingClientId} vehicleId={editingVehicleId} advanceId={editingAdvanceId} close={() => { setDialog(null); setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); }} commit={(updated, message) => { setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); commit(updated, message); }}/>} {campaignFormOpen && <CampaignBookingForm store={store} booking={editingCampaign} close={() => { setCampaignFormOpen(false); setEditingCampaign(null); }} save={(booking) => { setStore((current) => { const existingIds = current.campaignBookings.filter((item) => item.clientId === booking.clientId || item.client.firmName.trim().toLowerCase() === booking.client.firmName.trim().toLowerCase() || (editingCampaign && item.id === editingCampaign.id)).map((item) => item.id); const remaining = current.campaignBookings.filter((item) => !existingIds.includes(item.id)); return { ...current, campaignBookings: [...remaining, booking] }; }); setCampaignFormOpen(false); setEditingCampaign(null); notify("Campaign booking saved"); }}/>} {paymentBill && <BillPaymentModal bill={paymentBill} close={() => setPaymentBill(null)} save={(date, receivedAmount, mode, reference, note) => { setStore((current) => ({ ...current, bills: current.bills.map((bill) => { if (bill.id !== paymentBill.id) return bill; const payments = [...(bill.payments ?? []), { id: nextId(bill.payments ?? []), date, amount: receivedAmount, mode, reference, note }]; return { ...bill, payments, status: bill.advanceReceived + payments.reduce((sum, payment) => sum + payment.amount, 0) >= bill.total ? "Paid" : "Pending" }; }) })); setPaymentBill(null); notify(`${mode} installment recorded`); }}/>} {consolidateOpen && <ConsolidateBillsModal store={store} close={() => setConsolidateOpen(false)} preview={(bills) => { setConsolidateOpen(false); setConsolidatedBills(bills); }}/>} {invoice && <Invoice bill={invoice} store={store} close={() => setInvoice(null)} edit={() => { setEditingBill(invoice); setBillingClientId(invoice.clientId); setInvoice(null); setComposeBill(true); }} remove={() => removeBill(invoice.id)} generateReceipt={() => { setReceipt(invoice); setInvoice(null); }}/>} {receipt && <BillReceipt bill={receipt} store={store} close={() => setReceipt(null)}/>} {consolidatedBills.length > 0 && <ConsolidatedInvoice bills={consolidatedBills.map((selected) => store.bills.find((bill) => bill.id === selected.id) ?? selected)} store={store} close={() => setConsolidatedBills([])}/>} {toast && <div className="op-toast"><Check/>{toast}</div>}
+    {dialog && <EntryForm dialog={dialog} store={store} employeeId={editingEmployeeId} clientId={editingClientId} vehicleId={editingVehicleId} advanceId={editingAdvanceId} close={() => { setDialog(null); setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); }} commit={(updated, message) => { setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); commit(updated, message); }}/>} {campaignFormOpen && <CampaignBookingForm store={store} booking={editingCampaign} close={() => { setCampaignFormOpen(false); setEditingCampaign(null); }} save={(booking) => { setStore((current) => { const existingIds = current.campaignBookings.filter((item) => item.clientId === booking.clientId || item.client.firmName.trim().toLowerCase() === booking.client.firmName.trim().toLowerCase() || (editingCampaign && item.id === editingCampaign.id)).map((item) => item.id); const remaining = current.campaignBookings.filter((item) => !existingIds.includes(item.id)); return { ...current, campaignBookings: [...remaining, booking] }; }); setCampaignFormOpen(false); setEditingCampaign(null); notify("Campaign booking saved"); }}/>} {paymentBill && <BillPaymentModal bill={paymentBill} close={() => setPaymentBill(null)} save={(date, receivedAmount, mode, reference, note) => { setStore((current) => ({ ...current, bills: current.bills.map((bill) => { if (bill.id !== paymentBill.id) return bill; const payments = [...(bill.payments ?? []), { id: nextId(bill.payments ?? []), date, amount: receivedAmount, mode, reference, note }]; return { ...bill, payments, status: bill.advanceReceived + payments.reduce((sum, payment) => sum + payment.amount, 0) >= bill.total ? "Paid" : "Pending" }; }) })); setPaymentBill(null); notify(`${mode} installment recorded`); }}/>} {consolidateOpen && <ConsolidateBillsModal store={store} close={() => setConsolidateOpen(false)} preview={(bills) => { setConsolidateOpen(false); setConsolidatedBills(bills); }}/>} {invoice && <Invoice bill={invoice} store={store} close={() => setInvoice(null)} edit={() => { setEditingBill(invoice); setBillingClientId(invoice.clientId); setInvoice(null); setComposeBill(true); }} remove={() => removeBill(invoice.id)} generateReceipt={() => { setReceipt(invoice); setInvoice(null); }}/>} {receipt && <BillReceipt bill={receipt} store={store} close={() => setReceipt(null)}/>} {consolidatedBills.length > 0 && <ConsolidatedInvoice bills={consolidatedBills.map((selected) => store.bills.find((bill) => bill.id === selected.id) ?? selected)} store={store} close={() => setConsolidatedBills([])}/>} {receiptFormOpen && <ClientReceiptFormModal store={store} receipt={editingReceipt} initialClientId={receiptFormClientId} close={() => { setReceiptFormOpen(false); setEditingReceipt(null); setReceiptFormClientId(null); }} save={saveReceipt} remove={removeReceipt}/>} {viewingReceipt && <ClientReceiptViewModal receipt={viewingReceipt} store={store} close={() => setViewingReceipt(null)} edit={() => { const target = viewingReceipt; setViewingReceipt(null); openEditReceipt(target); }} remove={removeReceipt}/>} {toast && <div className="op-toast"><Check/>{toast}</div>}
   </>;
   return <OperationsShell menu={menu} setMenu={setMenu} openNavSections={openNavSections} setOpenNavSections={setOpenNavSections} view={view} go={go} pendingPayrollCount={pendingPayrollCount} dialogContent={finalDialogContent}>
     {view === "overview" && <OverviewView store={store} totalBusiness={totalBusiness} outstanding={outstanding} totalExpenses={totalExpenses} activeEmployees={activeEmployees} currentWeek={currentWeek} activeCampaigns={activeCampaigns}/>}
     {view === "attendance" && <AttendanceView store={store} attendanceDate={attendanceDate} attendanceDirty={attendanceDirty} attendanceRows={attendanceRows} allEmployees={store.employees} activeEmployeeIds={activeEmployeeIds} selectAttendanceDate={selectAttendanceDate} markAllPresent={markAllEmployeesPresent} markAllAbsent={markAllEmployeesAbsent} setEmployeeAttendance={setEmployeeAttendance} saveAttendance={saveAttendance} attendanceReportFrom={attendanceReportFrom} attendanceReportTo={attendanceReportTo} setAttendanceReportFrom={setAttendanceReportFrom} setAttendanceReportTo={setAttendanceReportTo}/>}
     {view === "employees" && <EmployeesView store={store} search={search} employeeRows={employeeRows} employeeRateHistory={employeeRateHistory} setSearch={setSearch} addEmployee={() => { setEditingEmployeeId(null); setDialog("employee"); }} addRate={() => setDialog("rate")} openEmployeeRecord={setEmployeeRecordId} editEmployee={(employeeId) => { setEditingEmployeeId(employeeId); setDialog("employee"); }} removeEmployee={(employeeId) => remove("employees", employeeId)}/>}
     {view === "vehicles" && <><PageHead title="Vehicles" detail="Vehicle attendance is independent and drives campaign billing" action="Add vehicle" onAction={() => { setEditingVehicleId(null); setDialog("vehicle"); }}/><Table headers={["Vehicle", "Type", "Current campaign", "Today", "Vehicle status", ""]}>{store.vehicles.map((vehicle) => { const campaign = campaignForVehicleOnDate(vehicle.id, isoToday()); return <Row key={vehicle.id}><b>{vehicle.number}</b><span>{vehicle.type}</span><span>{campaign?.booking.client.firmName ?? "No campaign"}{campaign && <small>{fmt(campaign.period.startDate)} to {fmt(campaign.period.endDate)}</small>}</span><Status>{store.vehicleAttendance[isoToday()]?.[vehicle.id] === true ? "Present" : store.vehicleAttendance[isoToday()]?.[vehicle.id] === false ? "Absent" : "Not marked"}</Status><Status>{vehicle.status}</Status><Actions edit={() => { setEditingVehicleId(vehicle.id); setDialog("vehicle"); }} remove={() => remove("vehicles", vehicle.id)}/></Row>; })}</Table><h2 className="op-list-title">Vehicle attendance</h2><div className="op-attendance-layout"><AttendanceCalendar key={`vehicle-${vehicleAttendanceDate.slice(0, 7)}`} selected={vehicleAttendanceDate} attendance={store.vehicleAttendance} employeeIds={attendanceVehicleIds} onSelect={selectVehicleAttendanceDate}/><section className="op-attendance-sheet"><div className="op-toolbar"><label className="op-field"><span>Attendance date</span><input type="date" value={vehicleAttendanceDate} onChange={(event) => selectVehicleAttendanceDate(event.target.value)}/></label><Button secondary onClick={() => { setVehicleAttendanceDraft((current) => ({ ...current, ...Object.fromEntries(attendanceVehicles.map((vehicle) => [vehicle.id, true])) })); setVehicleAttendanceDirty(true); }}>Mark all present</Button><span className="op-attendance-save-top"><Button onClick={saveVehicleAttendance}><Check size={17}/>Save vehicle attendance</Button></span></div>{vehicleAttendanceDirty && <p className="op-unsaved">Unsaved changes</p>}<Table headers={["Vehicle", "Campaign on this date", "Present", "Absent"]}>{attendanceVehicles.map((vehicle) => { const campaign = campaignForVehicleOnDate(vehicle.id, vehicleAttendanceDate), present = vehicleAttendanceDraft[vehicle.id]; return <Row key={vehicle.id}><b>{vehicle.number}<small>{vehicle.type}</small></b><span>{campaign?.booking.client.firmName ?? "No campaign"}{campaign && <small>{money(campaign.period.dailyRate)}/present day</small>}</span><button className={`op-attendance ${present ? "active" : ""}`} onClick={() => { setVehicleAttendanceDraft((current) => ({ ...current, [vehicle.id]: true })); setVehicleAttendanceDirty(true); }}><Check/>Present</button><button className={`op-attendance ${present === false ? "absent" : ""}`} onClick={() => { setVehicleAttendanceDraft((current) => ({ ...current, [vehicle.id]: false })); setVehicleAttendanceDirty(true); }}><X/>Absent</button></Row>; })}</Table><div className="op-attendance-save-bottom"><Button onClick={saveVehicleAttendance}><Check size={17}/>Save vehicle attendance</Button></div></section></div></>}
-    {view === "clients" && <ClientsView store={store} clientCampaignFilter={clientCampaignFilter} clientCategoryFilter={clientCategoryFilter} clientSearch={clientSearch} normalizedClientSearch={normalizedClientSearch} matchingClients={matchingClients} visibleClients={visibleClients} ledgerClientId={ledgerClientId} setClientCampaignFilter={setClientCampaignFilter} setClientCategoryFilter={setClientCategoryFilter} setClientSearch={setClientSearch} addClient={() => { setEditingClientId(null); setDialog("client"); }} openLedger={setLedgerClientId} closeLedger={() => setLedgerClientId(null)} viewBill={(bill) => { setLedgerClientId(null); setInvoice(bill); }} createBill={(clientId) => { setBillingClientId(clientId); setEditingBill(null); setComposeBill(true); }} editClient={(clientId) => { setEditingClientId(clientId); setDialog("client"); }} removeClient={(clientId) => remove("clients", clientId)}/>}
+    {view === "clients" && <ClientsView store={store} clientCampaignFilter={clientCampaignFilter} clientCategoryFilter={clientCategoryFilter} clientSearch={clientSearch} normalizedClientSearch={normalizedClientSearch} matchingClients={matchingClients} visibleClients={visibleClients} ledgerClientId={ledgerClientId} setClientCampaignFilter={setClientCampaignFilter} setClientCategoryFilter={setClientCategoryFilter} setClientSearch={setClientSearch} addClient={() => { setEditingClientId(null); setDialog("client"); }} openLedger={setLedgerClientId} closeLedger={() => setLedgerClientId(null)} viewBill={(bill) => { setLedgerClientId(null); setInvoice(bill); }} createBill={(clientId) => { setBillingClientId(clientId); setEditingBill(null); setComposeBill(true); }} createReceipt={openCreateReceipt} viewReceipt={setViewingReceipt} editReceipt={openEditReceipt} removeReceipt={removeReceipt} editClient={(clientId) => { setEditingClientId(clientId); setDialog("client"); }} removeClient={(clientId) => remove("clients", clientId)}/>}
     {view === "quotations" && <QuotationsView store={store} setStore={setStore} notify={notify} />}
-    {view === "ledgers" && <ClientLedgersView store={store} ledgerSearch={ledgerSearch} normalizedLedgerSearch={normalizedLedgerSearch} ledgerClients={ledgerClients} visibleLedgerClients={visibleLedgerClients} ledgerClientId={ledgerClientId} setLedgerSearch={setLedgerSearch} openLedger={setLedgerClientId} closeLedger={() => setLedgerClientId(null)} viewBill={(bill) => { setLedgerClientId(null); setInvoice(bill); }}/>}
-    {view === "campaigns" && <CampaignsView store={store} campaignSearch={campaignSearch} normalizedCampaignSearch={normalizedCampaignSearch} filteredCampaignBookings={filteredCampaignBookings} setCampaignSearch={setCampaignSearch} newBooking={() => { setEditingCampaign(null); setRenewingCampaign(false); setCampaignFormOpen(true); }} editBooking={(booking) => { setEditingCampaign(booking); setRenewingCampaign(false); setCampaignFormOpen(true); }} renewBooking={(booking) => { const currentEnd = bookingEnd(booking); const endYear = Number(currentEnd.slice(0, 4)); const endMonth = Number(currentEnd.slice(5, 7)); const nextMonthDate = new Date(Date.UTC(endYear, endMonth, 1)); const nextEndDay = new Date(Date.UTC(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth() + 1, 0)).getUTCDate(); const nextEndDate = `${nextMonthDate.getUTCFullYear()}-${String(nextMonthDate.getUTCMonth() + 1).padStart(2, "0")}-${String(nextEndDay).padStart(2, "0")}`; const renewed = { ...booking, id: booking.id, startDate: booking.startDate, endDate: nextEndDate > booking.endDate ? nextEndDate : booking.endDate, stoppedAt: undefined, vehiclePeriods: booking.vehiclePeriods.map((period) => ({ ...period, endDate: nextEndDate > period.endDate ? nextEndDate : period.endDate })) }; setEditingCampaign(renewed); setRenewingCampaign(false); setCampaignFormOpen(true); }} deleteBooking={(booking) => { if (!window.confirm("Delete this campaign and its attendance link?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.filter((item) => item.clientId !== booking.clientId && item.client.firmName.trim().toLowerCase() !== booking.client.firmName.trim().toLowerCase() && item.id !== booking.id) })); notify("Campaign deleted"); }} stopBooking={(booking) => { if (!window.confirm("Stop this campaign immediately?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.map((item) => (item.clientId === booking.clientId || item.client.firmName.trim().toLowerCase() === booking.client.firmName.trim().toLowerCase() || item.id === booking.id) ? { ...item, stoppedAt: isoToday() } : item) })); notify("Campaign stopped"); }} generateBill={generateCampaignBill} viewBill={(bill) => setInvoice(bill)}/>}
+    {view === "ledgers" && <ClientLedgersView store={store} ledgerSearch={ledgerSearch} normalizedLedgerSearch={normalizedLedgerSearch} ledgerClients={ledgerClients} visibleLedgerClients={visibleLedgerClients} ledgerClientId={ledgerClientId} setLedgerSearch={setLedgerSearch} openLedger={setLedgerClientId} closeLedger={() => setLedgerClientId(null)} viewBill={(bill) => { setLedgerClientId(null); setInvoice(bill); }} createReceipt={openCreateReceipt} viewReceipt={setViewingReceipt} editReceipt={openEditReceipt} removeReceipt={removeReceipt}/>}
+    {view === "campaigns" && <CampaignsView store={store} campaignSearch={campaignSearch} normalizedCampaignSearch={normalizedCampaignSearch} filteredCampaignBookings={filteredCampaignBookings} setCampaignSearch={setCampaignSearch} newBooking={() => { setEditingCampaign(null); setRenewingCampaign(false); setCampaignFormOpen(true); }} editBooking={(booking) => { setEditingCampaign(booking); setRenewingCampaign(false); setCampaignFormOpen(true); }} renewBooking={(booking) => { const currentEnd = bookingEnd(booking); const endYear = Number(currentEnd.slice(0, 4)); const endMonth = Number(currentEnd.slice(5, 7)); const nextMonthDate = new Date(Date.UTC(endYear, endMonth, 1)); const nextEndDay = new Date(Date.UTC(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth() + 1, 0)).getUTCDate(); const nextEndDate = `${nextMonthDate.getUTCFullYear()}-${String(nextMonthDate.getUTCMonth() + 1).padStart(2, "0")}-${String(nextEndDay).padStart(2, "0")}`; const renewed = { ...booking, id: booking.id, startDate: booking.startDate, endDate: nextEndDate > booking.endDate ? nextEndDate : booking.endDate, stoppedAt: undefined, vehiclePeriods: booking.vehiclePeriods.map((period) => ({ ...period, endDate: nextEndDate > period.endDate ? nextEndDate : period.endDate })) }; setEditingCampaign(renewed); setRenewingCampaign(false); setCampaignFormOpen(true); }} deleteBooking={(booking) => { if (!window.confirm("Delete this campaign and its attendance link?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.filter((item) => item.clientId !== booking.clientId && item.client.firmName.trim().toLowerCase() !== booking.client.firmName.trim().toLowerCase() && item.id !== booking.id) })); notify("Campaign deleted"); }} stopBooking={(booking) => { if (!window.confirm("Stop this campaign immediately?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.map((item) => (item.clientId === booking.clientId || item.client.firmName.trim().toLowerCase() === booking.client.firmName.trim().toLowerCase() || item.id === booking.id) ? { ...item, stoppedAt: isoToday() } : item) })); notify("Campaign stopped"); }} generateBill={generateCampaignBill} viewBill={(bill) => setInvoice(bill)} generateReceipt={openCreateReceipt} viewReceipt={setViewingReceipt}/>}
     {view === "payroll" && (
       <PayrollView
         store={store}
@@ -1088,7 +1239,7 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
         }}
       />
     )} 
-    {view === "billing" && <BillingView store={store} billingSearch={billingSearch} filteredBills={filteredBills} totalBusiness={totalBusiness} outstanding={outstanding} setBillingSearch={setBillingSearch} generateBill={() => { setEditingBill(null); setComposeBill(true); }} openCompanyDetails={() => setDialog("company")} combineClientBills={() => setConsolidateOpen(true)} editBill={(bill) => { setEditingBill(bill); setBillingClientId(bill.clientId); setComposeBill(true); }} recordPayment={setPaymentBill} viewBill={setInvoice} removeBill={removeBill}/>}
+    {view === "billing" && <BillingView store={store} billingSearch={billingSearch} filteredBills={filteredBills} totalBusiness={totalBusiness} outstanding={outstanding} setBillingSearch={setBillingSearch} generateBill={() => { setEditingBill(null); setComposeBill(true); }} generateReceipt={openCreateReceipt} viewReceipt={setViewingReceipt} editReceipt={openEditReceipt} removeReceipt={removeReceipt} openCompanyDetails={() => setDialog("company")} combineClientBills={() => setConsolidateOpen(true)} editBill={(bill) => { setEditingBill(bill); setBillingClientId(bill.clientId); setComposeBill(true); }} recordPayment={setPaymentBill} viewBill={setInvoice} removeBill={removeBill}/>}
     {view === "expenses" && <ExpensesView
       store={store}
       totalSupplierPaid={totalSupplierPaid}

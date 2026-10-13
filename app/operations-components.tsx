@@ -126,9 +126,9 @@ export function PaymentReceiptModal({
   );
 }
 
-export function Button({ children, onClick, secondary = false, type = "button", className, style }: { children: React.ReactNode; onClick?: () => void; secondary?: boolean; type?: "button" | "submit"; className?: string; style?: React.CSSProperties }) {
+export function Button({ children, onClick, secondary = false, type = "button", className, style, title }: { children: React.ReactNode; onClick?: () => void; secondary?: boolean; type?: "button" | "submit"; className?: string; style?: React.CSSProperties; title?: string }) {
   const baseClass = secondary ? "op-button secondary" : "op-button";
-  return <button type={type} className={className ? `${baseClass} ${className}` : baseClass} onClick={onClick} style={style}>{children}</button>;
+  return <button type={type} className={className ? `${baseClass} ${className}` : baseClass} onClick={onClick} style={style} title={title}>{children}</button>;
 }
 
 export function AttendanceCalendar<T extends string | number>({ selected, attendance, employeeIds, onSelect }: { selected: string; attendance: Record<string, Record<T, boolean>>; employeeIds: T[]; onSelect: (date: string) => void }) {
@@ -159,11 +159,56 @@ export function FormSelect({ label, name, options, defaultValue, required = fals
   return <label className="op-field"><span>{label}</span><select name={name} defaultValue={defaultValue ?? ""} required={required}><option value="">Select</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
 }
 
-export function Modal({ title, close, children }: { title: string; close: () => void; children: React.ReactNode }) {
+export function Modal({
+  title,
+  close,
+  children,
+  width,
+  className,
+  style,
+}: {
+  title: string;
+  close: () => void;
+  children: React.ReactNode;
+  width?: string | number;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
   const isSalarySlip = title.toLowerCase().includes("salary slip");
-  const isLedger = title.toLowerCase().includes("ledger") || title.toLowerCase().includes("complete record");
+  const isLedger =
+    title.toLowerCase().includes("ledger") ||
+    title.toLowerCase().includes("complete record");
   const printable = isLedger || isSalarySlip;
-  return <div className={`op-modal-backdrop${printable ? " op-print-ledger-modal" : ""}`} onMouseDown={(event) => event.target === event.currentTarget && close()}><section className="op-modal"><header><h2>{title}</h2><span className="op-modal-actions">{printable && <button className="op-modal-print" onClick={() => window.print()}><Printer size={17}/>Print {isSalarySlip ? "salary slip" : "all records"}</button>}<button title="Close" onClick={close}><X/></button></span></header>{children}</section></div>;
+  return (
+    <div
+      className={`op-modal-backdrop${printable ? " op-print-ledger-modal" : ""}`}
+      onMouseDown={(event) => event.target === event.currentTarget && close()}
+    >
+      <section
+        className={`op-modal ${className ?? ""}`}
+        style={{
+          ...(width ? { width, maxWidth: "96vw" } : {}),
+          ...style,
+        }}
+      >
+        <header>
+          <h2>{title}</h2>
+          <span className="op-modal-actions">
+            {printable && (
+              <button className="op-modal-print" onClick={() => window.print()}>
+                <Printer size={17} />
+                Print {isSalarySlip ? "salary slip" : "all records"}
+              </button>
+            )}
+            <button title="Close" onClick={close}>
+              <X />
+            </button>
+          </span>
+        </header>
+        {children}
+      </section>
+    </div>
+  );
 }
 
 export const MaintenancePaymentReceiptModal = PaymentReceiptModal;

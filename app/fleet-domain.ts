@@ -4,7 +4,7 @@ export type EmployeeStatus = "Active" | "Inactive";
 export type VehicleType = "E-rickshaw" | "Rickshaw";
 export type VehicleStatus = "Running" | "Maintenance" | "Inactive";
 export type BillStatus = "Paid" | "Pending" | "Overdue";
-export type PaymentMode = "Cash" | "Cheque" | "UPI";
+export type PaymentMode = "Cash" | "Cheque" | "UPI" | "RTGS" | "NEFT";
 export type ExpenseTreatment = "Business cost" | "Employee reimbursement" | "Employee deduction";
 export type ClientCategory = "Rickshaw" | "E-rickshaw" | "Paper" | "Social media" | "Calendar" | "Other";
 
@@ -260,6 +260,27 @@ export function nextQuotationNumber(quotations: Quotation[] = [], fallback = 1):
   return Math.max(0, fallback - 1, ...quotations.map((q) => q.number)) + 1;
 }
 
+export type ClientReceiptStatus = "Unbilled" | "Billed";
+
+export type ClientReceipt = {
+  id: number;
+  number: number;
+  receiptDate: ISODate;
+  clientId: number;
+  client: ClientSnapshot;
+  amount: number;
+  paymentMode: PaymentMode;
+  reference?: string;
+  note?: string;
+  status: ClientReceiptStatus;
+  billId?: number;
+  billNumber?: number;
+};
+
+export function nextReceiptNumber(receipts: ClientReceipt[] = [], fallback = 1): number {
+  return Math.max(0, fallback - 1, ...receipts.map((r) => r.number)) + 1;
+}
+
 export type OtherBillCategory = "Paper" | "Calendar" | "Other";
 
 export type OtherBillItem = {
@@ -397,6 +418,8 @@ export type FleetStore = {
   businessExpenses: BusinessExpense[];
   suppliers: SupplierProfile[];
   supplierPayments: SupplierPayment[];
+  nextReceiptNumber?: number;
+  receipts?: ClientReceipt[];
 };
 
 const DAY_MS = 86_400_000;
@@ -782,6 +805,8 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
       }),
       quotations: Array.isArray(migrated.quotations) ? migrated.quotations : [],
       nextQuotationNumber: migrated.nextQuotationNumber || 1,
+      receipts: Array.isArray(migrated.receipts) ? migrated.receipts : [],
+      nextReceiptNumber: migrated.nextReceiptNumber || 1,
     };
   }
 
@@ -880,6 +905,8 @@ export function migrateStore(value: unknown, fallback: FleetStore): FleetStore {
     supplierPayments: Array.isArray(source.supplierPayments) ? source.supplierPayments : fallback.supplierPayments ?? [],
     quotations: Array.isArray(source.quotations) ? source.quotations : fallback.quotations ?? [],
     nextQuotationNumber: number(source.nextQuotationNumber, fallback.nextQuotationNumber ?? 1),
+    receipts: Array.isArray(source.receipts) ? source.receipts : fallback.receipts ?? [],
+    nextReceiptNumber: number(source.nextReceiptNumber, fallback.nextReceiptNumber ?? 1),
     nextBillNumber: nextBillNumber(bills, fallback.nextBillNumber),
     nextOtherBillNumber: number(source.nextOtherBillNumber, fallback.nextOtherBillNumber ?? 1),
   };
@@ -891,6 +918,7 @@ export const emptyStore: FleetStore = {
   nextBillNumber: 45,
   nextOtherBillNumber: 1,
   nextQuotationNumber: 1,
+  nextReceiptNumber: 1,
   employees: [],
   employeeRates: [],
   employeePayments: [],
@@ -910,4 +938,5 @@ export const emptyStore: FleetStore = {
   suppliers: [],
   supplierPayments: [],
   quotations: [],
+  receipts: [],
 };

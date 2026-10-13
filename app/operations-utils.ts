@@ -55,6 +55,17 @@ export const clientOverallBalance = (store: FleetStore, clientId: number) => {
         (bill.client?.firmName?.toLowerCase().trim() === targetName ||
          (isBabaTarget && (bill.client?.firmName?.toLowerCase().includes("baba") ?? false))))
   );
+  const clientReceipts = (store.receipts ?? []).filter(
+    (receipt) =>
+      receipt.clientId === clientId ||
+      (targetName &&
+        (receipt.client?.firmName?.toLowerCase().trim() === targetName ||
+         (isBabaTarget && (receipt.client?.firmName?.toLowerCase().includes("baba") ?? false))))
+  );
+  const unbilledReceiptsTotal = clientReceipts
+    .filter((r) => r.status !== "Billed" && !r.billId)
+    .reduce((sum, r) => sum + r.amount, 0);
+
   const billed =
     clientBills.reduce((sum, bill) => sum + bill.total, 0) +
     clientOtherBills.reduce((sum, bill) => sum + bill.total, 0);
@@ -68,7 +79,8 @@ export const clientOverallBalance = (store: FleetStore, clientId: number) => {
   );
   const received =
     clientBills.reduce((sum, bill) => sum + billPaid(bill), 0) +
-    clientOtherBills.reduce((sum, bill) => sum + otherBillPaid(bill), 0);
+    clientOtherBills.reduce((sum, bill) => sum + otherBillPaid(bill), 0) +
+    unbilledReceiptsTotal;
   const balance = billed - received;
   return {
     billed,
@@ -79,6 +91,8 @@ export const clientOverallBalance = (store: FleetStore, clientId: number) => {
     otherBillCount: clientOtherBills.length,
     otherBillCost: otherBillCostTotal,
     otherBillProfit: otherBillProfitTotal,
+    receiptCount: clientReceipts.length,
+    unbilledReceiptsTotal,
   };
 };
 

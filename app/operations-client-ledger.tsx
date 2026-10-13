@@ -1,10 +1,11 @@
-import { Banknote, CalendarDays, Check, FileText, Printer, ReceiptText, WalletCards, X } from "lucide-react";
+import { Banknote, CalendarDays, Check, FileText, Plus, Printer, ReceiptText, Trash2, WalletCards, X } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
-import { addDays, Bill, BillCharge, calculateBillTotal, FleetStore, inclusiveDays } from "./fleet-domain";
+import { addDays, Bill, BillCharge, calculateBillTotal, ClientReceipt, FleetStore, inclusiveDays } from "./fleet-domain";
 import { Button, Modal, Status } from "./operations-components";
 import { InvoiceHeader } from "./invoice-header";
 import { BillReceipt } from "./operations-billing";
+import { ClientReceiptViewModal } from "./operations-receipts";
 import {
   billBalance,
   billPaid,
@@ -190,16 +191,25 @@ export function ClientLedgerModal({
   clientId,
   close,
   viewBill,
+  openCreateReceipt,
+  viewReceipt,
+  editReceipt,
+  removeReceipt,
 }: {
   store: FleetStore;
   clientId: number;
   close: () => void;
   viewBill?: (bill: Bill) => void;
+  openCreateReceipt?: (clientId: number) => void;
+  viewReceipt?: (receipt: ClientReceipt) => void;
+  editReceipt?: (receipt: ClientReceipt) => void;
+  removeReceipt?: (receiptId: number) => void;
 }) {
   const client = store.clients.find((item) => item.id === clientId);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [activeReceipt, setActiveReceipt] = useState<{ bill: Bill; payment?: Bill["payments"][number] | null } | null>(null);
+  const [previewingClientReceipt, setPreviewingClientReceipt] = useState<ClientReceipt | null>(null);
   const [printModalOpen, setPrintModalOpen] = useState(false);
 
   if (!client) return null;
@@ -320,34 +330,72 @@ export function ClientLedgerModal({
     isAdvance: false,
   }));
 
-  const paymentRows = filteredBills.flatMap((bill) => [
-    ...(bill.advanceReceived > 0
-      ? [{
-          key: `adv-${bill.id}`,
-          date: bill.billDate,
-          type: `Advance received (INV-${String(bill.number).padStart(4, "0")})`,
-          detail: `${bill.paymentMode} · Advance on invoice generation`,
-          status: "Received",
-          amount: -bill.advanceReceived,
-          isCredit: true,
-          bill,
-          payment: null as Bill["payments"][number] | null,
-          isAdvance: true,
-        }]
-      : []),
-    ...bill.payments.map((payment) => ({
-      key: `pay-${bill.id}-${payment.id}`,
-      date: payment.date,
-      type: `Payment (INV-${String(bill.number).padStart(4, "0")})`,
-      detail: `${payment.mode} · Ref: ${payment.reference || payment.note || "Installment"}`,
-      status: "Received",
-      amount: -payment.amount,
-      isCredit: true,
-      bill,
-      payment,
-      isAdvance: false,
-    })),
-  ]);
+  const clientReceipts = (store.receipts ?? []).filter(
+    (receipt) =>
+      receipt.clientId === clientId ||
+      (receipt.client?.firmName && receipt.client.firmName.toLowerCase().trim() === targetName) ||
+      (isBaba && (receipt.client?.firmName?.toLowerCase().includes("baba") ?? false)),
+  );
+
+  const filteredReceipts = clientReceipts.filter((r) => inRange(r.receiptDate));
+
+  const receiptRows = filteredReceipts.map((r) => ({
+    key: `receipt-${r.id}`,
+    date: r.receiptDate,
+    type: `Receipt REC-${String(r.number).padStart(4, "0")}`,
+    detail: `${r.paymentMode} · ${r.reference ? `Ref: ${r.reference} · ` : ""}${r.note || "Money receipt"}${r.status === "Billed" ? ` · Applied to INV-${String(r.billNumber ?? "").padStart(4, "0")}` : " · Unbilled deposit"}`,
+    status: r.status === "Billed" ? "Billed" : "Received",
+    amount: -r.amount,
+    isCredit: true,
+    bill: undefined as Bill | undefined,
+    payment: null as Bill["payments"][number] | null,
+    isAdvance: false,
+    clientReceipt: r,
+  }));
+
+  const paymentRows = filteredBills.flatMap((bill) => {
+    const linkedReceiptsForBill = (store.receipts ?? []).filter(
+      (r) => r.billId === bill.id,
+    );
+    const linkedReceiptsSum = linkedReceiptsForBill.reduce(
+      (sum, r) => sum + r.amount,
+      0,
+    );
+    const unlinkedAdvance = Math.max(0, bill.advanceReceived - linkedReceiptsSum);
+
+    return [
+      ...(unlinkedAdvance > 0
+        ? [
+            {
+              key: `adv-${bill.id}`,
+              date: bill.billDate,
+              type: `Advance received (INV-${String(bill.number).padStart(4, "0")})`,
+              detail: `${bill.paymentMode} · Direct advance on invoice`,
+              status: "Received",
+              amount: -unlinkedAdvance,
+              isCredit: true,
+              bill,
+              payment: null as Bill["payments"][number] | null,
+              isAdvance: true,
+              clientReceipt: undefined as ClientReceipt | undefined,
+            },
+          ]
+        : []),
+      ...bill.payments.map((payment) => ({
+        key: `pay-${bill.id}-${payment.id}`,
+        date: payment.date,
+        type: `Payment (INV-${String(bill.number).padStart(4, "0")})`,
+        detail: `${payment.mode} · Ref: ${payment.reference || payment.note || "Installment"}`,
+        status: "Received",
+        amount: -payment.amount,
+        isCredit: true,
+        bill,
+        payment,
+        isAdvance: false,
+        clientReceipt: undefined as ClientReceipt | undefined,
+      })),
+    ];
+  });
 
   const bookingRows = filteredBookings.map((booking) => {
     const charges: BillCharge[] = booking.facilities.map((facility) => ({ ...facility, amount: facility.quantity * facility.rate }));
@@ -363,13 +411,15 @@ export function ClientLedgerModal({
       bill: undefined as Bill | undefined,
       payment: null as Bill["payments"][number] | null,
       isAdvance: false,
+      clientReceipt: undefined as ClientReceipt | undefined,
     };
   });
 
   const timeline = [
-    ...billRows,
-    ...otherBillRows,
+    ...billRows.map((r) => ({ ...r, clientReceipt: undefined as ClientReceipt | undefined })),
+    ...otherBillRows.map((r) => ({ ...r, clientReceipt: undefined as ClientReceipt | undefined })),
     ...paymentRows,
+    ...receiptRows,
     ...attendanceRecords.map((a) => ({
       key: a.key,
       date: a.date,
@@ -381,6 +431,7 @@ export function ClientLedgerModal({
       bill: undefined as Bill | undefined,
       payment: null as Bill["payments"][number] | null,
       isAdvance: false,
+      clientReceipt: undefined as ClientReceipt | undefined,
     })),
   ].sort((a, b) => b.date.localeCompare(a.date));
 
@@ -477,6 +528,15 @@ export function ClientLedgerModal({
               <Printer size={16} />
               Print ledger
             </Button>
+            {openCreateReceipt && (
+              <Button
+                secondary
+                onClick={() => openCreateReceipt(clientId)}
+              >
+                <Plus size={16} />
+                Generate receipt
+              </Button>
+            )}
           </div>
 
           <div className="op-section-title">
@@ -522,6 +582,39 @@ export function ClientLedgerModal({
                         <Printer size={16} />
                       </button>
                     )}
+                    {item.clientReceipt && (
+                      <>
+                        <button
+                          className="op-icon"
+                          title="Print / View money receipt"
+                          onClick={() => {
+                            if (viewReceipt) viewReceipt(item.clientReceipt!);
+                            else setPreviewingClientReceipt(item.clientReceipt!);
+                          }}
+                        >
+                          <Printer size={16} />
+                        </button>
+                        {editReceipt && (
+                          <button
+                            className="op-icon"
+                            title="Edit receipt"
+                            onClick={() => editReceipt(item.clientReceipt!)}
+                          >
+                            <FileText size={16} />
+                          </button>
+                        )}
+                        {removeReceipt && (
+                          <button
+                            className="op-icon"
+                            title="Delete receipt"
+                            style={{ color: "#a13e34" }}
+                            onClick={() => removeReceipt(item.clientReceipt!.id)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </>
+                    )}
                   </span>
                 </article>
               ))}
@@ -565,6 +658,16 @@ export function ClientLedgerModal({
           payment={activeReceipt.payment}
           store={store}
           close={() => setActiveReceipt(null)}
+        />
+      )}
+
+      {previewingClientReceipt && (
+        <ClientReceiptViewModal
+          receipt={previewingClientReceipt}
+          store={store}
+          close={() => setPreviewingClientReceipt(null)}
+          edit={editReceipt}
+          remove={removeReceipt}
         />
       )}
     </>

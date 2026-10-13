@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Check, FileText, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { CalendarDays, Check, FileText, Plus, Printer, ReceiptText, Search, Trash2, X } from "lucide-react";
 import type React from "react";
 import { type FormEvent, useEffect, useState } from "react";
 import {
@@ -12,6 +12,7 @@ import {
   CampaignVehiclePeriod,
   calculateBillTotal,
   campaignDurationMonths,
+  ClientReceipt,
   FleetStore,
   inclusiveDays,
 } from "./fleet-domain";
@@ -593,6 +594,8 @@ function LegacyCampaignBookingCard({
   stop,
   generateBill,
   viewBill,
+  generateReceipt,
+  viewReceipt,
 }: {
   store: FleetStore;
   booking: CampaignBooking;
@@ -602,6 +605,8 @@ function LegacyCampaignBookingCard({
   stop: () => void;
   generateBill: () => void;
   viewBill?: (bill: Bill) => void;
+  generateReceipt?: (clientId: number) => void;
+  viewReceipt?: (receipt: ClientReceipt) => void;
 }) {
   const status = bookingStatus(booking, store),
     isOngoing =
@@ -712,6 +717,23 @@ function LegacyCampaignBookingCard({
       </section>
       {(() => {
         const campaignBills = findAllCampaignBills(store, booking);
+        const matchedClient =
+          (booking.client?.firmName
+            ? store.clients.find(
+                (c) =>
+                  c.firmName.trim().toLowerCase() ===
+                  booking.client.firmName.trim().toLowerCase(),
+              )
+            : undefined) ??
+          store.clients.find((c) => c.id === booking.clientId);
+        const actualClientId = matchedClient?.id ?? booking.clientId;
+        const clientReceipts = (store.receipts ?? []).filter(
+          (r) =>
+            r.clientId === actualClientId ||
+            (booking.client?.firmName &&
+              r.client?.firmName?.trim().toLowerCase() ===
+                booking.client.firmName.trim().toLowerCase()),
+        );
         return (
           <>
             {campaignBills.length > 0 && (
@@ -745,6 +767,64 @@ function LegacyCampaignBookingCard({
                 ))}
               </div>
             )}
+            {clientReceipts.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: "8px",
+                  margin: "6px 0 14px",
+                  padding: "9px 12px",
+                  borderRadius: "6px",
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#166534",
+                  }}
+                >
+                  {clientReceipts.length === 1 ? "Receipt:" : `Receipts (${clientReceipts.length}):`}
+                </span>
+                {clientReceipts.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => viewReceipt?.(r)}
+                    style={{
+                      border: "1px solid #16a34a",
+                      borderRadius: "5px",
+                      padding: "4px 9px",
+                      background: "white",
+                      color: "#15803d",
+                      fontWeight: 700,
+                      fontSize: "12px",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                    title={`Click to view receipt REC-${String(r.number).padStart(4, "0")} (${money(r.amount)}) - ${r.status}`}
+                  >
+                    <ReceiptText size={13} />
+                    REC-{String(r.number).padStart(4, "0")} ({money(r.amount)})
+                    {r.status === "Billed" ? (
+                      <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 500 }}>
+                        (Billed{r.billNumber ? ` on INV-${String(r.billNumber).padStart(4, "0")}` : ""})
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: "10px", color: "#16a34a", fontWeight: 600 }}>
+                        (Unbilled)
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
             <footer>
               <Button secondary onClick={edit}>
                 Edit / extend / schedule stop
@@ -758,6 +838,25 @@ function LegacyCampaignBookingCard({
               {isOngoing && (
                 <Button secondary onClick={stop}>
                   Stop now
+                </Button>
+              )}
+              {generateReceipt && (
+                <Button secondary onClick={() => generateReceipt(actualClientId)}>
+                  <ReceiptText size={16} />
+                  Generate receipt
+                </Button>
+              )}
+              {clientReceipts.length > 0 && viewReceipt && (
+                <Button
+                  secondary
+                  onClick={() => {
+                    viewReceipt(clientReceipts[clientReceipts.length - 1]);
+                  }}
+                >
+                  <ReceiptText size={16} />
+                  {clientReceipts.length === 1
+                    ? "View receipt"
+                    : `View receipts (${clientReceipts.length})`}
                 </Button>
               )}
               {status !== "Scheduled" && (
@@ -795,6 +894,8 @@ function CampaignSlotCardContent({
   stop,
   generateBill,
   viewBill,
+  generateReceipt,
+  viewReceipt,
 }: {
   store: FleetStore;
   booking: CampaignBooking;
@@ -804,6 +905,8 @@ function CampaignSlotCardContent({
   stop: () => void;
   generateBill: () => void;
   viewBill?: (bill: Bill) => void;
+  generateReceipt?: (clientId: number) => void;
+  viewReceipt?: (receipt: ClientReceipt) => void;
 }) {
   if (booking.vehiclePeriods.some((period) => period.quantity < 1))
     return (
@@ -816,6 +919,8 @@ function CampaignSlotCardContent({
         stop={stop}
         generateBill={generateBill}
         viewBill={viewBill}
+        generateReceipt={generateReceipt}
+        viewReceipt={viewReceipt}
       />
     );
   const status = bookingStatus(booking, store);
@@ -923,6 +1028,23 @@ function CampaignSlotCardContent({
       </section>
       {(() => {
         const campaignBills = findAllCampaignBills(store, booking);
+        const matchedClient =
+          (booking.client?.firmName
+            ? store.clients.find(
+                (c) =>
+                  c.firmName.trim().toLowerCase() ===
+                  booking.client.firmName.trim().toLowerCase(),
+              )
+            : undefined) ??
+          store.clients.find((c) => c.id === booking.clientId);
+        const actualClientId = matchedClient?.id ?? booking.clientId;
+        const clientReceipts = (store.receipts ?? []).filter(
+          (r) =>
+            r.clientId === actualClientId ||
+            (booking.client?.firmName &&
+              r.client?.firmName?.trim().toLowerCase() ===
+                booking.client.firmName.trim().toLowerCase()),
+        );
         return (
           <>
             {campaignBills.length > 0 && (
@@ -956,6 +1078,64 @@ function CampaignSlotCardContent({
                 ))}
               </div>
             )}
+            {clientReceipts.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: "8px",
+                  margin: "6px 0 14px",
+                  padding: "9px 12px",
+                  borderRadius: "6px",
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#166534",
+                  }}
+                >
+                  {clientReceipts.length === 1 ? "Receipt:" : `Receipts (${clientReceipts.length}):`}
+                </span>
+                {clientReceipts.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => viewReceipt?.(r)}
+                    style={{
+                      border: "1px solid #16a34a",
+                      borderRadius: "5px",
+                      padding: "4px 9px",
+                      background: "white",
+                      color: "#15803d",
+                      fontWeight: 700,
+                      fontSize: "12px",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                    title={`Click to view receipt REC-${String(r.number).padStart(4, "0")} (${money(r.amount)}) - ${r.status}`}
+                  >
+                    <ReceiptText size={13} />
+                    REC-{String(r.number).padStart(4, "0")} ({money(r.amount)})
+                    {r.status === "Billed" ? (
+                      <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 500 }}>
+                        (Billed{r.billNumber ? ` on INV-${String(r.billNumber).padStart(4, "0")}` : ""})
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: "10px", color: "#16a34a", fontWeight: 600 }}>
+                        (Unbilled)
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
             <footer>
               <Button secondary onClick={edit}>
                 Edit / extend / schedule stop
@@ -969,6 +1149,25 @@ function CampaignSlotCardContent({
               {isOngoing && (
                 <Button secondary onClick={stop}>
                   Stop now
+                </Button>
+              )}
+              {generateReceipt && (
+                <Button secondary onClick={() => generateReceipt(actualClientId)}>
+                  <ReceiptText size={16} />
+                  Generate receipt
+                </Button>
+              )}
+              {clientReceipts.length > 0 && viewReceipt && (
+                <Button
+                  secondary
+                  onClick={() => {
+                    viewReceipt(clientReceipts[clientReceipts.length - 1]);
+                  }}
+                >
+                  <ReceiptText size={16} />
+                  {clientReceipts.length === 1
+                    ? "View receipt"
+                    : `View receipts (${clientReceipts.length})`}
                 </Button>
               )}
               {status !== "Scheduled" && (
@@ -1006,6 +1205,8 @@ export function CampaignSlotCard({
   stop,
   generateBill,
   viewBill,
+  generateReceipt,
+  viewReceipt,
 }: {
   store: FleetStore;
   booking: CampaignBooking;
@@ -1015,6 +1216,8 @@ export function CampaignSlotCard({
   stop: () => void;
   generateBill: () => void;
   viewBill?: (bill: Bill) => void;
+  generateReceipt?: (clientId: number) => void;
+  viewReceipt?: (receipt: ClientReceipt) => void;
 }) {
   const printQuotation = () =>
     window.dispatchEvent(
@@ -1033,6 +1236,8 @@ export function CampaignSlotCard({
         stop={stop}
         generateBill={generateBill}
         viewBill={viewBill}
+        generateReceipt={generateReceipt}
+        viewReceipt={viewReceipt}
       />
       <div className="op-campaign-quotation-action">
         <Button secondary onClick={printQuotation}>
