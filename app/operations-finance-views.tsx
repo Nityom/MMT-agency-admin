@@ -11,6 +11,7 @@ import {
   Printer,
   ReceiptText,
   Search,
+  TrendingDown,
   UserRound,
   WalletCards,
   Wrench,
@@ -29,6 +30,7 @@ import { ClientReceiptsRegister } from "./operations-receipts";
 import { Metric, PageHead } from "./operations-reports";
 import {
   billBalance,
+  billLoss,
   billPaid,
   bookingEnd,
   expenseProfit,
@@ -186,6 +188,7 @@ export type BillingViewProps = {
   combineClientBills: () => void;
   editBill: (bill: Bill) => void;
   recordPayment: (bill: Bill) => void;
+  recordLoss?: (bill: Bill) => void;
   viewBill: (bill: Bill) => void;
   removeBill: (billId: number) => void;
 };
@@ -206,6 +209,7 @@ export function BillingView({
   combineClientBills,
   editBill,
   recordPayment,
+  recordLoss,
   viewBill,
   removeBill,
 }: BillingViewProps) {
@@ -380,7 +384,7 @@ export function BillingView({
           {displayedBills.length} of {store.bills.length} invoices
         </p>
       </div>
-      <section className="op-metrics three">
+      <section className="op-metrics" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
         <Metric
           label="Total business"
           value={money(totalBusiness)}
@@ -397,6 +401,12 @@ export function BillingView({
           )}
           detail="Advances and installments"
           icon={Check}
+        />
+        <Metric
+          label="Client Losses / Bad Debt"
+          value={money(store.bills.reduce((sum, bill) => sum + billLoss(bill), 0))}
+          detail={`${store.bills.filter((bill) => billLoss(bill) > 0).length} bills with recorded loss`}
+          icon={TrendingDown}
         />
         <Metric
           label="Overall outstanding"
@@ -452,6 +462,11 @@ export function BillingView({
                 <strong>{money(bill.total)}</strong>
                 <span>
                   <b>{money(billPaid(bill))}</b>
+                  {bill.lossAmount ? (
+                    <small style={{ color: "#c53030", fontWeight: 700 }}>
+                      Loss: {money(bill.lossAmount)}
+                    </small>
+                  ) : null}
                   <small>
                     {latestPayment
                       ? `${latestPayment.mode} · Last ${fmt(latestPayment.date)}`
@@ -475,6 +490,7 @@ export function BillingView({
                       ? () => recordPayment(bill)
                       : undefined
                   }
+                  loss={recordLoss ? () => recordLoss(bill) : undefined}
                   view={() => viewBill(bill)}
                   remove={() => removeBill(bill.id)}
                 />

@@ -237,6 +237,9 @@ export type Bill = {
   payments: BillPayment[];
   total: number;
   status: BillStatus;
+  lossAmount?: number;
+  lossReason?: string;
+  lossDate?: ISODate;
 };
 
 export type QuotationStatus = "Draft" | "Sent" | "Accepted" | "Converted" | "Expired";
@@ -309,6 +312,9 @@ export type OtherBill = {
   total: number;
   status: BillStatus;
   discount?: number;
+  lossAmount?: number;
+  lossReason?: string;
+  lossDate?: ISODate;
 };
 
 export type BusinessExpenseCategory =

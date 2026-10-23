@@ -10,6 +10,7 @@ import {
   Printer,
   ReceiptText,
   Search,
+  TrendingDown,
   TrendingUp,
   UsersRound,
   WalletCards,
@@ -19,6 +20,7 @@ import {
 import { useEffect, useState } from "react";
 import {
   addDays,
+  type Bill,
   type BusinessExpenseCategory,
   type ClientCategory,
   type FleetStore,
@@ -39,6 +41,7 @@ import { EmployeeRecordModal } from "./operations-records";
 import { ClientLedgerModal } from "./operations-client-ledger";
 import {
   billBalance,
+  billLoss,
   billPaid,
   calcEmployeeSettlement,
   clientCategories,
@@ -120,6 +123,7 @@ type ReportsViewProps = {
   reportEmployeeExpenses: FleetStore["employeeExpenses"];
   reportPayroll?: FleetStore["payrollPayments"];
   outstanding: number;
+  recordLoss?: (bill: Bill) => void;
 };
 
 export function OutstandingBillsPrintModal({
@@ -464,6 +468,184 @@ export function ClientAccountsSummaryPrintModal({
               <span>Total Net Outstanding Receivables across Clients</span>
               <strong style={{ color: "#9a493d" }}>
                 {money(totalOutstanding)}
+              </strong>
+            </p>
+          </section>
+
+          <footer className="invoice-footer">
+            <div>
+              <h3>Bank details for RTGS / NEFT</h3>
+              <p><b>Account:</b> {store.company.accountName}</p>
+              <p><b>Bank:</b> {store.company.bankName} · {store.company.branch}</p>
+              <p><b>A/C No:</b> {store.company.accountNumber || "Update in company settings"}</p>
+              <p><b>IFSC:</b> {store.company.ifsc || "Update in company settings"}</p>
+            </div>
+            <div className="invoice-signature">
+              <p>For {store.company.name}</p>
+              <Image
+                className="invoice-signature-mark"
+                src="/sign.png"
+                alt="Authorized Signatory"
+                width={700}
+                height={278}
+              />
+              <b>Authorized Signatory</b>
+            </div>
+          </footer>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+export function ClientLossesPrintModal({
+  store,
+  periodLabel,
+  bills,
+  totalBilled,
+  totalReceived,
+  totalLoss,
+  close,
+}: {
+  store: FleetStore;
+  periodLabel: string;
+  bills: {
+    key: string;
+    id: number;
+    billType: string;
+    number: string;
+    date: string;
+    clientId: number;
+    firmName: string;
+    ownerName: string;
+    phone: string;
+    categories: string[];
+    total: number;
+    paid: number;
+    loss: number;
+    lossReason: string;
+    lossDate?: string;
+    balance: number;
+    status: string;
+  }[];
+  totalBilled: number;
+  totalReceived: number;
+  totalLoss: number;
+  close: () => void;
+}) {
+  return (
+    <div className="invoice-backdrop">
+      <div className="invoice-dialog op-plain-ledger-dialog">
+        <div className="invoice-toolbar">
+          <Button secondary onClick={close}>
+            <X size={17} />
+            Close
+          </Button>
+          <Button onClick={() => window.print()}>
+            <Printer size={17} />
+            Print Losses Statement / PDF
+          </Button>
+        </div>
+        <article className="invoice-sheet op-client-statement-sheet">
+          <InvoiceHeader
+            title="CLIENT LOSSES & BAD DEBT STATEMENT"
+            badge="BAD DEBT / LOSS STATEMENT"
+            company={store.company}
+          />
+          <section className="invoice-meta">
+            <p>
+              <b>Statement Period</b>
+              <br />
+              {periodLabel}
+            </p>
+            <p>
+              <b>Report Generated</b>
+              <br />
+              {fmt(isoToday())}
+            </p>
+            <p className="invoice-bill-to">
+              <b>Summary Scope</b>
+              <br />
+              <strong>{bills.length} Written-off Bill{bills.length === 1 ? "" : "s"}</strong>
+              <br />
+              <span>Uncollected losses and underpaid client settlements</span>
+            </p>
+          </section>
+
+          {/* Financial Summary */}
+          <section className="op-client-print-summary" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <p>
+              <span>Total Invoice Amount</span>
+              <strong>{money(totalBilled)}</strong>
+            </p>
+            <p>
+              <span>Client Paid</span>
+              <strong>{money(totalReceived)}</strong>
+            </p>
+            <p>
+              <span>Total Client Loss / Bad Debt</span>
+              <strong style={{ color: "#991b1b" }}>
+                {money(totalLoss)}
+              </strong>
+            </p>
+          </section>
+
+          <h2 className="op-print-section-title">Itemized Client Losses & Bad Debts</h2>
+          <table className="invoice-expenses op-client-print-table">
+            <thead>
+              <tr>
+                <th style={{ width: "40px" }}>#</th>
+                <th>Bill Date</th>
+                <th>Client / Firm Name</th>
+                <th>Phone</th>
+                <th>Bill #</th>
+                <th>Total Bill</th>
+                <th>Paid</th>
+                <th>Loss / Bad Debt</th>
+                <th>Reason / Settlement Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bills.length ? (
+                bills.map((item, index) => (
+                  <tr key={item.key}>
+                    <td>{index + 1}</td>
+                    <td>{fmt(item.date)}</td>
+                    <td><b>{item.firmName}</b></td>
+                    <td>{item.phone || "—"}</td>
+                    <td><b>{item.number}</b></td>
+                    <td>{money(item.total)}</td>
+                    <td>{money(item.paid)}</td>
+                    <td style={{ color: "#991b1b", fontWeight: 700 }}>{money(item.loss)}</td>
+                    <td>{item.lossReason || "Underpayment settlement"}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={9} style={{ textAlign: "center", padding: "20px" }}>
+                    No recorded losses in this period
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: "#f8faf9", fontWeight: 700 }}>
+                <td colSpan={7} style={{ textAlign: "right", padding: "10px" }}>
+                  Total Client Losses ({bills.length} bills):
+                </td>
+                <td style={{ color: "#991b1b", fontSize: "14px", padding: "10px" }}>
+                  {money(totalLoss)}
+                </td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <section className="op-invoice-total">
+            <p>
+              <span>Total Business Loss from Client Underpayment</span>
+              <strong style={{ color: "#991b1b" }}>
+                {money(totalLoss)}
               </strong>
             </p>
           </section>
@@ -1325,6 +1507,7 @@ export function ReportsView({
   reportExpenses,
   reportEmployeeExpenses,
   outstanding,
+  recordLoss,
 }: ReportsViewProps) {
   const [activeReportTab, setActiveReportTab] = useState<"business" | "employees" | "clients" | "maintenance">(initialTab);
   
@@ -1411,9 +1594,10 @@ export function ReportsView({
   const [clientReportTo, setClientReportTo] = useState<string>(isoToday());
   const [clientSearch, setClientSearch] = useState<string>("");
   const [clientCategoryFilter, setClientCategoryFilter] = useState<ClientCategory | "All">("All");
-  const [clientReportSubTab, setClientReportSubTab] = useState<"accounts" | "outstandingBills">("accounts");
+  const [clientReportSubTab, setClientReportSubTab] = useState<"accounts" | "outstandingBills" | "losses">("accounts");
   const [clientAccountsPrintOpen, setClientAccountsPrintOpen] = useState(false);
   const [outstandingBillsPrintOpen, setOutstandingBillsPrintOpen] = useState(false);
+  const [clientLossesPrintOpen, setClientLossesPrintOpen] = useState(false);
   const [selectedClientLedgerId, setSelectedClientLedgerId] = useState<number | null>(null);
 
   // Maintenance Report Period State
@@ -1574,12 +1758,13 @@ export function ReportsView({
       : matchedOtherBills.filter((b) => b.billDate >= clientMonthStart && b.billDate <= clientMonthEnd);
 
     const periodBilled = periodBills.reduce((sum, b) => sum + b.total, 0) + periodOtherBills.reduce((sum, b) => sum + b.total, 0);
-    const periodReceived = periodBills.reduce((sum, b) => sum + (b.total - billBalance(b)), 0) + periodOtherBills.reduce((sum, b) => sum + (b.total - otherBillBalance(b)), 0);
-    const periodBalance = periodBilled - periodReceived;
+    const periodReceived = periodBills.reduce((sum, b) => sum + billPaid(b), 0) + periodOtherBills.reduce((sum, b) => sum + otherBillPaid(b), 0);
+    const periodLoss = periodBills.reduce((sum, b) => sum + billLoss(b), 0) + periodOtherBills.reduce((sum, b) => sum + billLoss(b), 0);
+    const periodBalance = Math.max(0, periodBilled - periodReceived - periodLoss);
 
     return {
       client,
-      overall: isClientAllTime ? overall : { billed: periodBilled, received: periodReceived, outstanding: Math.max(0, periodBalance), balance: periodBalance },
+      overall: isClientAllTime ? overall : { billed: periodBilled, received: periodReceived, loss: periodLoss, outstanding: Math.max(0, periodBalance), balance: periodBalance },
       campaignsCount: matchedCampaigns.length,
       invoicesCount: isClientAllTime ? matchedBills.length + matchedOtherBills.length : periodBills.length + periodOtherBills.length,
     };
@@ -1613,6 +1798,7 @@ export function ReportsView({
     ...store.bills.map((bill) => {
       const balance = billBalance(bill);
       const paid = billPaid(bill);
+      const loss = billLoss(bill);
       const clientFirmName = bill.client?.firmName || "Unknown Client";
       const clientPhone = bill.client?.mobile || "";
       const clientOwner = bill.client?.ownerName || "";
@@ -1630,13 +1816,18 @@ export function ReportsView({
         categories: clientCategories,
         total: bill.total,
         paid,
+        loss,
+        lossReason: bill.lossReason || "",
+        lossDate: bill.lossDate,
         balance,
         status: bill.status,
+        rawBill: bill,
       };
     }),
     ...store.otherBills.map((bill) => {
       const balance = otherBillBalance(bill);
       const paid = otherBillPaid(bill);
+      const loss = billLoss(bill);
       const clientFirmName = bill.client?.firmName || "Unknown Client";
       const clientPhone = bill.client?.mobile || "";
       const clientOwner = bill.client?.ownerName || "";
@@ -1654,8 +1845,12 @@ export function ReportsView({
         categories: clientCategories,
         total: bill.total,
         paid,
+        loss,
+        lossReason: bill.lossReason || "",
+        lossDate: bill.lossDate,
         balance,
         status: bill.status,
+        rawBill: bill,
       };
     }),
   ]
@@ -1679,6 +1874,92 @@ export function ReportsView({
   });
 
   const totalOutstandingBillAmount = filteredOutstandingBills.reduce((sum, b) => sum + b.balance, 0);
+
+  // -------------------------------------------------------------
+  // Client Losses / Bad Debt Computations
+  // -------------------------------------------------------------
+  const allClientLossBills = [
+    ...store.bills.map((bill) => {
+      const balance = billBalance(bill);
+      const paid = billPaid(bill);
+      const loss = billLoss(bill);
+      const clientFirmName = bill.client?.firmName || "Unknown Client";
+      const clientPhone = bill.client?.mobile || "";
+      const clientOwner = bill.client?.ownerName || "";
+      const clientCategories = store.clients.find((c) => c.id === bill.clientId)?.categories || [];
+      return {
+        key: `bill-${bill.id}`,
+        id: bill.id,
+        billType: "Campaign Invoice",
+        number: `INV-${String(bill.number).padStart(4, "0")}`,
+        date: bill.billDate,
+        clientId: bill.clientId,
+        firmName: clientFirmName,
+        ownerName: clientOwner,
+        phone: clientPhone,
+        categories: clientCategories,
+        total: bill.total,
+        paid,
+        loss,
+        lossReason: bill.lossReason || "Client underpayment / haircut settlement",
+        lossDate: bill.lossDate || bill.billDate,
+        balance,
+        status: bill.status,
+        rawBill: bill,
+      };
+    }),
+    ...store.otherBills.map((bill) => {
+      const balance = otherBillBalance(bill);
+      const paid = otherBillPaid(bill);
+      const loss = billLoss(bill);
+      const clientFirmName = bill.client?.firmName || "Unknown Client";
+      const clientPhone = bill.client?.mobile || "";
+      const clientOwner = bill.client?.ownerName || "";
+      const clientCategories = store.clients.find((c) => c.id === bill.clientId)?.categories || [];
+      return {
+        key: `otherbill-${bill.id}`,
+        id: bill.id,
+        billType: `Other Bill (${bill.category})`,
+        number: `#${String(bill.number).padStart(4, "0")}`,
+        date: bill.billDate,
+        clientId: bill.clientId,
+        firmName: clientFirmName,
+        ownerName: clientOwner,
+        phone: clientPhone,
+        categories: clientCategories,
+        total: bill.total,
+        paid,
+        loss,
+        lossReason: bill.lossReason || "Client underpayment / haircut settlement",
+        lossDate: bill.lossDate || bill.billDate,
+        balance,
+        status: bill.status,
+        rawBill: bill,
+      };
+    }),
+  ]
+    .filter((item) => item.loss > 0)
+    .filter((item) => isClientAllTime || (item.date >= clientMonthStart && item.date <= clientMonthEnd))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const filteredLossBills = allClientLossBills.filter((item) => {
+    if (clientCategoryFilter !== "All" && !item.categories.includes(clientCategoryFilter)) {
+      return false;
+    }
+    if (!clientSearch.trim()) return true;
+    const q = clientSearch.toLowerCase().trim();
+    return (
+      item.firmName.toLowerCase().includes(q) ||
+      item.ownerName.toLowerCase().includes(q) ||
+      item.phone.includes(q) ||
+      item.number.toLowerCase().includes(q) ||
+      item.billType.toLowerCase().includes(q) ||
+      item.lossReason.toLowerCase().includes(q)
+    );
+  });
+
+  const totalLossBillAmount = filteredLossBills.reduce((sum, b) => sum + b.loss, 0);
+  const clientTotalLosses = allClientLossBills.reduce((sum, b) => sum + b.loss, 0);
 
   // -------------------------------------------------------------
   // Maintenance Report Computations (Supports All Time, Month, Quarter, Year, Date Range)
@@ -1736,6 +2017,8 @@ export function ReportsView({
           activeReportTab === "clients"
             ? clientReportSubTab === "outstandingBills"
               ? "Print Outstanding List"
+              : clientReportSubTab === "losses"
+              ? "Print Losses Statement"
               : "Print Accounts Summary"
             : activeReportTab === "employees"
             ? employeeReportSubTab === "outstanding"
@@ -1749,7 +2032,13 @@ export function ReportsView({
         }
         onPrint={
           activeReportTab === "clients"
-            ? () => (clientReportSubTab === "outstandingBills" ? setOutstandingBillsPrintOpen(true) : setClientAccountsPrintOpen(true))
+            ? () => (
+                clientReportSubTab === "outstandingBills"
+                  ? setOutstandingBillsPrintOpen(true)
+                  : clientReportSubTab === "losses"
+                  ? setClientLossesPrintOpen(true)
+                  : setClientAccountsPrintOpen(true)
+              )
             : activeReportTab === "employees"
             ? () => (employeeReportSubTab === "outstanding" ? setEmployeeOutstandingPrintOpen(true) : setEmployeeSummaryPrintOpen(true))
             : activeReportTab === "maintenance"
@@ -2049,48 +2338,82 @@ export function ReportsView({
             <ClientDonut items={reportClientChart} />
           </section>
 
-          <section className="op-section-title">
-            <h2>Overall Period Financial Summary</h2>
-          </section>
-          <section className="op-metrics">
-            <Metric
-              label="Business in period"
-              value={money(reportRevenue)}
-              detail={`${fmt(reportStart)} to ${fmt(reportEnd)}`}
-              icon={CircleDollarSign}
-            />
-            <Metric
-              label="Outstanding in period"
-              value={money(reportOutstanding)}
-              detail={`${reportBills.filter((item) => billBalance(item) > 0).length} unpaid bills`}
-              icon={WalletCards}
-            />
-            <Metric
-              label="Total expenses in period"
-              value={money(reportTotalExpenses)}
-              detail={`${reportExpenses.length} business · ${reportEmployeeExpenses.length} employee · ${reportAdvances.length} advances`}
-              icon={ReceiptText}
-            />
-            <Metric
-              label="All-time outstanding"
-              value={money(outstanding)}
-              detail="Across all clients"
-              icon={BarChart3}
-            />
-          </section>
-          <div className="op-dashboard-grid">
-            <article className="op-panel">
-              <h2>Outstanding by client</h2>
-              {store.clients.map((client) => {
-                const value = clientOverallBalance(store, client.id).outstanding;
-                return value > 0 ? (
-                  <p key={client.id}>
-                    <b>{client.firmName}</b>
-                    <span>{money(value)}</span>
-                  </p>
-                ) : null;
-              })}
-            </article>
+          {(() => {
+            const periodLosses = reportBills.reduce((sum, b) => sum + billLoss(b), 0);
+            const periodLossCount = reportBills.filter((b) => billLoss(b) > 0).length;
+            const allTimeLosses = store.bills.reduce((sum, b) => sum + billLoss(b), 0) + store.otherBills.reduce((sum, b) => sum + billLoss(b), 0);
+            const netProfit = reportRevenue - reportTotalExpenses - periodLosses;
+            return (
+              <>
+                <section className="op-section-title">
+                  <h2>Overall Period Financial Summary & Net Profit</h2>
+                </section>
+                <section className="op-metrics" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+                  <Metric
+                    label="Business in period"
+                    value={money(reportRevenue)}
+                    detail={`${fmt(reportStart)} to ${fmt(reportEnd)}`}
+                    icon={CircleDollarSign}
+                  />
+                  <Metric
+                    label="Outstanding in period"
+                    value={money(reportOutstanding)}
+                    detail={`${reportBills.filter((item) => billBalance(item) > 0).length} unpaid bills`}
+                    icon={WalletCards}
+                  />
+                  <Metric
+                    label="Total expenses in period"
+                    value={money(reportTotalExpenses)}
+                    detail={`${reportExpenses.length} business · ${reportEmployeeExpenses.length} employee · ${reportAdvances.length} advances`}
+                    icon={ReceiptText}
+                  />
+                  <Metric
+                    label="Client Losses / Bad Debt"
+                    value={money(periodLosses)}
+                    detail={`${periodLossCount} written off bills · All-time: ${money(allTimeLosses)}`}
+                    icon={TrendingDown}
+                  />
+                  <Metric
+                    label="Real Net Profit"
+                    value={money(netProfit)}
+                    detail="Revenue − Expenses − Client Losses"
+                    icon={TrendingUp}
+                  />
+                  <Metric
+                    label="All-time outstanding"
+                    value={money(outstanding)}
+                    detail="Across all clients"
+                    icon={BarChart3}
+                  />
+                </section>
+                <div className="op-dashboard-grid">
+                  <article className="op-panel">
+                    <h2>Outstanding by client</h2>
+                    {store.clients.map((client) => {
+                      const value = clientOverallBalance(store, client.id).outstanding;
+                      return value > 0 ? (
+                        <p key={client.id}>
+                          <b>{client.firmName}</b>
+                          <span>{money(value)}</span>
+                        </p>
+                      ) : null;
+                    })}
+                  </article>
+                  <article className="op-panel">
+                    <h2>Client Losses & Bad Debt (Unpaid)</h2>
+                    {store.clients.map((client) => {
+                      const lossVal = clientOverallBalance(store, client.id).loss;
+                      return lossVal > 0 ? (
+                        <p key={client.id}>
+                          <b>{client.firmName}</b>
+                          <span style={{ color: "#c53030", fontWeight: 700 }}>{money(lossVal)}</span>
+                        </p>
+                      ) : null;
+                    })}
+                    {store.clients.every((client) => clientOverallBalance(store, client.id).loss === 0) && (
+                      <p style={{ color: "#6b7280", fontStyle: "italic", fontSize: "13px" }}>No client losses recorded yet.</p>
+                    )}
+                  </article>
             <article className="op-panel">
               <h2>Expenses by account</h2>
               {[
@@ -2155,7 +2478,10 @@ export function ReportsView({
             </article>
           </div>
         </>
-      )}
+      );
+    })()}
+  </>
+)}
 
       {/* ========================================================================= */}
       {/* 2. EMPLOYEE REPORT TAB                                                    */}
@@ -2953,6 +3279,18 @@ export function ReportsView({
             />
             <div
               style={{ cursor: "pointer" }}
+              onClick={() => setClientReportSubTab("losses")}
+              title="Click to view full Client Losses & Bad Debt List"
+            >
+              <Metric
+                label={isClientAllTime ? "Total Client Losses (All Time)" : "Client Losses in Period"}
+                value={money(clientTotalLosses)}
+                detail={`${allClientLossBills.length} written-off bills · Click to view →`}
+                icon={TrendingDown}
+              />
+            </div>
+            <div
+              style={{ cursor: "pointer" }}
               onClick={() => setClientReportSubTab("outstandingBills")}
               title="Click to view full Outstanding Bills List"
             >
@@ -2984,7 +3322,7 @@ export function ReportsView({
             ))}
           </div>
 
-          {/* Sub Navigation Tabs: Client Accounts vs Outstanding Bills List */}
+          {/* Sub Navigation Tabs: Client Accounts vs Outstanding Bills List vs Losses */}
           <div className="op-salary-tabs" style={{ margin: "16px 0 10px 0" }}>
             <button
               type="button"
@@ -3007,6 +3345,20 @@ export function ReportsView({
               Outstanding Bills List ({filteredOutstandingBills.length})
               {totalOutstandingBillAmount > 0 ? ` · ${money(totalOutstandingBillAmount)} Due` : ""}
             </button>
+            <button
+              type="button"
+              className={clientReportSubTab === "losses" ? "active" : ""}
+              onClick={() => setClientReportSubTab("losses")}
+              style={{
+                backgroundColor: clientReportSubTab === "losses" ? "#991b1b" : undefined,
+                borderColor: clientReportSubTab === "losses" ? "#991b1b" : undefined,
+                color: clientReportSubTab === "losses" ? "#ffffff" : undefined,
+                fontWeight: 700,
+              }}
+            >
+              Client Losses & Bad Debt ({filteredLossBills.length})
+              {totalLossBillAmount > 0 ? ` · ${money(totalLossBillAmount)} Lost` : ""}
+            </button>
           </div>
 
           {/* Search Toolbar */}
@@ -3017,6 +3369,8 @@ export function ReportsView({
                 placeholder={
                   clientReportSubTab === "outstandingBills"
                     ? "Search outstanding bills by client, phone, or invoice number..."
+                    : clientReportSubTab === "losses"
+                    ? "Search written-off bills, client name, phone, or loss note..."
                     : "Search client firm name, contact person, or phone..."
                 }
                 value={clientSearch}
@@ -3027,6 +3381,10 @@ export function ReportsView({
               {clientReportSubTab === "outstandingBills" ? (
                 <>
                   Showing <b>{filteredOutstandingBills.length}</b> of <b>{allClientOutstandingBills.length}</b> outstanding bills ({clientRange.label})
+                </>
+              ) : clientReportSubTab === "losses" ? (
+                <>
+                  Showing <b>{filteredLossBills.length}</b> of <b>{allClientLossBills.length}</b> written-off loss bills ({clientRange.label})
                 </>
               ) : (
                 <>
@@ -3039,6 +3397,11 @@ export function ReportsView({
                 <Printer size={16} />
                 Print Outstanding List
               </Button>
+            ) : clientReportSubTab === "losses" ? (
+              <Button secondary onClick={() => setClientLossesPrintOpen(true)}>
+                <Printer size={16} />
+                Print Losses Statement
+              </Button>
             ) : (
               <Button secondary onClick={() => setClientAccountsPrintOpen(true)}>
                 <Printer size={16} />
@@ -3047,7 +3410,7 @@ export function ReportsView({
             )}
           </div>
 
-          {/* Conditional View Rendering: Outstanding Bills vs Client Accounts */}
+          {/* Conditional View Rendering: Outstanding Bills vs Losses vs Client Accounts */}
           {clientReportSubTab === "outstandingBills" ? (
             filteredOutstandingBills.length ? (
               <Table
@@ -3058,6 +3421,7 @@ export function ReportsView({
                   "Bill / Invoice #",
                   "Total Billed",
                   "Received",
+                  "Loss / Bad Debt",
                   "Outstanding Amount",
                   "Status",
                   "",
@@ -3097,16 +3461,40 @@ export function ReportsView({
                       <b>{money(item.paid)}</b>
                     </span>
                     <span>
+                      {item.loss > 0 ? (
+                        <b style={{ color: "#c53030" }}>{money(item.loss)}</b>
+                      ) : (
+                        <span style={{ color: "#9ca3af" }}>—</span>
+                      )}
+                    </span>
+                    <span>
                       <b style={{ color: "#b91c1c", fontSize: "14px" }}>
                         {money(item.balance)}
                       </b>
                       <small style={{ color: "#b91c1c", fontWeight: 700 }}>Unpaid Balance</small>
                     </span>
                     <Status>{item.status === "Overdue" ? "Overdue" : "Pending"}</Status>
-                    <Button secondary onClick={() => setSelectedClientLedgerId(item.clientId)}>
-                      <ReceiptText size={15} />
-                      Open ledger
-                    </Button>
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      {recordLoss && item.rawBill && (
+                        <Button
+                          secondary
+                          onClick={() => recordLoss(item.rawBill as Bill)}
+                          style={{
+                            color: item.loss > 0 ? "#c53030" : "#742a2a",
+                            borderColor: "#fed7d7",
+                            fontSize: "12px",
+                            padding: "4px 8px",
+                          }}
+                        >
+                          <TrendingDown size={14} />
+                          {item.loss > 0 ? "Edit loss" : "Record loss"}
+                        </Button>
+                      )}
+                      <Button secondary onClick={() => setSelectedClientLedgerId(item.clientId)}>
+                        <ReceiptText size={15} />
+                        Ledger
+                      </Button>
+                    </div>
                   </Row>
                 ))}
               </Table>
@@ -3115,6 +3503,103 @@ export function ReportsView({
                 <Check />
                 <h2>No outstanding bills</h2>
                 <p>All client bills are settled or no unpaid bills match the selected period/filter.</p>
+              </div>
+            )
+          ) : clientReportSubTab === "losses" ? (
+            filteredLossBills.length ? (
+              <Table
+                headers={[
+                  "Bill Date",
+                  "Client / Firm Name",
+                  "Phone & Contact",
+                  "Bill / Invoice #",
+                  "Total Billed",
+                  "Received",
+                  "Loss / Bad Debt",
+                  "Reason / Settlement Note",
+                  "Pending Due",
+                  "",
+                ]}
+              >
+                {filteredLossBills.map((item) => (
+                  <Row key={item.key}>
+                    <span>{fmt(item.date)}</span>
+                    <b>
+                      <button
+                        type="button"
+                        className="op-link-button"
+                        onClick={() => setSelectedClientLedgerId(item.clientId)}
+                      >
+                        {item.firmName}
+                      </button>
+                      {item.ownerName && <small>{item.ownerName}</small>}
+                    </b>
+                    <span>
+                      {item.phone ? (
+                        <a href={`tel:${item.phone}`} title="Click to call">
+                          {item.phone}
+                        </a>
+                      ) : (
+                        <small style={{ color: "#888" }}>No phone</small>
+                      )}
+                    </span>
+                    <span>
+                      <b>{item.number}</b>
+                      <small>{item.billType}</small>
+                    </span>
+                    <strong>{money(item.total)}</strong>
+                    <span style={{ color: "#1f6a53" }}>
+                      <b>{money(item.paid)}</b>
+                    </span>
+                    <span>
+                      <b style={{ color: "#991b1b", fontSize: "14px" }}>
+                        {money(item.loss)}
+                      </b>
+                      <small style={{ color: "#991b1b", fontWeight: 700 }}>Recorded Loss</small>
+                    </span>
+                    <span style={{ fontSize: "12.5px", color: "#4a5568" }}>
+                      {item.lossReason || "Client underpayment settlement"}
+                    </span>
+                    <span>
+                      {item.balance === 0 ? (
+                        <span style={{ color: "#165b47", fontWeight: 600, fontSize: "12px" }}>
+                          ✓ Settled with loss
+                        </span>
+                      ) : (
+                        <span style={{ color: "#c53030", fontWeight: 600, fontSize: "12px" }}>
+                          {money(item.balance)} pending
+                        </span>
+                      )}
+                    </span>
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      {recordLoss && item.rawBill && (
+                        <Button
+                          secondary
+                          onClick={() => recordLoss(item.rawBill as Bill)}
+                          style={{
+                            color: "#c53030",
+                            borderColor: "#fed7d7",
+                            fontSize: "12px",
+                            padding: "4px 8px",
+                          }}
+                        >
+                          <TrendingDown size={14} />
+                          Edit loss
+                        </Button>
+                      )}
+                      <Button secondary onClick={() => setSelectedClientLedgerId(item.clientId)}>
+                        <ReceiptText size={15} />
+                        Ledger
+                      </Button>
+                    </div>
+                  </Row>
+                ))}
+              </Table>
+            ) : (
+              <div className="op-empty-state">
+                <Check />
+                <h2>No client losses recorded</h2>
+                <p>No client underpayments or bad debt write-offs found for this period/filter. You can record a loss directly on any bill when a client underpays.</p>
               </div>
             )
           ) : (
@@ -3128,6 +3613,7 @@ export function ReportsView({
                   "Invoices",
                   "Total Billed",
                   "Received",
+                  "Loss / Bad Debt",
                   "Outstanding Balance",
                   "",
                 ]}
@@ -3168,6 +3654,13 @@ export function ReportsView({
                     <strong>{money(item.overall.billed)}</strong>
                     <span style={{ color: "#1f6a53" }}>
                       <b>{money(item.overall.received)}</b>
+                    </span>
+                    <span>
+                      {item.overall.loss > 0 ? (
+                        <b style={{ color: "#c53030" }}>{money(item.overall.loss)}</b>
+                      ) : (
+                        <span style={{ color: "#9ca3af" }}>—</span>
+                      )}
                     </span>
                     <span>
                       <b style={{ color: item.overall.outstanding > 0 ? "#9a493d" : "#1f6a53", fontSize: "14px" }}>
@@ -3762,6 +4255,18 @@ export function ReportsView({
           totalReceived={filteredOutstandingBills.reduce((sum, b) => sum + b.paid, 0)}
           totalOutstanding={totalOutstandingBillAmount}
           close={() => setOutstandingBillsPrintOpen(false)}
+        />
+      )}
+
+      {clientLossesPrintOpen && (
+        <ClientLossesPrintModal
+          store={store}
+          periodLabel={clientRange.label}
+          bills={filteredLossBills}
+          totalBilled={filteredLossBills.reduce((sum, b) => sum + b.total, 0)}
+          totalReceived={filteredLossBills.reduce((sum, b) => sum + b.paid, 0)}
+          totalLoss={totalLossBillAmount}
+          close={() => setClientLossesPrintOpen(false)}
         />
       )}
 

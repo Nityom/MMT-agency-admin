@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, FileText, Gauge, Plus, Printer, ReceiptText, Trash2, X } from "lucide-react";
+import { Check, FileText, Gauge, Plus, Printer, ReceiptText, Trash2, TrendingDown, X } from "lucide-react";
 import Image from "next/image";
 import { FormEvent, useState } from "react";
 import {
@@ -15,6 +15,7 @@ import {
   ClientReceipt,
   FleetStore,
   inclusiveDays,
+  OtherBill,
   PaymentMode,
   nextBillNumber,
 } from "./fleet-domain";
@@ -1278,34 +1279,40 @@ export function BillPaymentModal({
     mode: PaymentMode,
     reference: string,
     note: string,
+    lossOptions?: { lossAmount: number; lossReason?: string },
   ) => void;
 }) {
   const balance = billBalance(bill);
+  const [payAmount, setPayAmount] = useState<number>(balance);
+  const remainingUnpaid = Math.max(0, balance - payAmount);
+  const [recordLoss, setRecordLoss] = useState(false);
+  const [lossAmount, setLossAmount] = useState<number>(remainingUnpaid);
+  const [lossReason, setLossReason] = useState("Client underpayment settlement / bad debt");
+  const [date, setDate] = useState(isoToday());
+  const [mode, setMode] = useState<PaymentMode>(bill.paymentMode || "Cash");
+  const [reference, setReference] = useState("");
+  const [note, setNote] = useState("");
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const data = new FormData(event.currentTarget),
-      paidAmount = amount(data, "amount");
-    if (paidAmount > balance) {
-      const field = event.currentTarget.elements.namedItem(
-        "amount",
-      ) as HTMLInputElement;
-      field.setCustomValidity(
-        `Amount cannot exceed the balance of ${money(balance)}.`,
-      );
-      field.reportValidity();
+    if (payAmount > balance) {
+      alert(`Amount cannot exceed the balance of ${money(balance)}.`);
       return;
     }
-    save(
-      input(data, "date"),
-      paidAmount,
-      input(data, "mode") as PaymentMode,
-      input(data, "reference"),
-      input(data, "note"),
-    );
+    const lossOpts =
+      recordLoss && lossAmount > 0
+        ? { lossAmount: Math.min(lossAmount, remainingUnpaid), lossReason }
+        : undefined;
+    save(date, payAmount, mode, reference, note, lossOpts);
   };
+
   return (
     <Modal
-      title={`Record payment · INV-${String(bill.number).padStart(4, "0")}`}
+      title={
+        payAmount === 0
+          ? `Record Loss / Bad Debt Settlement · INV-${String(bill.number).padStart(4, "0")}`
+          : `Record payment · INV-${String(bill.number).padStart(4, "0")}`
+      }
       close={close}
     >
       <form className="op-form" onSubmit={submit}>
@@ -1314,41 +1321,297 @@ export function BillPaymentModal({
           invoice as Paid, or enter a smaller amount for a partial payment. ·
           Paid so far: <b>{money(billPaid(bill))}</b> · Remaining:{" "}
           <b>{money(balance)}</b>
+          {Boolean(bill.lossAmount && bill.lossAmount > 0) && (
+            <span> · Previous loss recorded: <b style={{ color: "#c53030" }}>{money(bill.lossAmount!)}</b></span>
+          )}
         </p>
         <div className="op-form-grid">
-          <FormField
-            label="Payment date"
-            name="date"
-            type="date"
-            defaultValue={isoToday()}
-            required
-          />
-          <FormField
-            label="Payment amount"
-            name="amount"
-            type="number"
-            defaultValue={balance}
-            min={1}
-            required
-          />
           <label className="op-field">
-            <span>Payment mode</span>
-            <select name="mode" defaultValue={bill.paymentMode} required>
-              <option>Cash</option>
-              <option>Cheque</option>
-              <option>UPI</option>
-            </select>
+            <span>{payAmount > 0 ? "Payment date" : "Date recorded"}</span>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
           </label>
+          <label className="op-field">
+            <span>Amount received (₹)</span>
+            <input
+              type="number"
+              value={payAmount}
+              onChange={(e) => {
+                const val = Math.max(0, Number(e.target.value));
+                setPayAmount(val);
+                const rem = Math.max(0, balance - val);
+                if (rem > 0) {
+                  setLossAmount(rem);
+                  if (val === 0) setRecordLoss(true);
+                } else {
+                  setRecordLoss(false);
+                }
+              }}
+              min={0}
+              max={balance}
+              required
+            />
+          </label>
+          {payAmount > 0 && (
+            <label className="op-field">
+              <span>Payment mode (for received amount)</span>
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as PaymentMode)}
+                required
+              >
+                <option>Cash</option>
+                <option>Cheque</option>
+                <option>UPI</option>
+                <option>Bank transfer</option>
+                <option>Online</option>
+              </select>
+            </label>
+          )}
         </div>
-        <FormField label="Transaction / receipt reference" name="reference" />
-        <FormField label="Note" name="note" />
+        {payAmount > 0 && (
+          <>
+            <label className="op-field">
+              <span>Transaction / receipt reference</span>
+              <input
+                type="text"
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+              />
+            </label>
+            <label className="op-field">
+              <span>Payment note</span>
+              <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+            </label>
+          </>
+        )}
+
+        {remainingUnpaid > 0 && (
+          <div
+            style={{
+              padding: "12px 14px",
+              borderRadius: "8px",
+              background: recordLoss ? "#fff5f5" : "#f8faf9",
+              border: `1px solid ${recordLoss ? "#fed7d7" : "#e2e8f0"}`,
+              display: "grid",
+              gap: "8px",
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                cursor: "pointer",
+                fontWeight: 600,
+                color: recordLoss ? "#9b2c2c" : "#2d3748",
+                fontSize: "13px",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={recordLoss}
+                onChange={(e) => {
+                  setRecordLoss(e.target.checked);
+                  if (e.target.checked && (!lossAmount || lossAmount <= 0)) {
+                    setLossAmount(remainingUnpaid);
+                  }
+                }}
+                style={{ width: "16px", height: "16px", accentColor: "#c53030" }}
+              />
+              Record remaining balance of {money(remainingUnpaid)} as Client Loss / Bad Debt (client will not pay this)
+            </label>
+            <small style={{ color: "#742a2a", margin: "-4px 0 0 24px", fontSize: "12px" }}>
+              Losses are recorded as uncollected write-offs with no payment mode.
+            </small>
+            {recordLoss && (
+              <div className="op-form-grid" style={{ marginTop: "4px" }}>
+                <label className="op-field">
+                  <span>Loss amount (₹)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={remainingUnpaid}
+                    value={lossAmount}
+                    onChange={(e) => setLossAmount(Math.max(0, Number(e.target.value)))}
+                    required
+                  />
+                </label>
+                <label className="op-field">
+                  <span>Loss reason / note</span>
+                  <input
+                    type="text"
+                    value={lossReason}
+                    onChange={(e) => setLossReason(e.target.value)}
+                    placeholder="e.g. Client short-paid remainder"
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+
         <footer>
           <Button secondary onClick={close}>
             Cancel
           </Button>
-          <Button type="submit">
-            <Check size={17} />
-            Save payment
+          <Button
+            type="submit"
+            style={
+              payAmount === 0
+                ? { background: "#c53030", borderColor: "#c53030", color: "white" }
+                : undefined
+            }
+          >
+            {payAmount === 0 ? (
+              <>
+                <TrendingDown size={17} />
+                Save client loss
+              </>
+            ) : recordLoss ? (
+              <>
+                <Check size={17} />
+                Save payment & record loss
+              </>
+            ) : (
+              <>
+                <Check size={17} />
+                Save payment
+              </>
+            )}
+          </Button>
+        </footer>
+      </form>
+    </Modal>
+  );
+}
+
+export function RecordLossModal({
+  bill,
+  close,
+  save,
+}: {
+  bill: Bill | OtherBill;
+  close: () => void;
+  save: (lossAmount: number, lossReason?: string, lossDate?: string) => void;
+}) {
+  const currentPaid = billPaid(bill);
+  const currentLoss = bill.lossAmount ?? 0;
+  const suggestedLoss = currentLoss > 0 ? currentLoss : Math.max(0, bill.total - currentPaid);
+  const [lossAmount, setLossAmount] = useState(suggestedLoss);
+  const [lossReason, setLossReason] = useState(bill.lossReason ?? "Client underpayment / bad debt settlement");
+  const [lossDate, setLossDate] = useState(bill.lossDate ?? isoToday());
+
+  const remainingAfterLoss = Math.max(0, bill.total - currentPaid - (Number(lossAmount) || 0));
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amountVal = Number(lossAmount) || 0;
+    save(amountVal, lossReason.trim(), lossDate);
+  };
+
+  const invoiceLabel = "vehicleLines" in bill
+    ? `INV-${String(bill.number).padStart(4, "0")}`
+    : `OTH-${String(bill.number).padStart(4, "0")}`;
+
+  return (
+    <Modal
+      title={`Record Loss / Bad Debt · ${invoiceLabel}`}
+      close={close}
+      width="min(620px, 96vw)"
+    >
+      <form className="op-form" onSubmit={handleSubmit}>
+        <div
+          style={{
+            padding: "12px 14px",
+            borderRadius: "7px",
+            background: "#fff5f5",
+            border: "1px solid #fed7d7",
+            display: "grid",
+            gap: "4px",
+            fontSize: "13px",
+            color: "#9b2c2c",
+          }}
+        >
+          <b>Client: {bill.client.firmName}</b>
+          <span>
+            Bill Total: <b>{money(bill.total)}</b> · Paid so far: <b>{money(currentPaid)}</b>
+          </span>
+          <span>
+            Unpaid remainder: <b>{money(Math.max(0, bill.total - currentPaid))}</b>
+          </span>
+          <small style={{ color: "#742a2a", marginTop: "2px" }}>
+            Record the uncollected amount as a business loss / bad debt so you can track total losses, see who underpaid, and deduct it from your profit report.
+          </small>
+        </div>
+
+        <div className="op-form-grid">
+          <label className="op-field">
+            <span>Loss / Bad Debt Amount (₹)</span>
+            <input
+              type="number"
+              min="0"
+              max={bill.total - currentPaid + currentLoss}
+              value={lossAmount}
+              onChange={(e) => setLossAmount(Math.max(0, Number(e.target.value)))}
+              required
+            />
+          </label>
+          <label className="op-field">
+            <span>Date recorded</span>
+            <input
+              type="date"
+              value={lossDate}
+              onChange={(e) => setLossDate(e.target.value)}
+              required
+            />
+          </label>
+        </div>
+
+        <label className="op-field">
+          <span>Reason / Note</span>
+          <input
+            type="text"
+            placeholder="e.g. Client refused to pay remainder, negotiated haircut, bad debt"
+            value={lossReason}
+            onChange={(e) => setLossReason(e.target.value)}
+          />
+        </label>
+
+        {remainingAfterLoss === 0 && Number(lossAmount) > 0 && (
+          <p style={{ margin: "4px 0 0", color: "#2b765f", fontSize: "12px", fontWeight: 600 }}>
+            ✓ This loss covers the entire remaining balance. The bill will be marked as settled / closed.
+          </p>
+        )}
+        {remainingAfterLoss > 0 && (
+          <p style={{ margin: "4px 0 0", color: "#c53030", fontSize: "12px", fontWeight: 600 }}>
+            Notice: After recording this loss, {money(remainingAfterLoss)} will still remain as an outstanding pending balance.
+          </p>
+        )}
+
+        <footer>
+          <Button secondary onClick={close}>
+            Cancel
+          </Button>
+          {currentLoss > 0 && (
+            <Button
+              secondary
+              style={{ color: "#a1483b" }}
+              onClick={() => save(0, undefined, undefined)}
+            >
+              Clear loss
+            </Button>
+          )}
+          <Button type="submit" style={{ background: "#c53030", borderColor: "#c53030", color: "white" }}>
+            Save client loss
           </Button>
         </footer>
       </form>
@@ -1363,6 +1626,7 @@ export function CampaignBillModeModal({
   generate,
   viewBill,
   onEditExisting,
+  recordLoss,
   generateReceipt,
   viewReceipt,
   editReceipt,
@@ -1383,6 +1647,7 @@ export function CampaignBillModeModal({
   ) => void;
   viewBill?: (bill: Bill) => void;
   onEditExisting?: (bill: Bill) => void;
+  recordLoss?: (bill: Bill) => void;
   generateReceipt?: (clientId?: number) => void;
   viewReceipt?: (receipt: ClientReceipt) => void;
   editReceipt?: (receipt: ClientReceipt) => void;
@@ -1740,8 +2005,25 @@ export function CampaignBillModeModal({
                     <span style={{ fontWeight: 600, color: b.status === "Paid" ? "#195f4b" : "#854d0e", whiteSpace: "nowrap" }}>
                       {b.status}
                     </span>
+                    {b.lossAmount ? (
+                      <>
+                        <span style={{ color: "#54645f" }}>·</span>
+                        <span style={{ color: "#c53030", background: "#fee2e2", padding: "1px 6px", borderRadius: "10px", fontSize: "11px", fontWeight: 700 }}>
+                          Loss: {money(b.lossAmount)}
+                        </span>
+                      </>
+                    ) : null}
                   </div>
                   <div style={{ display: "flex", gap: "6px", flexShrink: 0, marginLeft: "auto" }}>
+                    {recordLoss && (
+                      <Button
+                        secondary
+                        onClick={() => recordLoss(b)}
+                        style={{ color: b.lossAmount ? "#c53030" : "#742a2a", borderColor: "#fed7d7", fontSize: "12px", padding: "4px 8px" }}
+                      >
+                        <TrendingDown size={14} /> {b.lossAmount ? "Edit loss" : "Record loss"}
+                      </Button>
+                    )}
                     {viewBill && (
                       <Button secondary onClick={() => viewBill(b)}>
                         <Printer size={14} /> View
@@ -2285,6 +2567,7 @@ export function Invoice({
   close,
   edit,
   remove,
+  recordLoss,
   quotation = false,
   generateReceipt,
 }: {
@@ -2293,6 +2576,7 @@ export function Invoice({
   close: () => void;
   edit?: () => void;
   remove?: () => void;
+  recordLoss?: (bill: Bill) => void;
   quotation?: boolean;
   generateReceipt?: (payment?: Bill["payments"][number] | null) => void;
 }) {
@@ -2305,6 +2589,21 @@ export function Invoice({
             <X size={17} />
             Close
           </Button>
+          {!quotation && recordLoss && (
+            <Button
+              secondary
+              onClick={() => recordLoss(bill)}
+              style={{
+                color: bill.lossAmount ? "#b91c1c" : "#742a2a",
+                borderColor: "#fed7d7",
+                background: "#fff5f5",
+                fontWeight: 600,
+              }}
+            >
+              <TrendingDown size={17} />
+              {bill.lossAmount ? `Loss: ${money(bill.lossAmount)}` : "Record Loss / Bad debt"}
+            </Button>
+          )}
           {!quotation && edit && (
             <Button secondary onClick={edit}>
               <FileText size={17} />
@@ -2504,6 +2803,12 @@ export function Invoice({
                   <span>Total received</span>
                   <b>−{money(billPaid(bill))}</b>
                 </p>
+                {bill.lossAmount ? (
+                  <p style={{ color: "#c53030" }}>
+                    <span>Client Loss / Bad debt ({bill.lossReason || "Written off"})</span>
+                    <b>−{money(bill.lossAmount)}</b>
+                  </p>
+                ) : null}
                 <p>
                   <span>Outstanding</span>
                   <strong>{money(balance)}</strong>

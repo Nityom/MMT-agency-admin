@@ -30,9 +30,10 @@ export const amount = (data: FormData, name: string) => Number(data.get(name)) |
 export const fmt = (date: string) => date ? new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
 
 export const billPaid = (bill: Bill | OtherBill) => ("advanceReceived" in bill ? bill.advanceReceived : 0) + (bill.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0);
-export const billBalance = (bill: Bill | OtherBill) => Math.max(0, bill.total - billPaid(bill));
+export const billLoss = (bill: Bill | OtherBill) => bill.lossAmount ?? 0;
+export const billBalance = (bill: Bill | OtherBill) => Math.max(0, bill.total - billPaid(bill) - billLoss(bill));
 export const otherBillPaid = (bill: OtherBill) => bill.payments.reduce((sum, payment) => sum + payment.amount, 0);
-export const otherBillBalance = (bill: OtherBill) => Math.max(0, bill.total - otherBillPaid(bill));
+export const otherBillBalance = (bill: OtherBill) => Math.max(0, bill.total - otherBillPaid(bill) - billLoss(bill));
 export const otherBillCost = (bill: OtherBill) => bill.items.reduce((sum, item) => sum + (item.costAmount ?? item.quantity * (item.costRate ?? 0)), 0);
 export const otherBillProfit = (bill: OtherBill) => bill.total - otherBillCost(bill);
 
@@ -81,10 +82,14 @@ export const clientOverallBalance = (store: FleetStore, clientId: number) => {
     clientBills.reduce((sum, bill) => sum + billPaid(bill), 0) +
     clientOtherBills.reduce((sum, bill) => sum + otherBillPaid(bill), 0) +
     unbilledReceiptsTotal;
-  const balance = billed - received;
+  const loss =
+    clientBills.reduce((sum, bill) => sum + billLoss(bill), 0) +
+    clientOtherBills.reduce((sum, bill) => sum + billLoss(bill), 0);
+  const balance = billed - received - loss;
   return {
     billed,
     received,
+    loss,
     balance,
     outstanding: Math.max(0, balance),
     billCount: clientBills.length,

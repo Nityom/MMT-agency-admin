@@ -47,6 +47,7 @@ export function ClientLedgerPrintModal({
     status: string;
     amount: number | null;
     isCredit: boolean;
+    isLoss?: boolean;
   }[];
   close: () => void;
 }) {
@@ -103,6 +104,12 @@ export function ClientLedgerPrintModal({
               <span>Total Received</span>
               <strong>{money(overall.received)}</strong>
             </p>
+            {overall.loss > 0 && (
+              <p>
+                <span>Total Loss / Bad Debt</span>
+                <strong style={{ color: "#dc2626" }}>{money(overall.loss)}</strong>
+              </p>
+            )}
             <p>
               <span>Outstanding Balance</span>
               <strong style={{ color: overall.outstanding > 0 ? "#9a493d" : "#1f6a53" }}>
@@ -134,12 +141,30 @@ export function ClientLedgerPrintModal({
                     <td>{fmt(item.date)}</td>
                     <td><b>{item.type}</b></td>
                     <td>{item.detail}</td>
-                    <td>{item.status}</td>
+                    <td>
+                      {item.isLoss ? (
+                        <span style={{ color: "#dc2626", fontWeight: 700, background: "#fee2e2", padding: "1px 6px", borderRadius: "4px" }}>
+                          Loss Recorded
+                        </span>
+                      ) : (
+                        item.status
+                      )}
+                    </td>
                     <td>
                       {item.amount !== null && !item.isCredit ? money(Math.abs(item.amount)) : "—"}
                     </td>
                     <td>
-                      {item.amount !== null && item.isCredit ? money(Math.abs(item.amount)) : "—"}
+                      {item.amount !== null && item.isCredit ? (
+                        item.isLoss ? (
+                          <span style={{ color: "#dc2626", fontWeight: 700 }}>
+                            −{money(Math.abs(item.amount))} (Loss)
+                          </span>
+                        ) : (
+                          money(Math.abs(item.amount))
+                        )
+                      ) : (
+                        "—"
+                      )}
                     </td>
                   </tr>
                 ))
@@ -408,6 +433,7 @@ export function ClientLedgerModal({
       status: bookingStatus(booking),
       amount: estimate,
       isCredit: false,
+      isLoss: false,
       bill: undefined as Bill | undefined,
       payment: null as Bill["payments"][number] | null,
       isAdvance: false,
@@ -415,11 +441,47 @@ export function ClientLedgerModal({
     };
   });
 
+  const lossRows = filteredBills
+    .filter((bill) => (bill.lossAmount ?? 0) > 0 && inRange(bill.lossDate || bill.billDate))
+    .map((bill) => ({
+      key: `loss-${bill.id}`,
+      date: bill.lossDate || bill.billDate,
+      type: `Loss / Bad Debt (INV-${String(bill.number).padStart(4, "0")})`,
+      detail: `${bill.lossReason || "Client underpayment settlement"} · Bad debt write-off`,
+      status: "Loss Recorded",
+      amount: -(bill.lossAmount ?? 0),
+      isCredit: true,
+      isLoss: true,
+      bill,
+      payment: null as Bill["payments"][number] | null,
+      isAdvance: false,
+      clientReceipt: undefined as ClientReceipt | undefined,
+    }));
+
+  const otherBillLossRows = filteredOtherBills
+    .filter((bill) => (bill.lossAmount ?? 0) > 0 && inRange(bill.lossDate || bill.billDate))
+    .map((bill) => ({
+      key: `otherloss-${bill.id}`,
+      date: bill.lossDate || bill.billDate,
+      type: `Loss / Bad Debt (OTH-${String(bill.number).padStart(4, "0")})`,
+      detail: `${bill.lossReason || "Client underpayment settlement"} · Bad debt write-off`,
+      status: "Loss Recorded",
+      amount: -(bill.lossAmount ?? 0),
+      isCredit: true,
+      isLoss: true,
+      bill: undefined as Bill | undefined,
+      payment: null as Bill["payments"][number] | null,
+      isAdvance: false,
+      clientReceipt: undefined as ClientReceipt | undefined,
+    }));
+
   const timeline = [
-    ...billRows.map((r) => ({ ...r, clientReceipt: undefined as ClientReceipt | undefined })),
-    ...otherBillRows.map((r) => ({ ...r, clientReceipt: undefined as ClientReceipt | undefined })),
-    ...paymentRows,
-    ...receiptRows,
+    ...billRows.map((r) => ({ ...r, isLoss: false, clientReceipt: undefined as ClientReceipt | undefined })),
+    ...otherBillRows.map((r) => ({ ...r, isLoss: false, clientReceipt: undefined as ClientReceipt | undefined })),
+    ...paymentRows.map((r) => ({ ...r, isLoss: false })),
+    ...receiptRows.map((r) => ({ ...r, isLoss: false })),
+    ...lossRows,
+    ...otherBillLossRows,
     ...attendanceRecords.map((a) => ({
       key: a.key,
       date: a.date,
@@ -428,6 +490,7 @@ export function ClientLedgerModal({
       status: a.status,
       amount: null as number | null,
       isCredit: false,
+      isLoss: false,
       bill: undefined as Bill | undefined,
       payment: null as Bill["payments"][number] | null,
       isAdvance: false,
@@ -467,6 +530,12 @@ export function ClientLedgerModal({
               <span>Total Received</span>
               <b style={{ color: "#1f6a53" }}>{money(overall.received)}</b>
             </p>
+            {overall.loss > 0 && (
+              <p>
+                <span>Total Loss / Bad Debt</span>
+                <b style={{ color: "#dc2626" }}>{money(overall.loss)}</b>
+              </p>
+            )}
             <p>
               <span>Remaining Balance</span>
               <strong style={{ color: overall.outstanding > 0 ? "#9a493d" : "#1f6a53" }}>
@@ -552,8 +621,31 @@ export function ClientLedgerModal({
                     <b>{item.type}</b>
                     <small>{item.detail}</small>
                   </div>
-                  <Status>{item.status}</Status>
-                  <strong className={item.isCredit ? "credit" : ""}>
+                  <Status
+                    style={
+                      item.isLoss
+                        ? {
+                            background: "#fee2e2",
+                            color: "#991b1b",
+                            borderColor: "#fca5a5",
+                            fontWeight: 700,
+                          }
+                        : undefined
+                    }
+                  >
+                    {item.status}
+                  </Status>
+                  <strong
+                    className={item.isCredit ? `credit${item.isLoss ? " loss" : ""}` : ""}
+                    style={
+                      item.isLoss
+                        ? {
+                            color: "#dc2626",
+                            fontWeight: 700,
+                          }
+                        : undefined
+                    }
+                  >
                     {item.amount === null ? (
                       "—"
                     ) : (
@@ -573,7 +665,7 @@ export function ClientLedgerModal({
                         <FileText size={16} />
                       </button>
                     )}
-                    {item.isCredit && item.bill && (
+                    {item.isCredit && !item.isLoss && item.bill && (
                       <button
                         className="op-icon"
                         title="Print payment receipt"
