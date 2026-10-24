@@ -128,7 +128,7 @@ export type ClientLedgersViewProps = {
                     {money(overall.balance)} outstanding
                   </small>
                   {overall.loss > 0 && (
-                    <small style={{ color: "#dc2626", fontWeight: 700 }}> · {money(overall.loss)} loss</small>
+                    <small style={{ color: "#c2410c", fontWeight: 700 }}> · {money(overall.loss)} credit note</small>
                   )}
                 </span>
                 <div style={{ display: "flex", gap: "6px" }}>

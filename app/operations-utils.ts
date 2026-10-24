@@ -29,10 +29,24 @@ export const input = (data: FormData, name: string) => String(data.get(name) ?? 
 export const amount = (data: FormData, name: string) => Number(data.get(name)) || 0;
 export const fmt = (date: string) => date ? new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
 
-export const billPaid = (bill: Bill | OtherBill) => ("advanceReceived" in bill ? bill.advanceReceived : 0) + (bill.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0);
+export const billPaid = (bill: Bill | OtherBill) => {
+  const rawPaid = ("advanceReceived" in bill ? bill.advanceReceived : 0) + (bill.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0);
+  const creditNote = bill.lossAmount ?? 0;
+  if (creditNote > 0 && (rawPaid + creditNote) > bill.total) {
+    return Math.max(0, bill.total - creditNote);
+  }
+  return rawPaid;
+};
 export const billLoss = (bill: Bill | OtherBill) => bill.lossAmount ?? 0;
 export const billBalance = (bill: Bill | OtherBill) => Math.max(0, bill.total - billPaid(bill) - billLoss(bill));
-export const otherBillPaid = (bill: OtherBill) => bill.payments.reduce((sum, payment) => sum + payment.amount, 0);
+export const otherBillPaid = (bill: OtherBill) => {
+  const rawPaid = bill.payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const creditNote = bill.lossAmount ?? 0;
+  if (creditNote > 0 && (rawPaid + creditNote) > bill.total) {
+    return Math.max(0, bill.total - creditNote);
+  }
+  return rawPaid;
+};
 export const otherBillBalance = (bill: OtherBill) => Math.max(0, bill.total - otherBillPaid(bill) - billLoss(bill));
 export const otherBillCost = (bill: OtherBill) => bill.items.reduce((sum, item) => sum + (item.costAmount ?? item.quantity * (item.costRate ?? 0)), 0);
 export const otherBillProfit = (bill: OtherBill) => bill.total - otherBillCost(bill);

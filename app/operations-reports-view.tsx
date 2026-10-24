@@ -543,13 +543,13 @@ export function ClientLossesPrintModal({
           </Button>
           <Button onClick={() => window.print()}>
             <Printer size={17} />
-            Print Losses Statement / PDF
+            Print Credit Notes Statement / PDF
           </Button>
         </div>
         <article className="invoice-sheet op-client-statement-sheet">
           <InvoiceHeader
-            title="CLIENT LOSSES & BAD DEBT STATEMENT"
-            badge="BAD DEBT / LOSS STATEMENT"
+            title="CLIENT CREDIT NOTES STATEMENT"
+            badge="CREDIT NOTE STATEMENT"
             company={store.company}
           />
           <section className="invoice-meta">
@@ -566,9 +566,9 @@ export function ClientLossesPrintModal({
             <p className="invoice-bill-to">
               <b>Summary Scope</b>
               <br />
-              <strong>{bills.length} Written-off Bill{bills.length === 1 ? "" : "s"}</strong>
+              <strong>{bills.length} Credit Note Bill{bills.length === 1 ? "" : "s"}</strong>
               <br />
-              <span>Uncollected losses and underpaid client settlements</span>
+              <span>Settled credit notes and client discounts</span>
             </p>
           </section>
 
@@ -583,14 +583,14 @@ export function ClientLossesPrintModal({
               <strong>{money(totalReceived)}</strong>
             </p>
             <p>
-              <span>Total Client Loss / Bad Debt</span>
-              <strong style={{ color: "#991b1b" }}>
+              <span>Total Client Credit Notes</span>
+              <strong style={{ color: "#c2410c" }}>
                 {money(totalLoss)}
               </strong>
             </p>
           </section>
 
-          <h2 className="op-print-section-title">Itemized Client Losses & Bad Debts</h2>
+          <h2 className="op-print-section-title">Itemized Client Credit Notes</h2>
           <table className="invoice-expenses op-client-print-table">
             <thead>
               <tr>
@@ -601,7 +601,7 @@ export function ClientLossesPrintModal({
                 <th>Bill #</th>
                 <th>Total Bill</th>
                 <th>Paid</th>
-                <th>Loss / Bad Debt</th>
+                <th>Credit Note</th>
                 <th>Reason / Settlement Note</th>
               </tr>
             </thead>
@@ -616,14 +616,14 @@ export function ClientLossesPrintModal({
                     <td><b>{item.number}</b></td>
                     <td>{money(item.total)}</td>
                     <td>{money(item.paid)}</td>
-                    <td style={{ color: "#991b1b", fontWeight: 700 }}>{money(item.loss)}</td>
-                    <td>{item.lossReason || "Underpayment settlement"}</td>
+                    <td style={{ color: "#c2410c", fontWeight: 700 }}>{money(item.loss)}</td>
+                    <td>{item.lossReason || "Credit note settlement"}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
                   <td colSpan={9} style={{ textAlign: "center", padding: "20px" }}>
-                    No recorded losses in this period
+                    No recorded credit notes in this period
                   </td>
                 </tr>
               )}
@@ -631,9 +631,9 @@ export function ClientLossesPrintModal({
             <tfoot>
               <tr style={{ background: "#f8faf9", fontWeight: 700 }}>
                 <td colSpan={7} style={{ textAlign: "right", padding: "10px" }}>
-                  Total Client Losses ({bills.length} bills):
+                  Total Client Credit Notes ({bills.length} bills):
                 </td>
-                <td style={{ color: "#991b1b", fontSize: "14px", padding: "10px" }}>
+                <td style={{ color: "#c2410c", fontSize: "14px", padding: "10px" }}>
                   {money(totalLoss)}
                 </td>
                 <td></td>
@@ -643,8 +643,8 @@ export function ClientLossesPrintModal({
 
           <section className="op-invoice-total">
             <p>
-              <span>Total Business Loss from Client Underpayment</span>
-              <strong style={{ color: "#991b1b" }}>
+              <span>Total Client Credit Notes</span>
+              <strong style={{ color: "#c2410c" }}>
                 {money(totalLoss)}
               </strong>
             </p>
@@ -3280,12 +3280,12 @@ export function ReportsView({
             <div
               style={{ cursor: "pointer" }}
               onClick={() => setClientReportSubTab("losses")}
-              title="Click to view full Client Losses & Bad Debt List"
+              title="Click to view full Credit Notes List"
             >
               <Metric
-                label={isClientAllTime ? "Total Client Losses (All Time)" : "Client Losses in Period"}
+                label={isClientAllTime ? "Total Credit Notes (All Time)" : "Credit Notes in Period"}
                 value={money(clientTotalLosses)}
-                detail={`${allClientLossBills.length} written-off bills · Click to view →`}
+                detail={`${allClientLossBills.length} bills with credit note · Click to view →`}
                 icon={TrendingDown}
               />
             </div>
@@ -3350,14 +3350,14 @@ export function ReportsView({
               className={clientReportSubTab === "losses" ? "active" : ""}
               onClick={() => setClientReportSubTab("losses")}
               style={{
-                backgroundColor: clientReportSubTab === "losses" ? "#991b1b" : undefined,
-                borderColor: clientReportSubTab === "losses" ? "#991b1b" : undefined,
+                backgroundColor: clientReportSubTab === "losses" ? "#c2410c" : undefined,
+                borderColor: clientReportSubTab === "losses" ? "#c2410c" : undefined,
                 color: clientReportSubTab === "losses" ? "#ffffff" : undefined,
                 fontWeight: 700,
               }}
             >
-              Client Losses & Bad Debt ({filteredLossBills.length})
-              {totalLossBillAmount > 0 ? ` · ${money(totalLossBillAmount)} Lost` : ""}
+              Credit Notes ({filteredLossBills.length})
+              {totalLossBillAmount > 0 ? ` · ${money(totalLossBillAmount)} Credit Notes` : ""}
             </button>
           </div>
 
@@ -3370,7 +3370,7 @@ export function ReportsView({
                   clientReportSubTab === "outstandingBills"
                     ? "Search outstanding bills by client, phone, or invoice number..."
                     : clientReportSubTab === "losses"
-                    ? "Search written-off bills, client name, phone, or loss note..."
+                    ? "Search credit note bills, client name, phone, or note..."
                     : "Search client firm name, contact person, or phone..."
                 }
                 value={clientSearch}
@@ -3384,7 +3384,7 @@ export function ReportsView({
                 </>
               ) : clientReportSubTab === "losses" ? (
                 <>
-                  Showing <b>{filteredLossBills.length}</b> of <b>{allClientLossBills.length}</b> written-off loss bills ({clientRange.label})
+                  Showing <b>{filteredLossBills.length}</b> of <b>{allClientLossBills.length}</b> credit note bills ({clientRange.label})
                 </>
               ) : (
                 <>
@@ -3400,7 +3400,7 @@ export function ReportsView({
             ) : clientReportSubTab === "losses" ? (
               <Button secondary onClick={() => setClientLossesPrintOpen(true)}>
                 <Printer size={16} />
-                Print Losses Statement
+                Print Credit Notes Statement
               </Button>
             ) : (
               <Button secondary onClick={() => setClientAccountsPrintOpen(true)}>
@@ -3515,7 +3515,7 @@ export function ReportsView({
                   "Bill / Invoice #",
                   "Total Billed",
                   "Received",
-                  "Loss / Bad Debt",
+                  "Credit Note",
                   "Reason / Settlement Note",
                   "Pending Due",
                   "",
@@ -3552,10 +3552,10 @@ export function ReportsView({
                       <b>{money(item.paid)}</b>
                     </span>
                     <span>
-                      <b style={{ color: "#991b1b", fontSize: "14px" }}>
+                      <b style={{ color: "#c2410c", fontSize: "14px" }}>
                         {money(item.loss)}
                       </b>
-                      <small style={{ color: "#991b1b", fontWeight: 700 }}>Recorded Loss</small>
+                      <small style={{ color: "#c2410c", fontWeight: 700 }}>Credit Note</small>
                     </span>
                     <span style={{ fontSize: "12.5px", color: "#4a5568" }}>
                       {item.lossReason || "Client underpayment settlement"}
@@ -3563,7 +3563,7 @@ export function ReportsView({
                     <span>
                       {item.balance === 0 ? (
                         <span style={{ color: "#165b47", fontWeight: 600, fontSize: "12px" }}>
-                          ✓ Settled with loss
+                          ✓ Settled with credit note
                         </span>
                       ) : (
                         <span style={{ color: "#c53030", fontWeight: 600, fontSize: "12px" }}>
@@ -3577,14 +3577,14 @@ export function ReportsView({
                           secondary
                           onClick={() => recordLoss(item.rawBill as Bill)}
                           style={{
-                            color: "#c53030",
-                            borderColor: "#fed7d7",
+                            color: "#c2410c",
+                            borderColor: "#fed7aa",
                             fontSize: "12px",
                             padding: "4px 8px",
                           }}
                         >
                           <TrendingDown size={14} />
-                          Edit loss
+                          Credit Note
                         </Button>
                       )}
                       <Button secondary onClick={() => setSelectedClientLedgerId(item.clientId)}>

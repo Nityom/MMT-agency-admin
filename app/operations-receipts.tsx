@@ -310,26 +310,26 @@ export function ClientReceiptFormModal({
               checked={enableLoss}
               onChange={(e) => setEnableLoss(e.target.checked)}
             />
-            Record / Adjust Loss / Bad Debt for this client receipt
+            Record / Adjust Credit Note for this client receipt
           </label>
 
           {enableLoss && (
             <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
               <div className="op-form-grid" style={{ gap: "12px" }}>
                 <label className="op-field">
-                  <span style={{ color: "#991b1b" }}>Loss Amount (₹)</span>
+                  <span style={{ color: "#c2410c" }}>Credit Note Amount (₹)</span>
                   <input
                     type="number"
                     min="0"
                     step="any"
                     value={lossAmount}
                     onChange={(e) => setLossAmount(Math.max(0, Number(e.target.value)))}
-                    placeholder="Loss / uncollectible amount"
+                    placeholder="Credit note / settlement allowance"
                     required={enableLoss}
                   />
                 </label>
                 <label className="op-field">
-                  <span style={{ color: "#991b1b" }}>Loss Date</span>
+                  <span style={{ color: "#c2410c" }}>Credit Note Date</span>
                   <input
                     type="date"
                     value={lossDate}
@@ -338,16 +338,16 @@ export function ClientReceiptFormModal({
                 </label>
               </div>
               <label className="op-field">
-                <span style={{ color: "#991b1b" }}>Loss Reason / Note</span>
+                <span style={{ color: "#c2410c" }}>Credit Note Reason / Note</span>
                 <input
                   type="text"
                   value={lossReason}
                   onChange={(e) => setLossReason(e.target.value)}
-                  placeholder="e.g. Underpayment settlement / bad debt"
+                  placeholder="e.g. Underpayment settlement / haircut"
                 />
               </label>
-              <small style={{ color: "#991b1b", fontSize: "11px", fontWeight: 600 }}>
-                * Loss will be recorded in your internal ledger and reports. It will NOT be printed on client receipts.
+              <small style={{ color: "#c2410c", fontSize: "11px", fontWeight: 600 }}>
+                * Credit note settlement will be recorded and shown on receipt.
               </small>
             </div>
           )}
@@ -541,6 +541,12 @@ export function ClientReceiptViewModal({
                 {money(receipt.amount)}
               </strong>
             </p>
+            {receipt.lossAmount ? (
+              <p style={{ color: "#c2410c" }}>
+                <span>Credit Note ({receipt.lossReason || "Settlement"})</span>
+                <b>{money(receipt.lossAmount)}</b>
+              </p>
+            ) : null}
             {receipt.status === "Billed" && receipt.billNumber && (
               <p>
                 <span>Included In Bill</span>

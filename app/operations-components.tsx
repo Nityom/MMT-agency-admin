@@ -166,7 +166,7 @@ export function Actions({
     <span className="op-actions">
       {edit && <button title="Edit" onClick={edit}><Pencil size={15}/></button>}
       {payment && <button title="Record payment" onClick={payment}><Banknote size={16}/></button>}
-      {loss && <button title="Record / edit loss" onClick={loss} style={{ color: "#c53030" }}><TrendingDown size={15}/></button>}
+      {loss && <button title="Record / edit Credit Note" onClick={loss} style={{ color: "#c2410c" }}><TrendingDown size={15}/></button>}
       {view && <button title="Print / preview" onClick={view}><Printer size={16}/></button>}
       {remove && <button className="delete" title="Delete" onClick={remove}><Trash2 size={16}/></button>}
     </span>

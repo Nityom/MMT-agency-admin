@@ -106,8 +106,8 @@ export function ClientLedgerPrintModal({
             </p>
             {overall.loss > 0 && (
               <p>
-                <span>Total Loss / Bad Debt</span>
-                <strong style={{ color: "#dc2626" }}>{money(overall.loss)}</strong>
+                <span>Total Credit Notes</span>
+                <strong style={{ color: "#c2410c" }}>{money(overall.loss)}</strong>
               </p>
             )}
             <p>
@@ -143,8 +143,8 @@ export function ClientLedgerPrintModal({
                     <td>{item.detail}</td>
                     <td>
                       {item.isLoss ? (
-                        <span style={{ color: "#dc2626", fontWeight: 700, background: "#fee2e2", padding: "1px 6px", borderRadius: "4px" }}>
-                          Loss Recorded
+                        <span style={{ color: "#c2410c", fontWeight: 700, background: "#ffedd5", padding: "1px 6px", borderRadius: "4px" }}>
+                          Credit Note
                         </span>
                       ) : (
                         item.status
@@ -156,8 +156,8 @@ export function ClientLedgerPrintModal({
                     <td>
                       {item.amount !== null && item.isCredit ? (
                         item.isLoss ? (
-                          <span style={{ color: "#dc2626", fontWeight: 700 }}>
-                            −{money(Math.abs(item.amount))} (Loss)
+                          <span style={{ color: "#c2410c", fontWeight: 700 }}>
+                            −{money(Math.abs(item.amount))} (Credit Note)
                           </span>
                         ) : (
                           money(Math.abs(item.amount))
@@ -385,9 +385,9 @@ export function ClientLedgerModal({
           {
             key: `receipt-loss-${r.id}`,
             date: r.lossDate || r.receiptDate,
-            type: `Bad debt loss (Receipt REC-${String(r.number).padStart(4, "0")})`,
-            detail: `${r.lossReason || "Underpayment settlement"} · Bad debt write-off`,
-            status: "Written-off",
+            type: `Credit Note (Receipt REC-${String(r.number).padStart(4, "0")})`,
+            detail: `${r.lossReason || "Underpayment settlement"} · Settlement credit note`,
+            status: "Credit Note",
             amount: -r.lossAmount,
             isCredit: true,
             isLoss: true,
@@ -468,9 +468,9 @@ export function ClientLedgerModal({
     .map((bill) => ({
       key: `loss-${bill.id}`,
       date: bill.lossDate || bill.billDate,
-      type: `Loss / Bad Debt (INV-${String(bill.number).padStart(4, "0")})`,
-      detail: `${bill.lossReason || "Client underpayment settlement"} · Bad debt write-off`,
-      status: "Loss Recorded",
+      type: `Credit Note (INV-${String(bill.number).padStart(4, "0")})`,
+      detail: `${bill.lossReason || "Client underpayment settlement"} · Settlement credit note`,
+      status: "Credit Note",
       amount: -(bill.lossAmount ?? 0),
       isCredit: true,
       isLoss: true,
@@ -485,9 +485,9 @@ export function ClientLedgerModal({
     .map((bill) => ({
       key: `otherloss-${bill.id}`,
       date: bill.lossDate || bill.billDate,
-      type: `Loss / Bad Debt (OTH-${String(bill.number).padStart(4, "0")})`,
-      detail: `${bill.lossReason || "Client underpayment settlement"} · Bad debt write-off`,
-      status: "Loss Recorded",
+      type: `Credit Note (OTH-${String(bill.number).padStart(4, "0")})`,
+      detail: `${bill.lossReason || "Client underpayment settlement"} · Settlement credit note`,
+      status: "Credit Note",
       amount: -(bill.lossAmount ?? 0),
       isCredit: true,
       isLoss: true,
@@ -554,8 +554,8 @@ export function ClientLedgerModal({
             </p>
             {overall.loss > 0 && (
               <p>
-                <span>Total Loss / Bad Debt</span>
-                <b style={{ color: "#dc2626" }}>{money(overall.loss)}</b>
+                <span>Total Credit Notes</span>
+                <b style={{ color: "#c2410c" }}>{money(overall.loss)}</b>
               </p>
             )}
             <p>
@@ -647,9 +647,9 @@ export function ClientLedgerModal({
                     style={
                       item.isLoss
                         ? {
-                            background: "#fee2e2",
-                            color: "#991b1b",
-                            borderColor: "#fca5a5",
+                            background: "#ffedd5",
+                            color: "#c2410c",
+                            borderColor: "#fed7aa",
                             fontWeight: 700,
                           }
                         : undefined
@@ -662,7 +662,7 @@ export function ClientLedgerModal({
                     style={
                       item.isLoss
                         ? {
-                            color: "#dc2626",
+                            color: "#c2410c",
                             fontWeight: 700,
                           }
                         : undefined

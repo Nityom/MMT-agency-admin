@@ -403,9 +403,9 @@ export function BillingView({
           icon={Check}
         />
         <Metric
-          label="Client Losses / Bad Debt"
+          label="Credit Notes"
           value={money(store.bills.reduce((sum, bill) => sum + billLoss(bill), 0))}
-          detail={`${store.bills.filter((bill) => billLoss(bill) > 0).length} bills with recorded loss`}
+          detail={`${store.bills.filter((bill) => billLoss(bill) > 0).length} bills with credit notes`}
           icon={TrendingDown}
         />
         <Metric
@@ -463,8 +463,8 @@ export function BillingView({
                 <span>
                   <b>{money(billPaid(bill))}</b>
                   {bill.lossAmount ? (
-                    <small style={{ color: "#c53030", fontWeight: 700 }}>
-                      Loss: {money(bill.lossAmount)}
+                    <small style={{ color: "#c2410c", fontWeight: 700 }}>
+                      Credit Note: {money(bill.lossAmount)}
                     </small>
                   ) : null}
                   <small>

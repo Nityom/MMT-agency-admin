@@ -380,14 +380,31 @@ export function BillingComposer({
             },
           ]
         : payments;
-    const finalPaid =
-      advance + finalPayments.reduce((sum, payment) => sum + payment.amount, 0);
+    const finalPaid = advance + finalPayments.reduce((sum, payment) => sum + payment.amount, 0);
     const finalClientId =
       client && "id" in client && typeof (client as any).id === "number" && (client as any).id > 0
         ? (client as any).id
         : clientId > 0
           ? clientId
           : 0;
+    let cleanPayments = finalPayments;
+    let cleanAdvance = advance;
+    if (activeLoss > 0 && (finalPaid + activeLoss) > total) {
+      let excess = (finalPaid + activeLoss) - total;
+      if (excess > 0 && cleanPayments.length > 0) {
+        cleanPayments = [...cleanPayments];
+        for (let i = cleanPayments.length - 1; i >= 0 && excess > 0; i--) {
+          const deduction = Math.min(cleanPayments[i].amount, excess);
+          cleanPayments[i] = { ...cleanPayments[i], amount: cleanPayments[i].amount - deduction };
+          excess -= deduction;
+        }
+        cleanPayments = cleanPayments.filter((p) => p.amount > 0);
+      }
+      if (excess > 0 && cleanAdvance > 0) {
+        cleanAdvance = Math.max(0, cleanAdvance - excess);
+      }
+    }
+    const cleanPaid = cleanAdvance + cleanPayments.reduce((sum, p) => sum + p.amount, 0);
     save({
       id: bill?.id ?? nextId(store.bills),
       number: bill?.number ?? nextBillNumber(store.bills, store.nextBillNumber),
@@ -402,14 +419,14 @@ export function BillingComposer({
       },
       vehicleLines: finalLines,
       charges: finalCharges,
-      advanceReceived: advance,
+      advanceReceived: cleanAdvance,
       paymentMode,
-      payments: finalPayments,
+      payments: cleanPayments,
       total,
       lossAmount: activeLoss > 0 ? activeLoss : undefined,
       lossReason: activeLoss > 0 ? lossReason.trim() : undefined,
       lossDate: activeLoss > 0 ? lossDate : undefined,
-      status: (finalPaid + activeLoss) >= total ? "Paid" : "Pending",
+      status: (cleanPaid + activeLoss) >= total ? "Paid" : "Pending",
     }, selectedReceiptIds);
   };
   return (
@@ -1018,13 +1035,13 @@ export function BillingComposer({
                   }}
                   style={{ width: "16px", height: "16px", accentColor: "#c53030" }}
                 />
-                Record / Adjust Client Loss / Bad Debt for this bill
+                Record / Adjust Credit Note for this bill
               </label>
               {enableLoss && (
                 <>
                   <div className="op-form-grid" style={{ gap: "10px" }}>
                     <label className="op-field">
-                      <span>Loss Amount (₹)</span>
+                      <span>Credit Note Amount (₹)</span>
                       <input
                         type="number"
                         min="0"
@@ -1035,7 +1052,7 @@ export function BillingComposer({
                       />
                     </label>
                     <label className="op-field">
-                      <span>Date recorded</span>
+                      <span>Credit Note Date</span>
                       <input
                         type="date"
                         value={lossDate}
@@ -1045,16 +1062,16 @@ export function BillingComposer({
                     </label>
                   </div>
                   <label className="op-field" style={{ margin: 0 }}>
-                    <span>Loss Reason / Note</span>
+                    <span>Credit Note Reason / Note</span>
                     <input
                       type="text"
                       value={lossReason}
                       onChange={(e) => setLossReason(e.target.value)}
-                      placeholder="e.g. Client underpayment / short-payment haircut"
+                      placeholder="e.g. Client underpayment / short-payment settlement"
                     />
                   </label>
                   <small style={{ color: "#742a2a", fontSize: "12px" }}>
-                    Uncollected write-off (no payment mode) — deducted from business profit and listed in client bad debt reports.
+                    Settlement credit note allowance — deducted from receivable balance and shown on receipts and reports.
                   </small>
                 </>
               )}
@@ -1089,8 +1106,8 @@ export function BillingComposer({
               Total Collected: <b>{money(totalCollected)}</b>
             </span>
             {activeLoss > 0 && (
-              <span style={{ fontSize: "13px", color: "#c53030", fontWeight: 700 }}>
-                Loss Recorded: −{money(activeLoss)}
+              <span style={{ fontSize: "13px", color: "#c2410c", fontWeight: 700 }}>
+                Credit Note: −{money(activeLoss)}
               </span>
             )}
           </div>
@@ -1494,7 +1511,7 @@ export function BillPaymentModal({
     <Modal
       title={
         payAmount === 0
-          ? `Record Loss / Bad Debt Settlement · INV-${String(bill.number).padStart(4, "0")}`
+          ? `Record Credit Note Settlement · INV-${String(bill.number).padStart(4, "0")}`
           : `Record payment · INV-${String(bill.number).padStart(4, "0")}`
       }
       close={close}
@@ -1506,7 +1523,7 @@ export function BillPaymentModal({
           Paid so far: <b>{money(billPaid(bill))}</b> · Remaining:{" "}
           <b>{money(balance)}</b>
           {Boolean(bill.lossAmount && bill.lossAmount > 0) && (
-            <span> · Previous loss recorded: <b style={{ color: "#c53030" }}>{money(bill.lossAmount!)}</b></span>
+            <span> · Previous Credit Note: <b style={{ color: "#c2410c" }}>{money(bill.lossAmount!)}</b></span>
           )}
         </p>
         <div className="op-form-grid">
@@ -1611,15 +1628,15 @@ export function BillPaymentModal({
                 }}
                 style={{ width: "16px", height: "16px", accentColor: "#c53030" }}
               />
-              Record remaining balance of {money(remainingUnpaid)} as Client Loss / Bad Debt (client will not pay this)
+              Record remaining balance of {money(remainingUnpaid)} as Credit Note (client underpayment settlement / haircut)
             </label>
             <small style={{ color: "#742a2a", margin: "-4px 0 0 24px", fontSize: "12px" }}>
-              Losses are recorded as uncollected write-offs with no payment mode.
+              Credit notes are recorded as settlement discounts without payment mode.
             </small>
             {recordLoss && (
               <div className="op-form-grid" style={{ marginTop: "4px" }}>
                 <label className="op-field">
-                  <span>Loss amount (₹)</span>
+                  <span>Credit Note amount (₹)</span>
                   <input
                     type="number"
                     min={0}
@@ -1630,7 +1647,7 @@ export function BillPaymentModal({
                   />
                 </label>
                 <label className="op-field">
-                  <span>Loss reason / note</span>
+                  <span>Credit Note reason / note</span>
                   <input
                     type="text"
                     value={lossReason}
@@ -1708,7 +1725,7 @@ export function RecordLossModal({
 
   return (
     <Modal
-      title={`Record Loss / Bad Debt · ${invoiceLabel}`}
+      title={`Record Credit Note · ${invoiceLabel}`}
       close={close}
       width="min(620px, 96vw)"
     >
@@ -1733,13 +1750,13 @@ export function RecordLossModal({
             Unpaid remainder: <b>{money(Math.max(0, bill.total - currentPaid))}</b>
           </span>
           <small style={{ color: "#742a2a", marginTop: "2px" }}>
-            Record the uncollected amount as a business loss / bad debt so you can track total losses, see who underpaid, and deduct it from your profit report.
+            Record the settled discount / credit note amount so you can track total credit notes, see settlement allowances, and maintain accurate ledger balances.
           </small>
         </div>
 
         <div className="op-form-grid">
           <label className="op-field">
-            <span>Loss / Bad Debt Amount (₹)</span>
+            <span>Credit Note Amount (₹)</span>
             <input
               type="number"
               min="0"
@@ -1750,7 +1767,7 @@ export function RecordLossModal({
             />
           </label>
           <label className="op-field">
-            <span>Date recorded</span>
+            <span>Credit Note Date</span>
             <input
               type="date"
               value={lossDate}
@@ -1764,15 +1781,15 @@ export function RecordLossModal({
           <span>Reason / Note</span>
           <input
             type="text"
-            placeholder="e.g. Client refused to pay remainder, negotiated haircut, bad debt"
+            placeholder="e.g. Client underpayment settlement, negotiated haircut, credit note"
             value={lossReason}
             onChange={(e) => setLossReason(e.target.value)}
           />
         </label>
 
         {Number(lossAmount) > 0 && (
-          <p style={{ margin: "4px 0 0", color: "#b91c1c", fontSize: "12px", fontWeight: 600 }}>
-            • {money(Number(lossAmount))} will be recorded as client loss / bad debt.
+          <p style={{ margin: "4px 0 0", color: "#c2410c", fontSize: "12px", fontWeight: 600 }}>
+            • {money(Number(lossAmount))} will be recorded as a Credit Note.
           </p>
         )}
 
@@ -1786,11 +1803,11 @@ export function RecordLossModal({
               style={{ color: "#a1483b" }}
               onClick={() => save(0, undefined, undefined)}
             >
-              Clear loss
+              Clear Credit Note
             </Button>
           )}
-          <Button type="submit" style={{ background: "#c53030", borderColor: "#c53030", color: "white" }}>
-            Save client loss
+          <Button type="submit" style={{ background: "#c2410c", borderColor: "#c2410c", color: "white" }}>
+            Save Credit Note
           </Button>
         </footer>
       </form>
@@ -2187,8 +2204,8 @@ export function CampaignBillModeModal({
                     {b.lossAmount ? (
                       <>
                         <span style={{ color: "#54645f" }}>·</span>
-                        <span style={{ color: "#c53030", background: "#fee2e2", padding: "1px 6px", borderRadius: "10px", fontSize: "11px", fontWeight: 700 }}>
-                          Loss: {money(b.lossAmount)}
+                        <span style={{ color: "#c2410c", background: "#ffedd5", padding: "1px 6px", borderRadius: "10px", fontSize: "11px", fontWeight: 700 }}>
+                          Credit Note: {money(b.lossAmount)}
                         </span>
                       </>
                     ) : null}
@@ -2198,9 +2215,9 @@ export function CampaignBillModeModal({
                       <Button
                         secondary
                         onClick={() => recordLoss(b)}
-                        style={{ color: b.lossAmount ? "#c53030" : "#742a2a", borderColor: "#fed7d7", fontSize: "12px", padding: "4px 8px" }}
+                        style={{ color: b.lossAmount ? "#c2410c" : "#7c2d12", borderColor: "#fed7aa", fontSize: "12px", padding: "4px 8px" }}
                       >
-                        <TrendingDown size={14} /> {b.lossAmount ? "Edit loss" : "Record loss"}
+                        <TrendingDown size={14} /> {b.lossAmount ? "Edit Credit Note" : "Credit Note"}
                       </Button>
                     )}
                     {viewBill && (
@@ -2773,14 +2790,14 @@ export function Invoice({
               secondary
               onClick={() => recordLoss(bill)}
               style={{
-                color: bill.lossAmount ? "#b91c1c" : "#742a2a",
-                borderColor: "#fed7d7",
-                background: "#fff5f5",
+                color: bill.lossAmount ? "#c2410c" : "#7c2d12",
+                borderColor: "#fed7aa",
+                background: "#fff7ed",
                 fontWeight: 600,
               }}
             >
               <TrendingDown size={17} />
-              {bill.lossAmount ? `Loss: ${money(bill.lossAmount)}` : "Record Loss / Bad debt"}
+              {bill.lossAmount ? `Credit Note: ${money(bill.lossAmount)}` : "Credit Note"}
             </Button>
           )}
           {!quotation && edit && (
@@ -2982,6 +2999,12 @@ export function Invoice({
                   <span>Total received</span>
                   <b>−{money(billPaid(bill))}</b>
                 </p>
+                {bill.lossAmount ? (
+                  <p style={{ color: "#c2410c" }}>
+                    <span>Credit Note ({bill.lossReason || "Settlement"})</span>
+                    <b>−{money(bill.lossAmount)}</b>
+                  </p>
+                ) : null}
                 <p>
                   <span>Outstanding</span>
                   <strong>{money(balance)}</strong>
@@ -3273,11 +3296,23 @@ export function BillReceipt({
     const numAmount = Number(editAmount) || 0;
     const activeLoss = enableLoss ? (Number(editLossAmount) || 0) : 0;
     if (activePayment) {
-      const updatedPayments = bill.payments.map((p) =>
+      let updatedPayments = bill.payments.map((p) =>
         p.id === activePayment.id
           ? { ...p, date: editDate, amount: numAmount, mode: editMode, reference: editRef.trim(), note: editNote.trim() }
           : p
       );
+      const rawPaid = bill.advanceReceived + updatedPayments.reduce((sum, p) => sum + p.amount, 0);
+      let excess = Math.max(0, (rawPaid + activeLoss) - bill.total);
+      if (excess > 0) {
+        updatedPayments = updatedPayments.map((p) => {
+          if (p.id === activePayment.id) {
+            const deduction = Math.min(p.amount, excess);
+            excess -= deduction;
+            return { ...p, amount: p.amount - deduction };
+          }
+          return p;
+        }).filter((p) => p.amount > 0);
+      }
       const newPaid = bill.advanceReceived + updatedPayments.reduce((sum, p) => sum + p.amount, 0);
       const remaining = Math.max(0, bill.total - newPaid - activeLoss);
       const updatedBill: Bill = {
@@ -3290,11 +3325,17 @@ export function BillReceipt({
       };
       onUpdateBill(updatedBill);
     } else {
-      const newPaid = numAmount + (bill.payments ?? []).reduce((sum, p) => sum + p.amount, 0);
+      let adv = numAmount;
+      const otherPaymentsSum = (bill.payments ?? []).reduce((sum, p) => sum + p.amount, 0);
+      let excess = Math.max(0, (adv + otherPaymentsSum + activeLoss) - bill.total);
+      if (excess > 0) {
+        adv = Math.max(0, adv - excess);
+      }
+      const newPaid = adv + otherPaymentsSum;
       const remaining = Math.max(0, bill.total - newPaid - activeLoss);
       const updatedBill: Bill = {
         ...bill,
-        advanceReceived: numAmount,
+        advanceReceived: adv,
         billDate: editDate,
         paymentMode: editMode,
         lossAmount: activeLoss > 0 ? activeLoss : undefined,
@@ -3449,26 +3490,26 @@ export function BillReceipt({
                       }
                     }}
                   />
-                  Record / Adjust Loss / Bad Debt on this bill
+                  Record / Adjust Credit Note on this bill
                 </label>
 
                 {enableLoss && (
                   <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "10px" }}>
                     <div className="op-form-grid" style={{ gap: "12px" }}>
                       <label className="op-field">
-                        <span style={{ color: "#991b1b" }}>Loss Amount (₹)</span>
+                        <span style={{ color: "#c2410c" }}>Credit Note Amount (₹)</span>
                         <input
                           type="number"
                           min="0"
                           step="any"
                           value={editLossAmount}
                           onChange={(e) => setEditLossAmount(Math.max(0, Number(e.target.value)))}
-                          placeholder="Loss / uncollectible amount"
+                          placeholder="Credit note / settlement allowance"
                           required={enableLoss}
                         />
                       </label>
                       <label className="op-field">
-                        <span style={{ color: "#991b1b" }}>Loss Date</span>
+                        <span style={{ color: "#c2410c" }}>Credit Note Date</span>
                         <input
                           type="date"
                           value={editLossDate}
@@ -3477,16 +3518,16 @@ export function BillReceipt({
                       </label>
                     </div>
                     <label className="op-field">
-                      <span style={{ color: "#991b1b" }}>Loss Reason / Note</span>
+                      <span style={{ color: "#c2410c" }}>Credit Note Reason / Note</span>
                       <input
                         type="text"
                         value={editLossReason}
                         onChange={(e) => setEditLossReason(e.target.value)}
-                        placeholder="e.g. Client underpayment settlement / bad debt"
+                        placeholder="e.g. Client underpayment settlement"
                       />
                     </label>
-                    <small style={{ color: "#991b1b", fontSize: "11px", fontWeight: 600 }}>
-                      * Recorded in internal ledger and reports. Not printed on client receipts.
+                    <small style={{ color: "#c2410c", fontSize: "11px", fontWeight: 600 }}>
+                      * Credit Note settlement will be recorded and shown on receipt.
                     </small>
                   </div>
                 )}
@@ -3563,6 +3604,12 @@ export function BillReceipt({
               <span>Total Received to Date</span>
               <b>{money(totalPaid)}</b>
             </p>
+            {bill.lossAmount ? (
+              <p style={{ color: "#c2410c" }}>
+                <span>Credit Note ({bill.lossReason || "Settlement"})</span>
+                <b>−{money(bill.lossAmount)}</b>
+              </p>
+            ) : null}
             <p>
               <span>Remaining Invoice Balance</span>
               <strong>{money(balance)}</strong>
@@ -3571,7 +3618,10 @@ export function BillReceipt({
           <footer className="invoice-footer">
             <div>
               <p>
-                <b>Payment Status:</b> {balance === 0 ? "Fully Paid" : "Partial Payment"}
+                <b>Payment Status:</b>{" "}
+                {balance === 0
+                  ? (bill.lossAmount ? "Settled (Fully Paid with Credit Note)" : "Fully Paid")
+                  : "Partial Payment"}
               </p>
               {paymentNote && (
                 <p style={{ marginTop: "4px" }}>
