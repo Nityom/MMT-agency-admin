@@ -11,6 +11,7 @@ import {
   ReceiptText,
   Search,
   Trash2,
+  TrendingDown,
   WalletCards,
   X,
 } from "lucide-react";
@@ -45,7 +46,9 @@ import {
   otherBillCost,
   otherBillPaid,
   otherBillProfit,
+  billLoss,
 } from "./operations-utils";
+import { RecordLossModal } from "./operations-billing";
 
 function OtherBillForm({
   store,
@@ -66,6 +69,10 @@ function OtherBillForm({
     bill?.category ?? "Paper",
   );
   const [discount, setDiscount] = useState(bill?.discount ?? 0);
+  const [enableLoss, setEnableLoss] = useState<boolean>((bill?.lossAmount ?? 0) > 0);
+  const [lossAmount, setLossAmount] = useState<number>(bill?.lossAmount ?? 0);
+  const [lossReason, setLossReason] = useState<string>(bill?.lossReason ?? "Client underpayment settlement");
+  const [lossDate, setLossDate] = useState<string>(bill?.lossDate ?? isoToday());
   const selectedClient =
     store.clients.find((item) => item.id === clientId) ||
     (bill && bill.clientId === clientId
@@ -112,7 +119,14 @@ function OtherBillForm({
     item.fromDate && item.toDate && item.toDate >= item.fromDate
       ? inclusiveDays(item.fromDate, item.toDate)
       : item.quantity;
-  const total = Math.max(0, items.reduce((sum, item) => sum + itemQuantity(item) * item.rate, 0) - discount);
+  const subtotal = items.reduce(
+    (sum, item) => sum + itemQuantity(item) * item.rate,
+    0,
+  );
+  const total = Math.max(0, subtotal - discount);
+  const activeLoss = enableLoss ? (Number(lossAmount) || 0) : 0;
+  const currentPaid = (bill?.payments ?? []).reduce((sum, p) => sum + p.amount, 0);
+  const remainingBalance = Math.max(0, total - currentPaid - activeLoss);
   const costTotal = items.reduce(
     (sum, item) => sum + itemQuantity(item) * (item.costRate ?? 0),
     0,
@@ -146,7 +160,18 @@ function OtherBillForm({
       amount: itemQuantity(item) * item.rate,
       costAmount: itemQuantity(item) * (item.costRate ?? 0),
     }));
-    const payments = bill?.payments ?? [];
+    let cleanPayments = [...(bill?.payments ?? [])];
+    const rawPaid = cleanPayments.reduce((sum, p) => sum + p.amount, 0);
+    if (activeLoss > 0 && (rawPaid + activeLoss) > total) {
+      let excess = (rawPaid + activeLoss) - total;
+      for (let i = cleanPayments.length - 1; i >= 0 && excess > 0; i--) {
+        const deduction = Math.min(cleanPayments[i].amount, excess);
+        cleanPayments[i] = { ...cleanPayments[i], amount: cleanPayments[i].amount - deduction };
+        excess -= deduction;
+      }
+      cleanPayments = cleanPayments.filter((p) => p.amount > 0);
+    }
+    const finalPaid = cleanPayments.reduce((sum, payment) => sum + payment.amount, 0);
     save({
       id: bill?.id ?? nextId(store.otherBills),
       number: bill?.number ?? store.nextOtherBillNumber,
@@ -161,13 +186,13 @@ function OtherBillForm({
       },
       category,
       items: savedItems,
-      payments,
+      payments: cleanPayments,
       total,
       discount,
-      status:
-        payments.reduce((sum, payment) => sum + payment.amount, 0) >= total
-          ? "Paid"
-          : "Pending",
+      lossAmount: activeLoss > 0 ? activeLoss : undefined,
+      lossReason: activeLoss > 0 ? lossReason.trim() : undefined,
+      lossDate: activeLoss > 0 ? lossDate : undefined,
+      status: (finalPaid + activeLoss) >= total ? "Paid" : "Pending",
     });
   };
   return (
@@ -420,9 +445,84 @@ function OtherBillForm({
             </button>
           </div>
         ))}
+        <div
+          style={{
+            padding: "12px 14px",
+            borderRadius: "8px",
+            background: enableLoss ? "#fff5f5" : "#f8faf9",
+            border: `1px solid ${enableLoss ? "#fed7d7" : "#e2e8f0"}`,
+            display: "grid",
+            gap: "8px",
+            marginTop: "10px",
+          }}
+        >
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              cursor: "pointer",
+              fontWeight: 600,
+              color: enableLoss ? "#9b2c2c" : "#2d3748",
+              fontSize: "13px",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={enableLoss}
+              onChange={(e) => {
+                setEnableLoss(e.target.checked);
+                if (e.target.checked && (!lossAmount || lossAmount <= 0)) {
+                  setLossAmount(remainingBalance > 0 ? remainingBalance : 0);
+                }
+              }}
+              style={{ width: "16px", height: "16px", accentColor: "#c2410c" }}
+            />
+            Record / Adjust Credit Note for this bill
+          </label>
+          {enableLoss && (
+            <>
+              <div className="op-form-grid" style={{ gap: "10px" }}>
+                <label className="op-field">
+                  <span>Credit Note Amount (₹)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={lossAmount || ""}
+                    onChange={(e) => setLossAmount(Math.max(0, Number(e.target.value)))}
+                    placeholder="e.g. 500"
+                    required
+                  />
+                </label>
+                <label className="op-field">
+                  <span>Credit Note Date</span>
+                  <input
+                    type="date"
+                    value={lossDate}
+                    onChange={(e) => setLossDate(e.target.value)}
+                    required
+                  />
+                </label>
+              </div>
+              <label className="op-field" style={{ margin: 0 }}>
+                <span>Credit Note Reason / Note</span>
+                <input
+                  type="text"
+                  value={lossReason}
+                  onChange={(e) => setLossReason(e.target.value)}
+                  placeholder="e.g. Client underpayment / short-payment settlement"
+                />
+              </label>
+              <small style={{ color: "#742a2a", fontSize: "12px" }}>
+                Settlement credit note allowance — deducted from receivable balance and shown on receipts and reports.
+              </small>
+            </>
+          )}
+        </div>
         <section className="op-maintenance-calculation">
           <span>Discount</span><input className="op-number-input" type="number" min="0" step="0.01" value={discount || ""} onChange={(event) => setDiscount(Number(event.target.value))} />
           <span>Billing amount {money(total)}</span>
+          {activeLoss > 0 && <span style={{ color: "#c2410c", fontWeight: 700 }}>Credit Note −{money(activeLoss)}</span>}
           <span>Supplier cost {money(costTotal)}</span>
           <strong className={total - costTotal < 0 ? "op-loss" : "op-profit"}>Profit of client {money(total - costTotal)}</strong>
           <small>{items.length} item records</small>
@@ -448,68 +548,206 @@ function OtherBillPaymentModal({
 }: {
   bill: OtherBill;
   close: () => void;
-  save: (payment: OtherBill["payments"][number]) => void;
+  save: (
+    payment: OtherBill["payments"][number] | null,
+    lossOptions?: { lossAmount: number; lossReason?: string; lossDate?: string },
+  ) => void;
 }) {
   const balance = otherBillBalance(bill);
+  const [payAmount, setPayAmount] = useState<number>(balance);
+  const remainingUnpaid = Math.max(0, balance - payAmount);
+  const [recordLoss, setRecordLoss] = useState(false);
+  const [lossAmount, setLossAmount] = useState<number>(remainingUnpaid);
+  const [lossReason, setLossReason] = useState("Client underpayment settlement / haircut");
+  const [date, setDate] = useState(isoToday());
+  const [mode, setMode] = useState<PaymentMode>("Cash");
+  const [reference, setReference] = useState("");
+  const [note, setNote] = useState("");
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const data = new FormData(event.currentTarget),
-      paymentAmount = amount(data, "amount");
-    if (paymentAmount <= 0 || paymentAmount > balance) return;
-    save({
-      id: nextId(bill.payments),
-      date: input(data, "date"),
-      amount: paymentAmount,
-      mode: input(data, "mode") as PaymentMode,
-      reference: input(data, "reference"),
-      note: input(data, "note"),
-    });
+    if (payAmount > balance) {
+      alert(`Amount cannot exceed the balance of ${money(balance)}.`);
+      return;
+    }
+    const payment =
+      payAmount > 0
+        ? {
+            id: nextId(bill.payments),
+            date,
+            amount: payAmount,
+            mode,
+            reference: reference.trim(),
+            note: note.trim(),
+          }
+        : null;
+
+    const lossOpts =
+      recordLoss && lossAmount > 0
+        ? {
+            lossAmount: Math.min(lossAmount, remainingUnpaid),
+            lossReason: lossReason.trim(),
+            lossDate: date,
+          }
+        : undefined;
+
+    if (!payment && !lossOpts) return;
+    save(payment, lossOpts);
   };
+
   return (
     <Modal
-      title={`Receive payment · OTH-${String(bill.number).padStart(4, "0")}`}
+      title={
+        payAmount === 0
+          ? `Record Credit Note Settlement · OTH-${String(bill.number).padStart(4, "0")}`
+          : `Receive payment · OTH-${String(bill.number).padStart(4, "0")}`
+      }
       close={close}
     >
       <form className="op-form" onSubmit={submit}>
         <p className="op-form-note">
-          Received {money(otherBillPaid(bill))} · Remaining {money(balance)}
+          Received so far: <b>{money(otherBillPaid(bill))}</b> · Remaining: <b>{money(balance)}</b>
+          {Boolean(bill.lossAmount && bill.lossAmount > 0) && (
+            <span> · Previous Credit Note: <b style={{ color: "#c2410c" }}>{money(bill.lossAmount!)}</b></span>
+          )}
         </p>
         <div className="op-form-grid">
-          <FormField
-            label="Payment date"
-            name="date"
-            type="date"
-            defaultValue={isoToday()}
-            required
-          />
-          <FormField
-            label="Amount"
-            name="amount"
-            type="number"
-            defaultValue={balance}
-            min={1}
-            required
-          />
-          <FormSelect
-            label="Payment mode"
-            name="mode"
-            defaultValue="Cash"
-            options={["Cash", "Cheque", "UPI"].map((value) => ({
-              value,
-              label: value,
-            }))}
-            required
-          />
+          <label className="op-field">
+            <span>{payAmount > 0 ? "Payment date" : "Date recorded"}</span>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
+          </label>
+          <label className="op-field">
+            <span>Amount received (₹)</span>
+            <input
+              type="number"
+              value={payAmount}
+              onChange={(e) => {
+                const val = Math.max(0, Number(e.target.value));
+                setPayAmount(val);
+                const rem = Math.max(0, balance - val);
+                if (rem > 0) {
+                  setLossAmount(rem);
+                  if (val === 0) setRecordLoss(true);
+                } else {
+                  setRecordLoss(false);
+                }
+              }}
+              min={0}
+              max={balance}
+              required
+            />
+          </label>
+          <label className="op-field">
+            <span>Payment mode</span>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value as PaymentMode)}
+              required
+            >
+              <option>Cash</option>
+              <option>Cheque</option>
+              <option>UPI</option>
+              <option>Bank transfer</option>
+              <option>Online</option>
+            </select>
+          </label>
         </div>
-        <FormField label="Transaction / receipt reference" name="reference" />
-        <FormField label="Note" name="note" />
+        <label className="op-field">
+          <span>Transaction / receipt reference</span>
+          <input
+            type="text"
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+            placeholder="e.g. UTR / Cheque No / Reference"
+          />
+        </label>
+        <label className="op-field">
+          <span>Note</span>
+          <input
+            type="text"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. Final settlement / installment"
+          />
+        </label>
+
+        {remainingUnpaid > 0 && (
+          <div
+            style={{
+              padding: "12px 14px",
+              borderRadius: "8px",
+              background: recordLoss ? "#fff5f5" : "#f8faf9",
+              border: `1px solid ${recordLoss ? "#fed7d7" : "#e2e8f0"}`,
+              display: "grid",
+              gap: "8px",
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                cursor: "pointer",
+                fontWeight: 600,
+                color: recordLoss ? "#9b2c2c" : "#2d3748",
+                fontSize: "13px",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={recordLoss}
+                onChange={(e) => {
+                  setRecordLoss(e.target.checked);
+                  if (e.target.checked && (!lossAmount || lossAmount <= 0)) {
+                    setLossAmount(remainingUnpaid);
+                  }
+                }}
+                style={{ width: "16px", height: "16px", accentColor: "#c2410c" }}
+              />
+              Record remaining balance of {money(remainingUnpaid)} as Credit Note (client underpayment settlement / haircut)
+            </label>
+            <small style={{ color: "#742a2a", margin: "-4px 0 0 24px", fontSize: "12px" }}>
+              Credit notes are recorded as settlement discounts without payment mode.
+            </small>
+            {recordLoss && (
+              <div className="op-form-grid" style={{ marginTop: "4px" }}>
+                <label className="op-field">
+                  <span>Credit Note amount (₹)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={bill.total}
+                    value={lossAmount}
+                    onChange={(e) => setLossAmount(Math.max(0, Number(e.target.value)))}
+                    required
+                  />
+                </label>
+                <label className="op-field">
+                  <span>Credit Note reason / note</span>
+                  <input
+                    type="text"
+                    value={lossReason}
+                    onChange={(e) => setLossReason(e.target.value)}
+                    placeholder="e.g. Client short-paid remainder"
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+
         <footer>
           <Button secondary onClick={close}>
             Cancel
           </Button>
           <Button type="submit">
             <Check size={17} />
-            Save payment
+            {payAmount === 0 ? "Save Credit Note" : "Save payment"}
           </Button>
         </footer>
       </form>
@@ -521,10 +759,12 @@ function OtherBillPrint({
   bill,
   store,
   close,
+  recordLoss,
 }: {
   bill: OtherBill;
   store: FleetStore;
   close: () => void;
+  recordLoss?: (bill: OtherBill) => void;
 }) {
   const balance = otherBillBalance(bill);
   return (
@@ -535,6 +775,21 @@ function OtherBillPrint({
             <X size={17} />
             Close
           </Button>
+          {recordLoss && (
+            <Button
+              secondary
+              onClick={() => recordLoss(bill)}
+              style={{
+                color: bill.lossAmount ? "#c2410c" : "#7c2d12",
+                borderColor: "#fed7aa",
+                background: "#fff7ed",
+                fontWeight: 600,
+              }}
+            >
+              <TrendingDown size={17} />
+              {bill.lossAmount ? `Credit Note: ${money(bill.lossAmount)}` : "Credit Note"}
+            </Button>
+          )}
           <Button onClick={() => window.print()}>
             <Printer size={17} />
             Print / PDF
@@ -615,6 +870,12 @@ function OtherBillPrint({
               <span>Received</span>
               <b>−{money(otherBillPaid(bill))}</b>
             </p>
+            {bill.lossAmount ? (
+              <p style={{ color: "#c2410c" }}>
+                <span>Credit Note ({bill.lossReason || "Settlement"})</span>
+                <b>−{money(bill.lossAmount)}</b>
+              </p>
+            ) : null}
             <p>
               <span>Outstanding</span>
               <strong>{money(balance)}</strong>
@@ -622,6 +883,12 @@ function OtherBillPrint({
           </section>
           <footer className="invoice-footer">
             <div>
+              <p>
+                <b>Payment Status:</b>{" "}
+                {balance === 0
+                  ? (bill.lossAmount ? "Settled (Fully Paid with Credit Note)" : "Fully Paid")
+                  : "Partial Payment"}
+              </p>
               <h3>Bank details for RTGS / NEFT</h3>
               <p>
                 <b>Account:</b> {store.company.accountName}
@@ -665,11 +932,13 @@ function OtherBillClientLedger({
   clientId,
   close,
   printBill,
+  recordLoss,
 }: {
   store: FleetStore;
   clientId: number;
   close: () => void;
   printBill: (bill: OtherBill) => void;
+  recordLoss?: (bill: OtherBill) => void;
 }) {
   const client = store.clients.find((item) => item.id === clientId),
     bills = store.otherBills
@@ -679,7 +948,9 @@ function OtherBillClientLedger({
   const billed = bills.reduce((sum, bill) => sum + bill.total, 0),
     cost = bills.reduce((sum, bill) => sum + otherBillCost(bill), 0),
     profit = billed - cost,
-    received = bills.reduce((sum, bill) => sum + otherBillPaid(bill), 0);
+    received = bills.reduce((sum, bill) => sum + otherBillPaid(bill), 0),
+    loss = bills.reduce((sum, bill) => sum + billLoss(bill), 0),
+    balance = bills.reduce((sum, bill) => sum + otherBillBalance(bill), 0);
   const records = bills
     .flatMap((bill) => [
       {
@@ -688,6 +959,7 @@ function OtherBillClientLedger({
         type: `${bill.category} bill`,
         detail: `OTH-${String(bill.number).padStart(4, "0")} · ${bill.items.length} items · Cost ${money(otherBillCost(bill))} · Profit ${money(otherBillProfit(bill))}`,
         amount: bill.total,
+        isLoss: false,
         bill,
       },
       ...bill.payments.map((payment) => ({
@@ -696,8 +968,18 @@ function OtherBillClientLedger({
         type: "Payment received",
         detail: `OTH-${String(bill.number).padStart(4, "0")} · ${payment.mode} · ${payment.reference || payment.note || "No reference"}`,
         amount: -payment.amount,
+        isLoss: false,
         bill: null,
       })),
+      ...(bill.lossAmount ? [{
+        key: `loss-${bill.id}`,
+        date: bill.lossDate || bill.billDate,
+        type: `Credit Note (OTH-${String(bill.number).padStart(4, "0")})`,
+        detail: `${bill.lossReason || "Settlement haircut"} · Settlement credit note`,
+        amount: -bill.lossAmount,
+        isLoss: true,
+        bill,
+      }] : []),
     ])
     .sort((left, right) => right.date.localeCompare(left.date));
   return (
@@ -729,9 +1011,15 @@ function OtherBillClientLedger({
             <span>Total received</span>
             <b>{money(received)}</b>
           </p>
+          {loss > 0 && (
+            <p>
+              <span>Total Credit Notes</span>
+              <strong style={{ color: "#c2410c" }}>{money(loss)}</strong>
+            </p>
+          )}
           <p>
             <span>Outstanding</span>
-            <strong>{money(billed - received)}</strong>
+            <strong>{money(balance)}</strong>
           </p>
           <p>
             <span>Bills</span>
@@ -750,13 +1038,39 @@ function OtherBillClientLedger({
                   <b>{record.type}</b>
                   <small>{record.detail}</small>
                 </div>
-                <Status>{record.amount < 0 ? "Received" : "Billed"}</Status>
-                <strong className={record.amount < 0 ? "credit" : ""}>
+                <Status
+                  style={
+                    record.isLoss
+                      ? {
+                          background: "#ffedd5",
+                          color: "#c2410c",
+                          borderColor: "#fed7aa",
+                          fontWeight: 700,
+                        }
+                      : undefined
+                  }
+                >
+                  {record.isLoss ? "Credit Note" : record.amount < 0 ? "Received" : "Billed"}
+                </Status>
+                <strong
+                  className={record.amount < 0 ? `credit${record.isLoss ? " loss" : ""}` : ""}
+                  style={record.isLoss ? { color: "#c2410c", fontWeight: 700 } : undefined}
+                >
                   {record.amount < 0 ? "−" : ""}
                   {money(Math.abs(record.amount))}
+                  {record.isLoss && " (Credit Note)"}
                 </strong>
                 {record.bill && (
                   <span className="op-ledger-row-actions">
+                    {recordLoss && (
+                      <button
+                        title="Record / edit Credit Note"
+                        onClick={() => recordLoss(record.bill!)}
+                        style={{ color: record.bill.lossAmount ? "#c2410c" : "#7c2d12" }}
+                      >
+                        <TrendingDown size={15} />
+                      </button>
+                    )}
                     <button
                       title="Print bill"
                       onClick={() => printBill(record.bill!)}
@@ -798,6 +1112,7 @@ export function OtherBillsView({
     >(undefined),
     [paymentBill, setPaymentBill] = useState<OtherBill | null>(null),
     [printBill, setPrintBill] = useState<OtherBill | null>(null),
+    [lossBill, setLossBill] = useState<OtherBill | null>(null),
     [search, setSearch] = useState(""),
     [categoryFilter, setCategoryFilter] = useState<"All" | "Paper" | "Calendar" | "Other">("All"),
     [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "Paid">("All");
@@ -808,6 +1123,10 @@ export function OtherBillsView({
       0,
     ),
     totalProfit = billed - totalCost,
+    totalCreditNotes = store.otherBills.reduce(
+      (sum, bill) => sum + billLoss(bill),
+      0,
+    ),
     received = store.otherBills.reduce(
       (sum, bill) => sum + otherBillPaid(bill),
       0,
@@ -893,6 +1212,14 @@ export function OtherBillsView({
           detail="All recorded payments"
           icon={Check}
         />
+        {totalCreditNotes > 0 && (
+          <Metric
+            label="Credit Notes"
+            value={money(totalCreditNotes)}
+            detail="Settlement deductions / loss"
+            icon={TrendingDown}
+          />
+        )}
         <Metric
           label="Outstanding"
           value={money(balance)}
@@ -1001,7 +1328,14 @@ export function OtherBillsView({
                 <strong className={profit < 0 ? "op-loss" : "op-profit"}>
                   {money(profit)}
                 </strong>
-                <span>{money(otherBillPaid(bill))}</span>
+                <span>
+                  {money(otherBillPaid(bill))}
+                  {bill.lossAmount ? (
+                    <div style={{ color: "#c2410c", fontSize: "11px", fontWeight: 700 }}>
+                      Credit Note: {money(bill.lossAmount)}
+                    </div>
+                  ) : null}
+                </span>
                 <strong>{money(otherBillBalance(bill))}</strong>
                 <span className="op-actions">
                   {otherBillBalance(bill) > 0 && (
@@ -1012,6 +1346,13 @@ export function OtherBillsView({
                       <Banknote size={16} />
                     </button>
                   )}
+                  <button
+                    title={bill.lossAmount ? "Edit Credit Note" : "Record Credit Note"}
+                    onClick={() => setLossBill(bill)}
+                    style={{ color: bill.lossAmount ? "#c2410c" : "#7c2d12" }}
+                  >
+                    <TrendingDown size={15} />
+                  </button>
                   <button title="Print bill" onClick={() => setPrintBill(bill)}>
                     <Printer size={16} />
                   </button>
@@ -1073,27 +1414,36 @@ export function OtherBillsView({
         <OtherBillPaymentModal
           bill={paymentBill}
           close={() => setPaymentBill(null)}
-          save={(payment) => {
+          save={(payment, lossOpts) => {
             setStore((current) => ({
               ...current,
-              otherBills: current.otherBills.map((bill) =>
-                bill.id === paymentBill.id
-                  ? {
-                      ...bill,
-                      payments: [...bill.payments, payment],
-                      status:
-                        otherBillPaid({
-                          ...bill,
-                          payments: [...bill.payments, payment],
-                        }) >= bill.total
-                          ? "Paid"
-                          : "Pending",
-                    }
-                  : bill,
-              ),
+              otherBills: current.otherBills.map((bill) => {
+                if (bill.id !== paymentBill.id) return bill;
+                const nextPayments = payment ? [...bill.payments, payment] : bill.payments;
+                const nextLossAmount = lossOpts ? lossOpts.lossAmount : bill.lossAmount;
+                const nextLossReason = lossOpts ? lossOpts.lossReason : bill.lossReason;
+                const nextLossDate = lossOpts ? (lossOpts.lossDate as any) : bill.lossDate;
+                const updated: OtherBill = {
+                  ...bill,
+                  payments: nextPayments,
+                  lossAmount: nextLossAmount,
+                  lossReason: nextLossReason,
+                  lossDate: nextLossDate,
+                };
+                return {
+                  ...updated,
+                  status: otherBillBalance(updated) <= 0 ? "Paid" : "Pending",
+                };
+              }),
             }));
             setPaymentBill(null);
-            notify("Other bill payment recorded");
+            notify(
+              payment && lossOpts
+                ? "Other bill payment and Credit Note recorded"
+                : lossOpts
+                  ? "Credit Note recorded"
+                  : "Other bill payment recorded",
+            );
           }}
         />
       )}{" "}
@@ -1102,15 +1452,68 @@ export function OtherBillsView({
           bill={printBill}
           store={store}
           close={() => setPrintBill(null)}
+          recordLoss={(b) => setLossBill(b)}
+        />
+      )}
+      {lossBill && (
+        <RecordLossModal
+          bill={lossBill}
+          close={() => setLossBill(null)}
+          save={(lossAmount, lossReason, lossDate) => {
+            setStore((current) => ({
+              ...current,
+              otherBills: current.otherBills.map((bill) => {
+                if (bill.id !== lossBill.id) return bill;
+                let nextPayments = bill.payments;
+                const paid = otherBillPaid(bill);
+                if (paid + lossAmount > bill.total && bill.total >= lossAmount) {
+                  const targetPaid = bill.total - lossAmount;
+                  let accum = 0;
+                  nextPayments = [];
+                  for (const p of bill.payments) {
+                    if (accum + p.amount <= targetPaid) {
+                      nextPayments.push(p);
+                      accum += p.amount;
+                    } else if (accum < targetPaid) {
+                      nextPayments.push({ ...p, amount: targetPaid - accum });
+                      accum = targetPaid;
+                    }
+                  }
+                }
+                const updated: OtherBill = {
+                  ...bill,
+                  payments: nextPayments,
+                  lossAmount: lossAmount > 0 ? lossAmount : undefined,
+                  lossReason: lossAmount > 0 ? lossReason : undefined,
+                  lossDate: lossAmount > 0 ? (lossDate as any) : undefined,
+                };
+                return {
+                  ...updated,
+                  status: otherBillBalance(updated) <= 0 ? "Paid" : "Pending",
+                };
+              }),
+            }));
+            setLossBill(null);
+            notify("Credit Note updated");
+          }}
         />
       )}
     </>
   );
 }
 
-export function OtherBillLedgersView({ store }: { store: FleetStore }) {
+export function OtherBillLedgersView({
+  store,
+  setStore,
+  notify,
+}: {
+  store: FleetStore;
+  setStore?: React.Dispatch<React.SetStateAction<FleetStore>>;
+  notify?: (message: string) => void;
+}) {
   const [clientId, setClientId] = useState<number | null>(null),
     [printBill, setPrintBill] = useState<OtherBill | null>(null),
+    [lossBill, setLossBill] = useState<OtherBill | null>(null),
     [search, setSearch] = useState("");
   const clients = store.clients
     .filter((client) =>
@@ -1127,6 +1530,7 @@ export function OtherBillLedgersView({ store }: { store: FleetStore }) {
         bill={printBill}
         store={store}
         close={() => setPrintBill(null)}
+        recordLoss={setStore ? (b) => setLossBill(b) : undefined}
       />
     );
   return (
@@ -1171,7 +1575,9 @@ export function OtherBillLedgersView({ store }: { store: FleetStore }) {
               received = bills.reduce(
                 (sum, bill) => sum + otherBillPaid(bill),
                 0,
-              );
+              ),
+              loss = bills.reduce((sum, bill) => sum + billLoss(bill), 0),
+              balance = bills.reduce((sum, bill) => sum + otherBillBalance(bill), 0);
             return (
               <Row key={client.id}>
                 <b>
@@ -1190,8 +1596,15 @@ export function OtherBillLedgersView({ store }: { store: FleetStore }) {
                 <strong className={profit < 0 ? "op-loss" : "op-profit"}>
                   {money(profit)}
                 </strong>
-                <span>{money(received)}</span>
-                <strong>{money(billed - received)}</strong>
+                <span>
+                  {money(received)}
+                  {loss > 0 && (
+                    <div style={{ color: "#c2410c", fontSize: "11px", fontWeight: 700 }}>
+                      Credit Note: {money(loss)}
+                    </div>
+                  )}
+                </span>
+                <strong>{money(balance)}</strong>
                 <Button secondary onClick={() => setClientId(client.id)}>
                   <ReceiptText size={16} />
                   Open ledger
@@ -1215,6 +1628,50 @@ export function OtherBillLedgersView({ store }: { store: FleetStore }) {
           clientId={clientId}
           close={() => setClientId(null)}
           printBill={(bill) => setPrintBill(bill)}
+          recordLoss={setStore ? (b) => setLossBill(b) : undefined}
+        />
+      )}
+      {lossBill && setStore && (
+        <RecordLossModal
+          bill={lossBill}
+          close={() => setLossBill(null)}
+          save={(lossAmount, lossReason, lossDate) => {
+            setStore((current) => ({
+              ...current,
+              otherBills: current.otherBills.map((bill) => {
+                if (bill.id !== lossBill.id) return bill;
+                let nextPayments = bill.payments;
+                const paid = otherBillPaid(bill);
+                if (paid + lossAmount > bill.total && bill.total >= lossAmount) {
+                  const targetPaid = bill.total - lossAmount;
+                  let accum = 0;
+                  nextPayments = [];
+                  for (const p of bill.payments) {
+                    if (accum + p.amount <= targetPaid) {
+                      nextPayments.push(p);
+                      accum += p.amount;
+                    } else if (accum < targetPaid) {
+                      nextPayments.push({ ...p, amount: targetPaid - accum });
+                      accum = targetPaid;
+                    }
+                  }
+                }
+                const updated: OtherBill = {
+                  ...bill,
+                  payments: nextPayments,
+                  lossAmount: lossAmount > 0 ? lossAmount : undefined,
+                  lossReason: lossAmount > 0 ? lossReason : undefined,
+                  lossDate: lossAmount > 0 ? (lossDate as any) : undefined,
+                };
+                return {
+                  ...updated,
+                  status: otherBillBalance(updated) <= 0 ? "Paid" : "Pending",
+                };
+              }),
+            }));
+            setLossBill(null);
+            notify?.("Credit Note updated");
+          }}
         />
       )}
     </>

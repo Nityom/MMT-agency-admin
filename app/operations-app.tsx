@@ -1069,7 +1069,7 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
     </OperationsShell>
   );
   if (view === "otherBilling") return recordViewShell(<OtherBillsView store={store} setStore={setStore} notify={notify}/>);
-  if (view === "otherBillLedgers") return recordViewShell(<OtherBillLedgersView store={store}/>);
+  if (view === "otherBillLedgers") return recordViewShell(<OtherBillLedgersView store={store} setStore={setStore} notify={notify}/>);
   if (view === "maintenanceLedger") return recordViewShell(<MaintenanceManager store={store} setStore={setStore} notify={notify} remove={remove}/>);
   if (view === "supplierProfiles") return recordViewShell(<SupplierCardsView store={store} setStore={setStore} notify={notify} remove={remove}/>);
   if (view === "selfExpenses") return recordViewShell(<EditableSelfExpensesView store={store} setStore={setStore} notify={notify}/>);

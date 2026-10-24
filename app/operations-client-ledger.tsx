@@ -497,10 +497,30 @@ export function ClientLedgerModal({
       clientReceipt: undefined as ClientReceipt | undefined,
     }));
 
+  const otherBillPaymentRows = filteredOtherBills.flatMap((bill) =>
+    bill.payments
+      .filter((p) => inRange(p.date))
+      .map((payment) => ({
+        key: `otherpay-${bill.id}-${payment.id}`,
+        date: payment.date,
+        type: `Payment (OTH-${String(bill.number).padStart(4, "0")})`,
+        detail: `${payment.mode} · Ref: ${payment.reference || payment.note || "Installment"} · ${bill.category} bill`,
+        status: "Received",
+        amount: -payment.amount,
+        isCredit: true,
+        isLoss: false,
+        bill: undefined as Bill | undefined,
+        payment: null as Bill["payments"][number] | null,
+        isAdvance: false,
+        clientReceipt: undefined as ClientReceipt | undefined,
+      }))
+  );
+
   const timeline = [
     ...billRows.map((r) => ({ ...r, isLoss: false, clientReceipt: undefined as ClientReceipt | undefined })),
     ...otherBillRows.map((r) => ({ ...r, isLoss: false, clientReceipt: undefined as ClientReceipt | undefined })),
     ...paymentRows.map((r) => ({ ...r, isLoss: false })),
+    ...otherBillPaymentRows,
     ...receiptRows.map((r) => ({ ...r, isLoss: false })),
     ...lossRows,
     ...otherBillLossRows,
