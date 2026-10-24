@@ -348,14 +348,17 @@ export function BillingComposer({
     id: index + 1,
     amount: charge.quantity * charge.rate,
   }));
+  const [payments, setPayments] = useState<Bill["payments"]>(bill?.payments ?? []);
+  const [enableLoss, setEnableLoss] = useState<boolean>((bill?.lossAmount ?? 0) > 0);
+  const [lossAmount, setLossAmount] = useState<number>(bill?.lossAmount ?? 0);
+  const [lossReason, setLossReason] = useState<string>(bill?.lossReason ?? "Client underpayment settlement");
+  const [lossDate, setLossDate] = useState<string>(bill?.lossDate ?? isoToday());
+
   const total = calculateBillTotal(finalLines, finalCharges);
-  const existingPayments = bill?.payments ?? [];
-  const remainingBalance = Math.max(
-    0,
-    total -
-      advance -
-      existingPayments.reduce((sum, payment) => sum + payment.amount, 0),
-  );
+  const activeLoss = enableLoss ? (Number(lossAmount) || 0) : 0;
+  const totalCollected = advance + payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const remainingBalance = Math.max(0, total - totalCollected - activeLoss);
+
   const submit = () => {
     const client =
       store.clients.find((item) => item.id === clientId) ??
@@ -363,12 +366,12 @@ export function BillingComposer({
       effectiveClientSnapshot ??
       bill?.client;
     if (!client || !lines.length) return;
-    const payments: Bill["payments"] =
+    const finalPayments: Bill["payments"] =
       bill && markFullPayment && remainingBalance > 0
         ? [
-            ...existingPayments,
+            ...payments,
             {
-              id: nextId(existingPayments),
+              id: nextId(payments),
               date: fullPaymentDate,
               amount: remainingBalance,
               mode: paymentMode,
@@ -376,9 +379,9 @@ export function BillingComposer({
               note: "Full payment recorded while editing bill",
             },
           ]
-        : existingPayments;
-    const paid =
-      advance + payments.reduce((sum, payment) => sum + payment.amount, 0);
+        : payments;
+    const finalPaid =
+      advance + finalPayments.reduce((sum, payment) => sum + payment.amount, 0);
     const finalClientId =
       client && "id" in client && typeof (client as any).id === "number" && (client as any).id > 0
         ? (client as any).id
@@ -401,9 +404,12 @@ export function BillingComposer({
       charges: finalCharges,
       advanceReceived: advance,
       paymentMode,
-      payments,
+      payments: finalPayments,
       total,
-      status: paid >= total ? "Paid" : "Pending",
+      lossAmount: activeLoss > 0 ? activeLoss : undefined,
+      lossReason: activeLoss > 0 ? lossReason.trim() : undefined,
+      lossDate: activeLoss > 0 ? lossDate : undefined,
+      status: (finalPaid + activeLoss) >= total ? "Paid" : "Pending",
     }, selectedReceiptIds);
   };
   return (
@@ -886,11 +892,176 @@ export function BillingComposer({
           )}
           {bill && (
             <div style={{ display: "grid", gap: "2px", textAlign: "right" }}>
-              <span style={{ fontSize: "12px", color: "#687670" }}>Previously collected</span>
-              <b>{money(advance + (bill.payments ?? []).reduce((sum, p) => sum + p.amount, 0))}</b>
+              <span style={{ fontSize: "12px", color: "#687670" }}>Total collected (Advance + Payments)</span>
+              <b>{money(totalCollected)}</b>
             </div>
           )}
-          {bill && remainingBalance > 0 && (
+
+          {bill && payments.length > 0 && (
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: "8px",
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                display: "grid",
+                gap: "8px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "13px", fontWeight: 700, color: "#1e293b" }}>
+                  Installment Payments on this Bill ({payments.length}):
+                </span>
+                <span style={{ fontSize: "12px", color: "#64748b" }}>
+                  Adjust amounts if the client paid less
+                </span>
+              </div>
+              <div style={{ display: "grid", gap: "6px" }}>
+                {payments.map((p, pIdx) => (
+                  <div
+                    key={p.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "8px",
+                      padding: "8px 10px",
+                      background: "white",
+                      border: "1px solid #cbd5e1",
+                      borderRadius: "6px",
+                      fontSize: "13px",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div>
+                      <b>Installment #{pIdx + 1}</b> · <span style={{ color: "#64748b" }}>{fmt(p.date)}</span> ·{" "}
+                      <span style={{ fontWeight: 600, color: "#0f766e" }}>{p.mode}</span>
+                      {p.note && <span style={{ color: "#64748b" }}> · {p.note}</span>}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
+                      <span style={{ fontSize: "12px", color: "#64748b" }}>Amount: ₹</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={p.amount}
+                        onChange={(e) => {
+                          const val = Math.max(0, Number(e.target.value));
+                          setPayments((curr) =>
+                            curr.map((item) => (item.id === p.id ? { ...item, amount: val } : item))
+                          );
+                        }}
+                        style={{
+                          width: "110px",
+                          height: "32px",
+                          padding: "0 8px",
+                          borderRadius: "4px",
+                          border: "1px solid #94a3b8",
+                          fontWeight: 700,
+                          textAlign: "right",
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Remove installment payment of ${money(p.amount)}?`)) {
+                            setPayments((curr) => curr.filter((item) => item.id !== p.id));
+                          }
+                        }}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: "#ef4444",
+                          cursor: "pointer",
+                          padding: "4px",
+                        }}
+                        title="Delete installment"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {bill && (
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: "8px",
+                background: enableLoss ? "#fff5f5" : "#f8faf9",
+                border: `1px solid ${enableLoss ? "#fed7d7" : "#e2e8f0"}`,
+                display: "grid",
+                gap: "8px",
+              }}
+            >
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  color: enableLoss ? "#9b2c2c" : "#2d3748",
+                  fontSize: "13.5px",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={enableLoss}
+                  onChange={(e) => {
+                    setEnableLoss(e.target.checked);
+                    if (e.target.checked && (!lossAmount || lossAmount <= 0)) {
+                      setLossAmount(remainingBalance > 0 ? remainingBalance : 0);
+                    }
+                  }}
+                  style={{ width: "16px", height: "16px", accentColor: "#c53030" }}
+                />
+                Record / Adjust Client Loss / Bad Debt for this bill
+              </label>
+              {enableLoss && (
+                <>
+                  <div className="op-form-grid" style={{ gap: "10px" }}>
+                    <label className="op-field">
+                      <span>Loss Amount (₹)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={lossAmount || ""}
+                        onChange={(e) => setLossAmount(Math.max(0, Number(e.target.value)))}
+                        placeholder="e.g. 500"
+                        required
+                      />
+                    </label>
+                    <label className="op-field">
+                      <span>Date recorded</span>
+                      <input
+                        type="date"
+                        value={lossDate}
+                        onChange={(e) => setLossDate(e.target.value)}
+                        required
+                      />
+                    </label>
+                  </div>
+                  <label className="op-field" style={{ margin: 0 }}>
+                    <span>Loss Reason / Note</span>
+                    <input
+                      type="text"
+                      value={lossReason}
+                      onChange={(e) => setLossReason(e.target.value)}
+                      placeholder="e.g. Client underpayment / short-payment haircut"
+                    />
+                  </label>
+                  <small style={{ color: "#742a2a", fontSize: "12px" }}>
+                    Uncollected write-off (no payment mode) — deducted from business profit and listed in client bad debt reports.
+                  </small>
+                </>
+              )}
+            </div>
+          )}
+
+          {bill && remainingBalance > 0 && !enableLoss && (
             <div className="op-full-payment">
               <label>
                 <input
@@ -912,11 +1083,24 @@ export function BillingComposer({
               )}
             </div>
           )}
+
+          <div style={{ display: "grid", gap: "4px", textAlign: "right", marginTop: "8px" }}>
+            <span style={{ fontSize: "13px", color: "#687670" }}>
+              Total Collected: <b>{money(totalCollected)}</b>
+            </span>
+            {activeLoss > 0 && (
+              <span style={{ fontSize: "13px", color: "#c53030", fontWeight: 700 }}>
+                Loss Recorded: −{money(activeLoss)}
+              </span>
+            )}
+          </div>
           <p>
             <span>Bill total</span>
             <strong>{money(total)}</strong>
-            <small>
-              Balance {money(markFullPayment ? 0 : remainingBalance)}
+            <small style={{ color: remainingBalance === 0 ? "#1f6a53" : "#9a493d", fontWeight: 700 }}>
+              {remainingBalance === 0
+                ? "Balance ₹0 (Settled / Paid)"
+                : `Balance ${money(markFullPayment ? 0 : remainingBalance)}`}
             </small>
           </p>
         </div>
@@ -1438,8 +1622,8 @@ export function BillPaymentModal({
                   <span>Loss amount (₹)</span>
                   <input
                     type="number"
-                    min={1}
-                    max={remainingUnpaid}
+                    min={0}
+                    max={bill.total}
                     value={lossAmount}
                     onChange={(e) => setLossAmount(Math.max(0, Number(e.target.value)))}
                     required
@@ -1559,7 +1743,7 @@ export function RecordLossModal({
             <input
               type="number"
               min="0"
-              max={bill.total - currentPaid + currentLoss}
+              max={bill.total}
               value={lossAmount}
               onChange={(e) => setLossAmount(Math.max(0, Number(e.target.value)))}
               required
@@ -1586,14 +1770,9 @@ export function RecordLossModal({
           />
         </label>
 
-        {remainingAfterLoss === 0 && Number(lossAmount) > 0 && (
-          <p style={{ margin: "4px 0 0", color: "#2b765f", fontSize: "12px", fontWeight: 600 }}>
-            ✓ This loss covers the entire remaining balance. The bill will be marked as settled / closed.
-          </p>
-        )}
-        {remainingAfterLoss > 0 && (
-          <p style={{ margin: "4px 0 0", color: "#c53030", fontSize: "12px", fontWeight: 600 }}>
-            Notice: After recording this loss, {money(remainingAfterLoss)} will still remain as an outstanding pending balance.
+        {Number(lossAmount) > 0 && (
+          <p style={{ margin: "4px 0 0", color: "#b91c1c", fontSize: "12px", fontWeight: 600 }}>
+            • {money(Number(lossAmount))} will be recorded as client loss / bad debt.
           </p>
         )}
 
@@ -2803,12 +2982,6 @@ export function Invoice({
                   <span>Total received</span>
                   <b>−{money(billPaid(bill))}</b>
                 </p>
-                {bill.lossAmount ? (
-                  <p style={{ color: "#c53030" }}>
-                    <span>Client Loss / Bad debt ({bill.lossReason || "Written off"})</span>
-                    <b>−{money(bill.lossAmount)}</b>
-                  </p>
-                ) : null}
                 <p>
                   <span>Outstanding</span>
                   <strong>{money(balance)}</strong>
@@ -3035,11 +3208,13 @@ export function BillReceipt({
   payment,
   store,
   close,
+  onUpdateBill,
 }: {
   bill: Bill;
   payment?: Bill["payments"][number] | null;
   store: FleetStore;
   close: () => void;
+  onUpdateBill?: (updatedBill: Bill) => void;
 }) {
   const initialPaymentId = payment
     ? payment.id
@@ -3067,6 +3242,70 @@ export function BillReceipt({
 
   const totalInstallmentOptions =
     (bill.advanceReceived > 0 ? 1 : 0) + bill.payments.length;
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editDate, setEditDate] = useState(paymentDate);
+  const [editAmount, setEditAmount] = useState<number | string>(paymentAmount);
+  const [editMode, setEditMode] = useState<PaymentMode>(paymentMode);
+  const [editRef, setEditRef] = useState(paymentRef || "");
+  const [editNote, setEditNote] = useState(paymentNote || "");
+  const [enableLoss, setEnableLoss] = useState<boolean>((bill.lossAmount ?? 0) > 0);
+  const [editLossAmount, setEditLossAmount] = useState<number | string>(bill.lossAmount ?? "");
+  const [editLossReason, setEditLossReason] = useState<string>(bill.lossReason ?? "Client underpayment settlement");
+  const [editLossDate, setEditLossDate] = useState<string>(bill.lossDate ?? paymentDate);
+
+  const handleOpenEdit = () => {
+    setEditDate(paymentDate);
+    setEditAmount(paymentAmount);
+    setEditMode(paymentMode);
+    setEditRef(paymentRef || "");
+    setEditNote(paymentNote || "");
+    setEnableLoss((bill.lossAmount ?? 0) > 0);
+    setEditLossAmount(bill.lossAmount ?? "");
+    setEditLossReason(bill.lossReason ?? "Client underpayment settlement");
+    setEditLossDate(bill.lossDate ?? paymentDate);
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onUpdateBill) return;
+    const numAmount = Number(editAmount) || 0;
+    const activeLoss = enableLoss ? (Number(editLossAmount) || 0) : 0;
+    if (activePayment) {
+      const updatedPayments = bill.payments.map((p) =>
+        p.id === activePayment.id
+          ? { ...p, date: editDate, amount: numAmount, mode: editMode, reference: editRef.trim(), note: editNote.trim() }
+          : p
+      );
+      const newPaid = bill.advanceReceived + updatedPayments.reduce((sum, p) => sum + p.amount, 0);
+      const remaining = Math.max(0, bill.total - newPaid - activeLoss);
+      const updatedBill: Bill = {
+        ...bill,
+        payments: updatedPayments,
+        lossAmount: activeLoss > 0 ? activeLoss : undefined,
+        lossReason: activeLoss > 0 ? editLossReason.trim() : undefined,
+        lossDate: activeLoss > 0 ? editLossDate : undefined,
+        status: remaining === 0 ? "Paid" : "Pending",
+      };
+      onUpdateBill(updatedBill);
+    } else {
+      const newPaid = numAmount + (bill.payments ?? []).reduce((sum, p) => sum + p.amount, 0);
+      const remaining = Math.max(0, bill.total - newPaid - activeLoss);
+      const updatedBill: Bill = {
+        ...bill,
+        advanceReceived: numAmount,
+        billDate: editDate,
+        paymentMode: editMode,
+        lossAmount: activeLoss > 0 ? activeLoss : undefined,
+        lossReason: activeLoss > 0 ? editLossReason.trim() : undefined,
+        lossDate: activeLoss > 0 ? editLossDate : undefined,
+        status: remaining === 0 ? "Paid" : "Pending",
+      };
+      onUpdateBill(updatedBill);
+    }
+    setIsEditing(false);
+  };
 
   return (
     <div className="invoice-backdrop">
@@ -3106,11 +3345,165 @@ export function BillReceipt({
               ))}
             </select>
           )}
+          {onUpdateBill && (
+            <Button secondary onClick={handleOpenEdit}>
+              <FileText size={16} />
+              Edit receipt
+            </Button>
+          )}
           <Button onClick={() => window.print()}>
             <Printer size={17} />
             Print receipt
           </Button>
         </div>
+
+        {isEditing && (
+          <Modal title={`Edit Receipt · ${receiptNo}`} close={() => setIsEditing(false)}>
+            <form onSubmit={handleSaveEdit} className="op-form" style={{ padding: "16px 20px" }}>
+              <div className="op-form-grid">
+                <label className="op-field">
+                  <span>Receipt Date</span>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    required
+                  />
+                </label>
+                <label className="op-field">
+                  <span>Amount (₹)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    required
+                  />
+                </label>
+                <label className="op-field">
+                  <span>Payment Mode</span>
+                  <select
+                    value={editMode}
+                    onChange={(e) => setEditMode(e.target.value as PaymentMode)}
+                    required
+                  >
+                    <option>Cash</option>
+                    <option>Cheque</option>
+                    <option>UPI</option>
+                    <option>Bank transfer</option>
+                    <option>Online</option>
+                  </select>
+                </label>
+              </div>
+              <label className="op-field">
+                <span>Transaction / Reference</span>
+                <input
+                  type="text"
+                  value={editRef}
+                  onChange={(e) => setEditRef(e.target.value)}
+                  placeholder="e.g. UTR / Cheque No / Reference"
+                />
+              </label>
+              <label className="op-field">
+                <span>Note</span>
+                <input
+                  type="text"
+                  value={editNote}
+                  onChange={(e) => setEditNote(e.target.value)}
+                  placeholder="e.g. Installment / token / deposit"
+                />
+              </label>
+
+              <div
+                style={{
+                  marginTop: "8px",
+                  padding: "12px",
+                  background: enableLoss ? "#fef2f2" : "#f8fafc",
+                  border: enableLoss ? "1px solid #fecaca" : "1px solid #e2e8f0",
+                  borderRadius: "8px",
+                }}
+              >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    fontWeight: 700,
+                    fontSize: "13px",
+                    color: enableLoss ? "#991b1b" : "#475569",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={enableLoss}
+                    onChange={(e) => {
+                      setEnableLoss(e.target.checked);
+                      if (e.target.checked && (!editLossAmount || Number(editLossAmount) <= 0)) {
+                        const currentOtherPaid = activePayment
+                          ? bill.advanceReceived + bill.payments.filter((p) => p.id !== activePayment.id).reduce((sum, p) => sum + p.amount, 0)
+                          : (bill.payments ?? []).reduce((sum, p) => sum + p.amount, 0);
+                        const estRemaining = Math.max(0, bill.total - currentOtherPaid - (Number(editAmount) || 0));
+                        setEditLossAmount(estRemaining);
+                      }
+                    }}
+                  />
+                  Record / Adjust Loss / Bad Debt on this bill
+                </label>
+
+                {enableLoss && (
+                  <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                    <div className="op-form-grid" style={{ gap: "12px" }}>
+                      <label className="op-field">
+                        <span style={{ color: "#991b1b" }}>Loss Amount (₹)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={editLossAmount}
+                          onChange={(e) => setEditLossAmount(Math.max(0, Number(e.target.value)))}
+                          placeholder="Loss / uncollectible amount"
+                          required={enableLoss}
+                        />
+                      </label>
+                      <label className="op-field">
+                        <span style={{ color: "#991b1b" }}>Loss Date</span>
+                        <input
+                          type="date"
+                          value={editLossDate}
+                          onChange={(e) => setEditLossDate(e.target.value)}
+                        />
+                      </label>
+                    </div>
+                    <label className="op-field">
+                      <span style={{ color: "#991b1b" }}>Loss Reason / Note</span>
+                      <input
+                        type="text"
+                        value={editLossReason}
+                        onChange={(e) => setEditLossReason(e.target.value)}
+                        placeholder="e.g. Client underpayment settlement / bad debt"
+                      />
+                    </label>
+                    <small style={{ color: "#991b1b", fontSize: "11px", fontWeight: 600 }}>
+                      * Recorded in internal ledger and reports. Not printed on client receipts.
+                    </small>
+                  </div>
+                )}
+              </div>
+
+              <footer>
+                <Button secondary type="button" onClick={() => setIsEditing(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit">
+                  <Check size={17} />
+                  Save changes
+                </Button>
+              </footer>
+            </form>
+          </Modal>
+        )}
         <article className="invoice-sheet op-invoice">
           <InvoiceHeader
             title="PAYMENT RECEIPT"

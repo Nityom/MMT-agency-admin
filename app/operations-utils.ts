@@ -82,9 +82,13 @@ export const clientOverallBalance = (store: FleetStore, clientId: number) => {
     clientBills.reduce((sum, bill) => sum + billPaid(bill), 0) +
     clientOtherBills.reduce((sum, bill) => sum + otherBillPaid(bill), 0) +
     unbilledReceiptsTotal;
+  const unbilledLoss = clientReceipts
+    .filter((r) => r.status !== "Billed" && !r.billId && r.lossAmount)
+    .reduce((sum, r) => sum + (r.lossAmount || 0), 0);
   const loss =
     clientBills.reduce((sum, bill) => sum + billLoss(bill), 0) +
-    clientOtherBills.reduce((sum, bill) => sum + billLoss(bill), 0);
+    clientOtherBills.reduce((sum, bill) => sum + billLoss(bill), 0) +
+    unbilledLoss;
   const balance = billed - received - loss;
   return {
     billed,

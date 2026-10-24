@@ -278,6 +278,9 @@ export type ClientReceipt = {
   status: ClientReceiptStatus;
   billId?: number;
   billNumber?: number;
+  lossAmount?: number;
+  lossReason?: string;
+  lossDate?: ISODate;
 };
 
 export function nextReceiptNumber(receipts: ClientReceipt[] = [], fallback = 1): number {

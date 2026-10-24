@@ -44,10 +44,11 @@ export type ClientsViewProps = {
   removeReceipt?: (receiptId: number) => void;
   editClient: (clientId: number) => void;
   removeClient: (clientId: number) => void;
+  updateBill?: (updatedBill: Bill) => void;
 };
 
-export function ClientsView({ store, clientCampaignFilter, clientCategoryFilter, clientSearch, normalizedClientSearch, matchingClients, visibleClients, ledgerClientId, setClientCampaignFilter, setClientCategoryFilter, setClientSearch, addClient, openLedger, closeLedger, viewBill, createBill, createReceipt, viewReceipt, editReceipt, removeReceipt, editClient, removeClient }: ClientsViewProps) {
-  return <><PageHead title="Client profiles" detail={`${store.clients.length.toLocaleString("en-IN")} contacts available by search, category, or campaign status`} action="Add client" onAction={addClient}/><div className="op-client-filter">{(["Search", "Ongoing", "Completed"] as const).map((filter) => <button className={clientCampaignFilter === filter ? "active" : ""} onClick={() => setClientCampaignFilter(filter)} key={filter}>{filter === "Ongoing" ? "Going on" : filter === "Completed" ? "Campaign done" : "Search"}</button>)}</div><div className="op-category-filter">{(["All", ...clientCategories] as (ClientCategory | "All")[]).map((category) => <button className={clientCategoryFilter === category ? "active" : ""} onClick={() => setClientCategoryFilter(category)} key={category}>{category}</button>)}</div><div className="op-toolbar op-client-search"><label className="op-search"><Search/><input placeholder="Search name, phone, or category" value={clientSearch} onChange={(event) => setClientSearch(event.target.value)}/></label>{(normalizedClientSearch || clientCampaignFilter !== "Search" || clientCategoryFilter !== "All") && <p>Showing <b>{visibleClients.length}</b> of <b>{matchingClients.length.toLocaleString("en-IN")}</b> matches</p>}</div>{visibleClients.length ? <section className="op-client-grid">{visibleClients.map((client) => { const clientBills = store.bills.filter((bill) => bill.clientId === client.id), balance = clientBills.reduce((sum, bill) => sum + billBalance(bill), 0); return <article key={client.id}><header><span>{client.firmName.slice(0, 2).toUpperCase()}</span><div><h2>{client.firmName}</h2><p>{client.ownerName || "Imported contact"}</p></div><Status>{client.status}</Status></header><address>{client.address || "No address saved"}</address><p>{client.mobile || "No phone"}{client.alternatePhone && <><br/>{client.alternatePhone} · Alternate</>}<br/>{client.email || "No email"}{client.dateOfBirth && <><br/>DOB: {fmt(client.dateOfBirth)}</>}</p><div className="op-category-list">{client.categories.length ? client.categories.map((category) => <span key={category}>{category}</span>) : <small>No categories</small>}</div><section className="op-client-balance"><span>Outstanding balance</span><strong>{money(balance)}</strong><small>{clientBills.length} invoices · {store.campaignBookings.filter((booking) => booking.clientId === client.id).length} bookings</small></section><footer><Button secondary onClick={() => openLedger(client.id)}><ReceiptText size={16}/>View ledger</Button><Button secondary onClick={() => createBill(client.id)}>Create bill</Button><Actions edit={() => editClient(client.id)} remove={() => removeClient(client.id)}/></footer></article>; })}</section> : <div className="op-empty-state"><Search/><h2>{clientCampaignFilter === "Ongoing" ? "No campaigns going on" : clientCampaignFilter === "Completed" ? "No completed campaigns" : clientCategoryFilter !== "All" ? `No ${clientCategoryFilter} clients` : normalizedClientSearch ? "No contacts found" : "Search contacts"}</h2><p>{clientCampaignFilter === "Ongoing" ? "Clients appear here while their campaign dates are active." : clientCampaignFilter === "Completed" ? "Clients appear here after a campaign is completed, stopped, or billed." : clientCategoryFilter !== "All" ? `Assign the ${clientCategoryFilter} category to clients to list them here.` : normalizedClientSearch ? "Try a different name, phone number, or category." : "Enter a contact name, phone number, or select a category to view matching clients."}</p></div>}{matchingClients.length > visibleClients.length && <p className="op-result-limit">Refine your search to see the remaining {(matchingClients.length - visibleClients.length).toLocaleString("en-IN")} contacts.</p>}{ledgerClientId && <ClientLedgerModal store={store} clientId={ledgerClientId} close={closeLedger} viewBill={viewBill} openCreateReceipt={createReceipt} viewReceipt={viewReceipt} editReceipt={editReceipt} removeReceipt={removeReceipt}/>}</>;
+export function ClientsView({ store, clientCampaignFilter, clientCategoryFilter, clientSearch, normalizedClientSearch, matchingClients, visibleClients, ledgerClientId, setClientCampaignFilter, setClientCategoryFilter, setClientSearch, addClient, openLedger, closeLedger, viewBill, createBill, createReceipt, viewReceipt, editReceipt, removeReceipt, editClient, removeClient, updateBill }: ClientsViewProps) {
+  return <><PageHead title="Client profiles" detail={`${store.clients.length.toLocaleString("en-IN")} contacts available by search, category, or campaign status`} action="Add client" onAction={addClient}/><div className="op-client-filter">{(["Search", "Ongoing", "Completed"] as const).map((filter) => <button className={clientCampaignFilter === filter ? "active" : ""} onClick={() => setClientCampaignFilter(filter)} key={filter}>{filter === "Ongoing" ? "Going on" : filter === "Completed" ? "Campaign done" : "Search"}</button>)}</div><div className="op-category-filter">{(["All", ...clientCategories] as (ClientCategory | "All")[]).map((category) => <button className={clientCategoryFilter === category ? "active" : ""} onClick={() => setClientCategoryFilter(category)} key={category}>{category}</button>)}</div><div className="op-toolbar op-client-search"><label className="op-search"><Search/><input placeholder="Search name, phone, or category" value={clientSearch} onChange={(event) => setClientSearch(event.target.value)}/></label>{(normalizedClientSearch || clientCampaignFilter !== "Search" || clientCategoryFilter !== "All") && <p>Showing <b>{visibleClients.length}</b> of <b>{matchingClients.length.toLocaleString("en-IN")}</b> matches</p>}</div>{visibleClients.length ? <section className="op-client-grid">{visibleClients.map((client) => { const clientBills = store.bills.filter((bill) => bill.clientId === client.id), balance = clientBills.reduce((sum, bill) => sum + billBalance(bill), 0); return <article key={client.id}><header><span>{client.firmName.slice(0, 2).toUpperCase()}</span><div><h2>{client.firmName}</h2><p>{client.ownerName || "Imported contact"}</p></div><Status>{client.status}</Status></header><address>{client.address || "No address saved"}</address><p>{client.mobile || "No phone"}{client.alternatePhone && <><br/>{client.alternatePhone} · Alternate</>}<br/>{client.email || "No email"}{client.dateOfBirth && <><br/>DOB: {fmt(client.dateOfBirth)}</>}</p><div className="op-category-list">{client.categories.length ? client.categories.map((category) => <span key={category}>{category}</span>) : <small>No categories</small>}</div><section className="op-client-balance"><span>Outstanding balance</span><strong>{money(balance)}</strong><small>{clientBills.length} invoices · {store.campaignBookings.filter((booking) => booking.clientId === client.id).length} bookings</small></section><footer><Button secondary onClick={() => openLedger(client.id)}><ReceiptText size={16}/>View ledger</Button><Button secondary onClick={() => createBill(client.id)}>Create bill</Button><Actions edit={() => editClient(client.id)} remove={() => removeClient(client.id)}/></footer></article>; })}</section> : <div className="op-empty-state"><Search/><h2>{clientCampaignFilter === "Ongoing" ? "No campaigns going on" : clientCampaignFilter === "Completed" ? "No completed campaigns" : clientCategoryFilter !== "All" ? `No ${clientCategoryFilter} clients` : normalizedClientSearch ? "No contacts found" : "Search contacts"}</h2><p>{clientCampaignFilter === "Ongoing" ? "Clients appear here while their campaign dates are active." : clientCampaignFilter === "Completed" ? "Clients appear here after a campaign is completed, stopped, or billed." : clientCategoryFilter !== "All" ? `Assign the ${clientCategoryFilter} category to clients to list them here.` : normalizedClientSearch ? "Try a different name, phone number, or category." : "Enter a contact name, phone number, or select a category to view matching clients."}</p></div>}{matchingClients.length > visibleClients.length && <p className="op-result-limit">Refine your search to see the remaining {(matchingClients.length - visibleClients.length).toLocaleString("en-IN")} contacts.</p>}{ledgerClientId && <ClientLedgerModal store={store} clientId={ledgerClientId} close={closeLedger} viewBill={viewBill} openCreateReceipt={createReceipt} viewReceipt={viewReceipt} editReceipt={editReceipt} removeReceipt={removeReceipt} updateBill={updateBill}/>}</>;
 }
 
 export type ClientLedgersViewProps = {
@@ -65,10 +66,112 @@ export type ClientLedgersViewProps = {
   viewReceipt?: (receipt: ClientReceipt) => void;
   editReceipt?: (receipt: ClientReceipt) => void;
   removeReceipt?: (receiptId: number) => void;
-};
-
-export function ClientLedgersView({ store, ledgerSearch, normalizedLedgerSearch, ledgerClients, visibleLedgerClients, ledgerClientId, setLedgerSearch, openLedger, closeLedger, viewBill, createReceipt, viewReceipt, editReceipt, removeReceipt }: ClientLedgersViewProps) {
-  return <><PageHead title="Client ledgers" detail="Campaigns, invoices, receipts, and outstanding balances by client"/><div className="op-toolbar"><label className="op-search"><Search/><input placeholder="Search client name or phone" value={ledgerSearch} onChange={(event) => setLedgerSearch(event.target.value)}/></label><p>{visibleLedgerClients.length} of {ledgerClients.length.toLocaleString("en-IN")} ledgers</p></div>{visibleLedgerClients.length ? <Table headers={["Client", "Contact", "Campaigns", "Invoices", "Total billed", "Received / balance", ""]}>{visibleLedgerClients.map((client) => { const campaigns = store.campaignBookings.filter((booking) => booking.clientId === client.id), bills = store.bills.filter((bill) => bill.clientId === client.id), overall = clientOverallBalance(store, client.id); return <Row key={client.id}><b>{client.firmName}<small>{client.ownerName || "Imported contact"}</small></b><span>{client.mobile || "No phone"}<small>{client.email || "No email"}</small></span><span>{campaigns.length}</span><span>{bills.length}</span><strong>{money(overall.billed)}</strong><span><b>{money(overall.received)} received</b><small style={{ color: overall.outstanding > 0 ? "#9a493d" : "#1f6a53", fontWeight: 600 }}>{money(overall.balance)} outstanding</small>{overall.loss > 0 && <small style={{ color: "#dc2626", fontWeight: 700 }}> · {money(overall.loss)} loss</small>}</span><div style={{ display: "flex", gap: "6px" }}><Button secondary onClick={() => openLedger(client.id)}><ReceiptText size={16}/>Open ledger</Button></div></Row>; })}</Table> : <div className="op-empty-state"><ReceiptText/><h2>{normalizedLedgerSearch ? "No clients found" : "No active ledgers"}</h2><p>{normalizedLedgerSearch ? "Try a different client name or phone number." : "Clients appear here after a campaign or invoice is created."}</p></div>}{ledgerClients.length > visibleLedgerClients.length && <p className="op-result-limit">Refine your search to see the remaining {(ledgerClients.length - visibleLedgerClients.length).toLocaleString("en-IN")} ledgers.</p>}{ledgerClientId && <ClientLedgerModal store={store} clientId={ledgerClientId} close={closeLedger} viewBill={viewBill} openCreateReceipt={createReceipt} viewReceipt={viewReceipt} editReceipt={editReceipt} removeReceipt={removeReceipt}/>}</>;
+  updateBill?: (updatedBill: Bill) => void;
+};export function ClientLedgersView({
+  store,
+  ledgerSearch,
+  normalizedLedgerSearch,
+  ledgerClients,
+  visibleLedgerClients,
+  ledgerClientId,
+  setLedgerSearch,
+  openLedger,
+  closeLedger,
+  viewBill,
+  createReceipt,
+  viewReceipt,
+  editReceipt,
+  removeReceipt,
+  updateBill,
+}: ClientLedgersViewProps) {
+  return (
+    <>
+      <PageHead
+        title="Client ledgers"
+        detail="Campaigns, invoices, receipts, and outstanding balances by client"
+      />
+      <div className="op-toolbar">
+        <label className="op-search">
+          <Search />
+          <input
+            placeholder="Search client name or phone"
+            value={ledgerSearch}
+            onChange={(event) => setLedgerSearch(event.target.value)}
+          />
+        </label>
+        <p>
+          {visibleLedgerClients.length} of {ledgerClients.length.toLocaleString("en-IN")} ledgers
+        </p>
+      </div>
+      {visibleLedgerClients.length ? (
+        <Table headers={["Client", "Contact", "Campaigns", "Invoices", "Total billed", "Received / balance", ""]}>
+          {visibleLedgerClients.map((client) => {
+            const campaigns = store.campaignBookings.filter((booking) => booking.clientId === client.id);
+            const bills = store.bills.filter((bill) => bill.clientId === client.id);
+            const overall = clientOverallBalance(store, client.id);
+            return (
+              <Row key={client.id}>
+                <b>
+                  {client.firmName}
+                  <small>{client.ownerName || "Imported contact"}</small>
+                </b>
+                <span>
+                  {client.mobile || "No phone"}
+                  <small>{client.email || "No email"}</small>
+                </span>
+                <span>{campaigns.length}</span>
+                <span>{bills.length}</span>
+                <strong>{money(overall.billed)}</strong>
+                <span>
+                  <b>{money(overall.received)} received</b>
+                  <small style={{ color: overall.outstanding > 0 ? "#9a493d" : "#1f6a53", fontWeight: 600 }}>
+                    {money(overall.balance)} outstanding
+                  </small>
+                  {overall.loss > 0 && (
+                    <small style={{ color: "#dc2626", fontWeight: 700 }}> · {money(overall.loss)} loss</small>
+                  )}
+                </span>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <Button secondary onClick={() => openLedger(client.id)}>
+                    <ReceiptText size={16} />
+                    Open ledger
+                  </Button>
+                </div>
+              </Row>
+            );
+          })}
+        </Table>
+      ) : (
+        <div className="op-empty-state">
+          <ReceiptText />
+          <h2>{normalizedLedgerSearch ? "No clients found" : "No active ledgers"}</h2>
+          <p>
+            {normalizedLedgerSearch
+              ? "Try a different client name or phone number."
+              : "Clients appear here after a campaign or invoice is created."}
+          </p>
+        </div>
+      )}
+      {ledgerClients.length > visibleLedgerClients.length && (
+        <p className="op-result-limit">
+          Refine your search to see the remaining {(ledgerClients.length - visibleLedgerClients.length).toLocaleString("en-IN")} ledgers.
+        </p>
+      )}
+      {ledgerClientId && (
+        <ClientLedgerModal
+          store={store}
+          clientId={ledgerClientId}
+          close={closeLedger}
+          viewBill={viewBill}
+          openCreateReceipt={createReceipt}
+          viewReceipt={viewReceipt}
+          editReceipt={editReceipt}
+          removeReceipt={removeReceipt}
+          updateBill={updateBill}
+        />
+      )}
+    </>
+  );
 }
 
 export type CampaignsViewProps = {

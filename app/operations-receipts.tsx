@@ -41,16 +41,17 @@ export function ClientReceiptFormModal({
   save: (receipt: ClientReceipt) => void;
   remove?: (receiptId: number) => void;
 }) {
-  const targetClientId =
+  const [clientId, setClientId] = useState<number>(
     receipt?.clientId ??
     initialClientId ??
-    (store.clients.length > 0 ? store.clients[0].id : 0);
+    (store.clients.length > 0 ? store.clients[0].id : 0)
+  );
 
   const selectedClient =
-    store.clients.find((c) => c.id === targetClientId) ??
+    store.clients.find((c) => c.id === clientId) ??
     (receipt?.client
       ? {
-          id: targetClientId,
+          id: clientId,
           firmName: receipt.client.firmName,
           ownerName: receipt.client.ownerName,
           address: receipt.client.address,
@@ -70,6 +71,10 @@ export function ClientReceiptFormModal({
   );
   const [reference, setReference] = useState<string>(receipt?.reference ?? "");
   const [note, setNote] = useState<string>(receipt?.note ?? "");
+  const [enableLoss, setEnableLoss] = useState<boolean>((receipt?.lossAmount ?? 0) > 0);
+  const [lossAmount, setLossAmount] = useState<number | string>(receipt?.lossAmount ?? "");
+  const [lossReason, setLossReason] = useState<string>(receipt?.lossReason ?? "Client underpayment settlement");
+  const [lossDate, setLossDate] = useState<string>(receipt?.lossDate ?? (receipt?.receiptDate ?? isoToday()));
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,11 +102,13 @@ export function ClientReceiptFormModal({
       receipt?.number ??
       nextReceiptNumber(store.receipts ?? [], store.nextReceiptNumber ?? 1);
 
+    const activeLoss = enableLoss ? (Number(lossAmount) || 0) : 0;
+
     const savedReceipt: ClientReceipt = {
       id: receipt?.id ?? nextId(store.receipts ?? []),
       number: receiptNumber,
       receiptDate,
-      clientId: targetClientId,
+      clientId,
       client: clientSnapshot,
       amount: numAmount,
       paymentMode,
@@ -110,6 +117,9 @@ export function ClientReceiptFormModal({
       status: receipt?.status ?? "Unbilled",
       billId: receipt?.billId,
       billNumber: receipt?.billNumber,
+      lossAmount: activeLoss > 0 ? activeLoss : undefined,
+      lossReason: activeLoss > 0 ? lossReason.trim() : undefined,
+      lossDate: activeLoss > 0 ? lossDate : undefined,
     };
 
     save(savedReceipt);
@@ -143,6 +153,22 @@ export function ClientReceiptFormModal({
         >
           Issue an official money receipt for advance, booking tokens, or partial payments received from a client. When generating the final bill, all unbilled receipts can be summed automatically.
         </p>
+
+        <label className="op-field">
+          <span>Client / Firm Name</span>
+          <select
+            value={clientId}
+            onChange={(e) => setClientId(Number(e.target.value))}
+            required
+            style={{ fontWeight: 600, fontSize: "14px" }}
+          >
+            {store.clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.firmName} {c.ownerName ? `(${c.ownerName})` : ""} · {c.mobile || "No phone"}
+              </option>
+            ))}
+          </select>
+        </label>
 
         {selectedClient && (
           <div
@@ -258,6 +284,74 @@ export function ClientReceiptFormModal({
             onChange={(e) => setNote(e.target.value)}
           />
         </label>
+
+        <div
+          style={{
+            marginTop: "2px",
+            padding: "14px",
+            background: enableLoss ? "#fef2f2" : "#f8fafc",
+            border: enableLoss ? "1px solid #fecaca" : "1px solid #e2e8f0",
+            borderRadius: "8px",
+          }}
+        >
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              fontWeight: 700,
+              fontSize: "13px",
+              color: enableLoss ? "#991b1b" : "#475569",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={enableLoss}
+              onChange={(e) => setEnableLoss(e.target.checked)}
+            />
+            Record / Adjust Loss / Bad Debt for this client receipt
+          </label>
+
+          {enableLoss && (
+            <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div className="op-form-grid" style={{ gap: "12px" }}>
+                <label className="op-field">
+                  <span style={{ color: "#991b1b" }}>Loss Amount (₹)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={lossAmount}
+                    onChange={(e) => setLossAmount(Math.max(0, Number(e.target.value)))}
+                    placeholder="Loss / uncollectible amount"
+                    required={enableLoss}
+                  />
+                </label>
+                <label className="op-field">
+                  <span style={{ color: "#991b1b" }}>Loss Date</span>
+                  <input
+                    type="date"
+                    value={lossDate}
+                    onChange={(e) => setLossDate(e.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="op-field">
+                <span style={{ color: "#991b1b" }}>Loss Reason / Note</span>
+                <input
+                  type="text"
+                  value={lossReason}
+                  onChange={(e) => setLossReason(e.target.value)}
+                  placeholder="e.g. Underpayment settlement / bad debt"
+                />
+              </label>
+              <small style={{ color: "#991b1b", fontSize: "11px", fontWeight: 600 }}>
+                * Loss will be recorded in your internal ledger and reports. It will NOT be printed on client receipts.
+              </small>
+            </div>
+          )}
+        </div>
 
         <footer
           style={{

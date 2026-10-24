@@ -220,6 +220,7 @@ export function ClientLedgerModal({
   viewReceipt,
   editReceipt,
   removeReceipt,
+  updateBill,
 }: {
   store: FleetStore;
   clientId: number;
@@ -229,6 +230,7 @@ export function ClientLedgerModal({
   viewReceipt?: (receipt: ClientReceipt) => void;
   editReceipt?: (receipt: ClientReceipt) => void;
   removeReceipt?: (receiptId: number) => void;
+  updateBill?: (updatedBill: Bill) => void;
 }) {
   const client = store.clients.find((item) => item.id === clientId);
   const [from, setFrom] = useState("");
@@ -364,19 +366,39 @@ export function ClientLedgerModal({
 
   const filteredReceipts = clientReceipts.filter((r) => inRange(r.receiptDate));
 
-  const receiptRows = filteredReceipts.map((r) => ({
-    key: `receipt-${r.id}`,
-    date: r.receiptDate,
-    type: `Receipt REC-${String(r.number).padStart(4, "0")}`,
-    detail: `${r.paymentMode} · ${r.reference ? `Ref: ${r.reference} · ` : ""}${r.note || "Money receipt"}${r.status === "Billed" ? ` · Applied to INV-${String(r.billNumber ?? "").padStart(4, "0")}` : " · Unbilled deposit"}`,
-    status: r.status === "Billed" ? "Billed" : "Received",
-    amount: -r.amount,
-    isCredit: true,
-    bill: undefined as Bill | undefined,
-    payment: null as Bill["payments"][number] | null,
-    isAdvance: false,
-    clientReceipt: r,
-  }));
+  const receiptRows = filteredReceipts.flatMap((r) => [
+    {
+      key: `receipt-${r.id}`,
+      date: r.receiptDate,
+      type: `Receipt REC-${String(r.number).padStart(4, "0")}`,
+      detail: `${r.paymentMode} · ${r.reference ? `Ref: ${r.reference} · ` : ""}${r.note || "Money receipt"}${r.status === "Billed" ? ` · Applied to INV-${String(r.billNumber ?? "").padStart(4, "0")}` : " · Unbilled deposit"}`,
+      status: r.status === "Billed" ? "Billed" : "Received",
+      amount: -r.amount,
+      isCredit: true,
+      bill: undefined as Bill | undefined,
+      payment: null as Bill["payments"][number] | null,
+      isAdvance: false,
+      clientReceipt: r,
+    },
+    ...(r.lossAmount && r.lossAmount > 0 && r.status !== "Billed"
+      ? [
+          {
+            key: `receipt-loss-${r.id}`,
+            date: r.lossDate || r.receiptDate,
+            type: `Bad debt loss (Receipt REC-${String(r.number).padStart(4, "0")})`,
+            detail: `${r.lossReason || "Underpayment settlement"} · Bad debt write-off`,
+            status: "Written-off",
+            amount: -r.lossAmount,
+            isCredit: true,
+            isLoss: true,
+            bill: undefined as Bill | undefined,
+            payment: null as Bill["payments"][number] | null,
+            isAdvance: false,
+            clientReceipt: r,
+          },
+        ]
+      : []),
+  ]);
 
   const paymentRows = filteredBills.flatMap((bill) => {
     const linkedReceiptsForBill = (store.receipts ?? []).filter(
@@ -750,6 +772,10 @@ export function ClientLedgerModal({
           payment={activeReceipt.payment}
           store={store}
           close={() => setActiveReceipt(null)}
+          onUpdateBill={(updatedBill) => {
+            setActiveReceipt((curr) => (curr ? { ...curr, bill: updatedBill } : null));
+            updateBill?.(updatedBill);
+          }}
         />
       )}
 
