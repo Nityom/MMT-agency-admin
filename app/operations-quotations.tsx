@@ -27,6 +27,7 @@ import {
   inclusiveDays,
   nextQuotationNumber,
   Quotation,
+  QuotationFacility,
   QuotationStatus,
 } from "./fleet-domain";
 import { Invoice } from "./operations-billing";
@@ -42,6 +43,23 @@ import {
 
 type QuotationLineDraft = Omit<BillVehicleLine, "id" | "driverNames" | "bookedDays">;
 type ChargeDraft = Omit<BillCharge, "id" | "amount">;
+
+const quotationFacilityNames = [
+  "GPS system",
+  "Lunch time",
+  "Sound system",
+  "Light system",
+  "Pamphlet distribution",
+  "E-rickshaw including electric charging",
+] as const;
+
+const defaultQuotationFacilities = (): QuotationFacility[] =>
+  quotationFacilityNames.map((name) => ({
+    name,
+    selected: false,
+    fromTime: "",
+    toTime: "",
+  }));
 
 export function QuotationEditorModal({
   store,
@@ -125,6 +143,13 @@ export function QuotationEditorModal({
       ? quotation.charges.map((c) => ({ ...c }))
       : []
   );
+  const [facilities, setFacilities] = useState<QuotationFacility[]>(() => {
+    const saved = quotation?.facilities || [];
+    return defaultQuotationFacilities().map((facility) => ({
+      ...facility,
+      ...saved.find((item) => item.name === facility.name),
+    }));
+  });
 
   const updateLine = (index: number, patch: Partial<QuotationLineDraft>) =>
     setLines((current) =>
@@ -181,6 +206,7 @@ export function QuotationEditorModal({
       client: clientDetails,
       vehicleLines: finalLines,
       charges: finalCharges,
+      facilities,
       total,
       status,
       campaignBookingId: quotation?.campaignBookingId,
@@ -547,6 +573,69 @@ export function QuotationEditorModal({
           </div>
         ))}
 
+        <section className="op-quotation-facilities">
+          <div className="op-section-title">
+            <h2>Facilities</h2>
+            <span>Select the facilities to include and enter their timings.</span>
+          </div>
+          <div className="op-quotation-facility-list">
+            {facilities.map((facility, index) => (
+              <div className="op-quotation-facility" key={facility.name}>
+                <label className="op-quotation-facility-check">
+                  <input
+                    type="checkbox"
+                    checked={facility.selected}
+                    onChange={(e) =>
+                      setFacilities((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? { ...item, selected: e.target.checked }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                  <span>{facility.name}</span>
+                </label>
+                <label>
+                  <span>From</span>
+                  <input
+                    type="time"
+                    value={facility.fromTime}
+                    required={facility.selected}
+                    onChange={(e) =>
+                      setFacilities((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? { ...item, fromTime: e.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <label>
+                  <span>To</span>
+                  <input
+                    type="time"
+                    value={facility.toTime}
+                    required={facility.selected}
+                    onChange={(e) =>
+                      setFacilities((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? { ...item, toTime: e.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <div className="op-bill-total" style={{ marginTop: "14px", padding: "12px 16px", background: "#e8f3ee", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: "15px", fontWeight: "700", color: "#14493a" }}>
             Total Quotation Amount
@@ -587,6 +676,7 @@ export function QuotationPrintModal({
     client: quotation.client,
     vehicleLines: quotation.vehicleLines,
     charges: quotation.charges,
+    facilities: quotation.facilities,
     advanceReceived: 0,
     paymentMode: "Cash",
     payments: [],

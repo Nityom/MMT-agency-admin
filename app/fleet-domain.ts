@@ -240,9 +240,17 @@ export type Bill = {
   lossAmount?: number;
   lossReason?: string;
   lossDate?: ISODate;
+  facilities?: QuotationFacility[];
 };
 
 export type QuotationStatus = "Draft" | "Sent" | "Accepted" | "Converted" | "Expired";
+
+export type QuotationFacility = {
+  name: string;
+  selected: boolean;
+  fromTime: string;
+  toTime: string;
+};
 
 export type Quotation = {
   id: number;
@@ -255,6 +263,7 @@ export type Quotation = {
   charges: BillCharge[];
   total: number;
   status: QuotationStatus;
+  facilities?: QuotationFacility[];
   notes?: string;
   campaignBookingId?: number;
 };

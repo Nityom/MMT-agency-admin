@@ -2777,6 +2777,7 @@ export function Invoice({
   generateReceipt?: (payment?: Bill["payments"][number] | null) => void;
 }) {
   const balance = billBalance(bill);
+  const selectedFacilities = (bill.facilities ?? []).filter((facility) => facility.selected);
   return (
     <div className="invoice-backdrop">
       <div className="invoice-dialog">
@@ -3014,28 +3015,45 @@ export function Invoice({
           </section>
           <footer className="invoice-footer">
             <div>
-              <h3>Bank details for RTGS / NEFT</h3>
-              <p>
-                <b>Account:</b> {store.company.accountName}
-              </p>
-              <p>
-                <b>Bank:</b> {store.company.bankName}
-              </p>
-              <p>
-                <b>Branch Name:</b> {store.company.branch}
-              </p>
-              <p>
-                <b>A/C No:</b>{" "}
-                {store.company.accountNumber || "Update in company settings"}
-              </p>
-              <p>
-                <b>IFSC:</b>{" "}
-                {store.company.ifsc || "Update in company settings"}
-              </p>
-              {store.company.pan && (
-                <p>
-                  <b>PAN No:</b> {store.company.pan}
-                </p>
+              {quotation ? (
+                <>
+                  <h3>Facilities</h3>
+                  {selectedFacilities.length > 0 ? (
+                    selectedFacilities.map((facility) => (
+                      <p key={facility.name}>
+                        <b>{facility.name}:</b> {facility.fromTime} to {facility.toTime}
+                      </p>
+                    ))
+                  ) : (
+                    <p>No additional facilities selected.</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <h3>Bank details for RTGS / NEFT</h3>
+                  <p>
+                    <b>Account:</b> {store.company.accountName}
+                  </p>
+                  <p>
+                    <b>Bank:</b> {store.company.bankName}
+                  </p>
+                  <p>
+                    <b>Branch Name:</b> {store.company.branch}
+                  </p>
+                  <p>
+                    <b>A/C No:</b>{" "}
+                    {store.company.accountNumber || "Update in company settings"}
+                  </p>
+                  <p>
+                    <b>IFSC:</b>{" "}
+                    {store.company.ifsc || "Update in company settings"}
+                  </p>
+                  {store.company.pan && (
+                    <p>
+                      <b>PAN No:</b> {store.company.pan}
+                    </p>
+                  )}
+                </>
               )}
             </div>
             <div className="invoice-signature">
@@ -3184,28 +3202,15 @@ export function CampaignQuotation({
           </section>
           <footer className="invoice-footer">
             <div>
-              <h3>Bank details for RTGS / NEFT</h3>
-              <p>
-                <b>Account:</b> {store.company.accountName}
-              </p>
-              <p>
-                <b>Bank:</b> {store.company.bankName}
-              </p>
-              <p>
-                <b>Branch Name:</b> {store.company.branch}
-              </p>
-              <p>
-                <b>A/C No:</b>{" "}
-                {store.company.accountNumber || "Update in company settings"}
-              </p>
-              <p>
-                <b>IFSC:</b>{" "}
-                {store.company.ifsc || "Update in company settings"}
-              </p>
-              {store.company.pan && (
-                <p>
-                  <b>PAN No:</b> {store.company.pan}
-                </p>
+              <h3>Facilities</h3>
+              {booking.facilities.length > 0 ? (
+                booking.facilities.map((facility) => (
+                  <p key={facility.id}>
+                    <b>{facility.category}:</b> {facility.description || "Included"}
+                  </p>
+                ))
+              ) : (
+                <p>No additional facilities selected.</p>
               )}
             </div>
             <div className="invoice-signature">
