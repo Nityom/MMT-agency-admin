@@ -269,3 +269,43 @@ export const commit = mutation({
     await Promise.all(oldChunks.filter((chunk) => chunk.revision !== args.revision).map((chunk) => ctx.db.delete(chunk._id)));
   },
 });
+
+export const saveBackupChunk = mutation({
+  args: {
+    storeKey: v.string(),
+    revision: v.number(),
+    index: v.number(),
+    payload: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("backupSnapshotChunks")
+      .withIndex("by_store_revision", (queryBuilder) =>
+        queryBuilder.eq("storeKey", args.storeKey).eq("revision", args.revision),
+      )
+      .collect();
+    const matching = existing.find((chunk) => chunk.index === args.index);
+    if (matching) await ctx.db.patch(matching._id, { payload: args.payload });
+    else await ctx.db.insert("backupSnapshotChunks", args);
+  },
+});
+
+export const commitBackup = mutation({
+  args: {
+    storeKey: v.string(),
+    revision: v.number(),
+    chunkCount: v.number(),
+    schemaVersion: v.number(),
+    createdAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const chunks = await ctx.db
+      .query("backupSnapshotChunks")
+      .withIndex("by_store_revision", (queryBuilder) =>
+        queryBuilder.eq("storeKey", args.storeKey).eq("revision", args.revision),
+      )
+      .collect();
+    if (chunks.length !== args.chunkCount) throw new Error("Backup snapshot upload is incomplete");
+    await ctx.db.insert("backupSnapshots", args);
+  },
+});

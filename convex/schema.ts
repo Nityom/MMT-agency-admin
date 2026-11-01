@@ -65,4 +65,17 @@ export default defineSchema({
   })
     .index("by_key", ["key"])
     .index("by_key_revision", ["key", "revision"]),
+  backupSnapshots: defineTable({
+    storeKey: v.string(),
+    revision: v.number(),
+    chunkCount: v.number(),
+    schemaVersion: v.number(),
+    createdAt: v.number(),
+  }).index("by_store", ["storeKey"]),
+  backupSnapshotChunks: defineTable({
+    storeKey: v.string(),
+    revision: v.number(),
+    index: v.number(),
+    payload: v.string(),
+  }).index("by_store_revision", ["storeKey", "revision"]),
 });

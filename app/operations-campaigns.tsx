@@ -253,7 +253,7 @@ export function CampaignBookingForm({
     <Modal
       title={
         mode === "renew"
-          ? "Renew campaign (new record)"
+          ? "New campaign"
           : mode === "extend"
             ? "Extend campaign (new record)"
             : booking
@@ -842,7 +842,7 @@ function LegacyCampaignBookingCard({
                 Edit campaign
               </Button>
               <Button secondary onClick={renew}>
-                Renew campaign
+                New campaign
               </Button>
               <Button secondary onClick={extend}>
                 Extend campaign
@@ -1151,7 +1151,7 @@ function CampaignSlotCardContent({
                 Edit campaign
               </Button>
               <Button secondary onClick={renew}>
-                Renew campaign
+                New campaign
               </Button>
               <Button secondary onClick={extend}>
                 Extend campaign

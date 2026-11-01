@@ -10,6 +10,7 @@ const STORE_CACHE_KEY = "fleet-store-cache-v1";
 const SAVE_DELAY_MS = 350;
 const MUTATION_BATCH_SIZE = 75;
 const MUTATION_CONCURRENCY = 8;
+const BACKUP_CHUNK_SIZE = 400_000;
 
 const arrayCollections = [
   ["employees", "employees"],
@@ -233,6 +234,8 @@ export function useFleetStore() {
   const saveSettings = useMutation(api.adminStore.saveSettings);
   const saveEntities = useMutation(api.adminStore.saveEntities);
   const deleteEntities = useMutation(api.adminStore.deleteEntities);
+  const saveBackupChunk = useMutation(api.adminStore.saveBackupChunk);
+  const commitBackup = useMutation(api.adminStore.commitBackup);
 
   const persisted = useRef<StoreSnapshot | null>(null);
   const revision = useRef<number | null>(null);
@@ -343,6 +346,26 @@ export function useFleetStore() {
         if (mutations.length === 0) return;
 
         await runMutationQueue(mutations);
+        const backupPayload = JSON.stringify(nextStore);
+        const backupChunks = Array.from(
+          { length: Math.ceil(backupPayload.length / BACKUP_CHUNK_SIZE) },
+          (_, index) => backupPayload.slice(index * BACKUP_CHUNK_SIZE, (index + 1) * BACKUP_CHUNK_SIZE),
+        );
+        await runMutationQueue(backupChunks.map((payload, index) => () =>
+          saveBackupChunk({
+            storeKey: STORE_KEY,
+            revision: updatedAt,
+            index,
+            payload,
+          }),
+        ));
+        await commitBackup({
+          storeKey: STORE_KEY,
+          revision: updatedAt,
+          chunkCount: backupChunks.length,
+          schemaVersion: nextStore.schemaVersion,
+          createdAt: updatedAt,
+        });
 
         // Update local revision so that when getRevision returns this updatedAt value,
         // the load effect skips the reload — we already have the latest data locally.
@@ -354,7 +377,7 @@ export function useFleetStore() {
       });
     }, SAVE_DELAY_MS);
     return () => window.clearTimeout(timeout);
-  }, [deleteEntities, saveEntities, saveSettings, storageReady, store]);
+  }, [commitBackup, deleteEntities, saveBackupChunk, saveEntities, saveSettings, storageReady, store]);
 
   return { store, setStore, storageReady };
 }
