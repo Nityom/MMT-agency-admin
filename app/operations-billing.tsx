@@ -1839,6 +1839,7 @@ export function CampaignBillModeModal({
       toDate: string;
       billLabel?: string;
       existingBillId?: number;
+      forceNew?: boolean;
     }
   ) => void;
   viewBill?: (bill: Bill) => void;
@@ -1850,6 +1851,17 @@ export function CampaignBillModeModal({
   removeReceipt?: (receiptId: number) => void;
 }) {
   const endDate = bookingEnd(booking);
+  const historicalBillStart = (store?.bills ?? [])
+    .filter((bill) =>
+      bill.clientId === booking.clientId ||
+      bill.client?.firmName?.trim().toLowerCase() === booking.client?.firmName?.trim().toLowerCase()
+    )
+    .flatMap((bill) => bill.vehicleLines.map((line) => line.startDate))
+    .sort()[0];
+  const billingStartDate =
+    historicalBillStart && historicalBillStart < booking.startDate
+      ? historicalBillStart
+      : booking.startDate;
 
   const actualClientId =
     (store?.clients ?? []).find(
@@ -1877,7 +1889,7 @@ export function CampaignBillModeModal({
   
   // Calculate monthly periods for the campaign
   const monthlyPeriods: { label: string; from: string; to: string; existingBill?: Bill }[] = [];
-  let cur = new Date(booking.startDate);
+  let cur = new Date(`${billingStartDate}T00:00:00Z`);
   const fin = new Date(endDate);
   let cycle = 1;
   while (cur <= fin) {
@@ -1904,7 +1916,7 @@ export function CampaignBillModeModal({
     monthlyPeriods.length > 1 ? "monthly" : "full"
   );
   const [selectedPeriodIdx, setSelectedPeriodIdx] = useState(0);
-  const [customFrom, setCustomFrom] = useState(booking.startDate);
+  const [customFrom, setCustomFrom] = useState(billingStartDate);
   const [customTo, setCustomTo] = useState(endDate);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("Cash");
 
@@ -1913,7 +1925,7 @@ export function CampaignBillModeModal({
       ? monthlyPeriods[selectedPeriodIdx].from
       : scope === "custom"
         ? customFrom
-        : booking.startDate;
+        : billingStartDate;
 
   const effectiveTo =
     scope === "monthly" && monthlyPeriods[selectedPeriodIdx]
@@ -1953,7 +1965,7 @@ export function CampaignBillModeModal({
     } else {
       generate(paymentMode, {
         billScope: "full",
-        fromDate: booking.startDate,
+        fromDate: billingStartDate,
         toDate: endDate,
         existingBillId: currentExistingBill?.id,
       });
@@ -1972,7 +1984,7 @@ export function CampaignBillModeModal({
     >
       <div className="op-form op-campaign-billing-modal" style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box", overflowX: "hidden" }}>
         <p className="op-form-note">
-          Campaign booking: <b>{fmt(booking.startDate)}</b> to <b>{fmt(endDate)}</b>
+          Campaign booking: <b>{fmt(billingStartDate)}</b> to <b>{fmt(endDate)}</b>
         </p>
 
         {/* Client Receipts Section */}
@@ -2243,7 +2255,7 @@ export function CampaignBillModeModal({
             value={scope}
             onChange={(e) => setScope(e.target.value as any)}
           >
-            <option value="full">Full Campaign Bill ({fmt(booking.startDate)} to {fmt(endDate)})</option>
+            <option value="full">Full Campaign Bill ({fmt(billingStartDate)} to {fmt(endDate)})</option>
             {monthlyPeriods.length > 0 && (
               <option value="monthly">Monthly Bill (Select Specific Month)</option>
             )}
@@ -2365,6 +2377,7 @@ export function CampaignBillModeModal({
                     fromDate: p.from,
                     toDate: p.to,
                     billLabel: p.label,
+                    forceNew: true,
                   });
                 } else if (scope === "custom") {
                   generate(paymentMode, {
@@ -2372,12 +2385,14 @@ export function CampaignBillModeModal({
                     fromDate: customFrom,
                     toDate: customTo,
                     billLabel: `${fmt(customFrom)} to ${fmt(customTo)}`,
+                    forceNew: true,
                   });
                 } else {
                   generate(paymentMode, {
                     billScope: "full",
-                    fromDate: booking.startDate,
+                    fromDate: billingStartDate,
                     toDate: endDate,
+                    forceNew: true,
                   });
                 }
               }}

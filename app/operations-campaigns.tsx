@@ -860,21 +860,13 @@ function LegacyCampaignBookingCard({
                 </Button>
               )}
               {status !== "Scheduled" && (
-                <Button onClick={() => {
-                  if (campaignBills.length === 1 && viewBill) {
-                    viewBill(campaignBills[0]);
-                  } else {
-                    generateBill();
-                  }
-                }}>
+                <Button onClick={generateBill}>
                   <FileText size={17} />
-                  {campaignBills.length === 1
-                    ? "View bill"
-                    : campaignBills.length > 1
-                      ? `View / Manage bills (${campaignBills.length})`
-                      : status === "Active"
-                        ? "Generate bill to date"
-                        : "Generate final bill"}
+                  {campaignBills.length > 0
+                    ? `Generate / manage bills (${campaignBills.length})`
+                    : status === "Active"
+                      ? "Generate bill to date"
+                      : "Generate final bill"}
                 </Button>
               )}
             </footer>
@@ -1171,21 +1163,13 @@ function CampaignSlotCardContent({
                 </Button>
               )}
               {status !== "Scheduled" && (
-                <Button onClick={() => {
-                  if (campaignBills.length === 1 && viewBill) {
-                    viewBill(campaignBills[0]);
-                  } else {
-                    generateBill();
-                  }
-                }}>
+                <Button onClick={generateBill}>
                   <FileText size={17} />
-                  {campaignBills.length === 1
-                    ? "View bill"
-                    : campaignBills.length > 1
-                      ? `View / Manage bills (${campaignBills.length})`
-                      : status === "Active"
-                        ? "Generate bill to date"
-                        : "Generate final bill"}
+                  {campaignBills.length > 0
+                    ? `Generate / manage bills (${campaignBills.length})`
+                    : status === "Active"
+                      ? "Generate bill to date"
+                      : "Generate final bill"}
                 </Button>
               )}
             </footer>

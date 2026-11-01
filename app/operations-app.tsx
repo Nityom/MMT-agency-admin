@@ -34,7 +34,7 @@ import {
 import { ReportsView } from "./operations-reports-view";
 import { AttendanceView, EmployeesView, PayrollView } from "./operations-workforce-views";
 import {
-  billBalance, billPaid, bookingEnd, bookingStatus, bookingVehicleLines,
+  billBalance, billPaid, bookingEnd, bookingStatus, bookingVehicleLines, campaignSlotKey,
   campaignMonthOptions, campaignSlotPresentDays, consolidateCampaignBookings, expenseClientBilling,
   expenseProfit, findCampaignBillForRange, fmt, isoToday, matchesReportCategory, money, nextId, otherBillBalance, otherBillCost,
   ReportProfitCategory, reportProfitCategories, supplierBalance, supplierPaid,
@@ -75,10 +75,6 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
   const [campaignFormOpen, setCampaignFormOpen] = useState(false);
   const [campaignBillBooking, setCampaignBillBooking] = useState<CampaignBooking | null>(null);
   const [draftCampaignBooking, setDraftCampaignBooking] = useState<CampaignBooking | null>(null);
-  useEffect(() => {
-    if (!renewingCampaign || !editingCampaign || store.campaignBookings.some((booking) => booking.id === editingCampaign.id)) return;
-    setStore((current) => ({ ...current, campaignBookings: [...current.campaignBookings, editingCampaign] }));
-  }, [editingCampaign, renewingCampaign, setStore, store.campaignBookings]);
   const [composeQuotation, setComposeQuotation] = useState(false);
   const [quotationDraft, setQuotationDraft] = useState<Bill | null>(null);
   const [quotationBooking, setQuotationBooking] = useState<CampaignBooking | null>(null);
@@ -469,6 +465,7 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
       toDate: string;
       billLabel?: string;
       existingBillId?: number;
+      forceNew?: boolean;
     }
   ) => {
     if (!paymentMode) {
@@ -479,10 +476,32 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
     const toDate =
       options?.toDate ||
       (isoToday() < bookingEnd(booking) ? isoToday() : bookingEnd(booking));
+    const historicalBillStart = store.bills
+      .filter((bill) =>
+        bill.clientId === booking.clientId ||
+        bill.client?.firmName?.trim().toLowerCase() === booking.client?.firmName?.trim().toLowerCase()
+      )
+      .flatMap((bill) => bill.vehicleLines.map((line) => line.startDate))
+      .sort()[0];
+    const billingStartDate =
+      historicalBillStart && historicalBillStart < booking.startDate
+        ? historicalBillStart
+        : booking.startDate;
+
+    if (
+      fromDate > toDate ||
+      fromDate < billingStartDate ||
+      toDate > bookingEnd(booking)
+    ) {
+      notify(`Billing range must be between ${fmt(billingStartDate)} and ${fmt(bookingEnd(booking))}.`);
+      return;
+    }
 
     const existingBill = options?.existingBillId
       ? store.bills.find((b) => b.id === options.existingBillId)
-      : findCampaignBillForRange(store, booking, fromDate, toDate);
+      : options?.forceNew
+        ? undefined
+        : findCampaignBillForRange(store, booking, fromDate, toDate);
 
     if (existingBill) {
       setCampaignBillBooking(null);
@@ -497,7 +516,7 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
     const vehicleLines: BillVehicleLine[] = booking.vehiclePeriods.flatMap(
       (period, periodIndex) => {
         const effectiveStart =
-          period.startDate > fromDate ? period.startDate : fromDate;
+          period.startDate > fromDate ? fromDate : period.startDate;
         const effectiveEnd = [
           period.endDate,
           bookingEnd(booking),
@@ -506,7 +525,19 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
         if (effectiveEnd < effectiveStart) return [];
         const bookedDays = inclusiveDays(effectiveStart, effectiveEnd);
         return Array.from({ length: period.quantity }, (_, slotIndex) => {
-          const presentDays = campaignSlotPresentDays(
+          const attendanceDates = Array.from(
+            { length: bookedDays },
+            (_, offset) => addDays(effectiveStart, offset),
+          );
+          const hasAttendanceRecords = attendanceDates.some((date) =>
+            store.campaignAttendance[date]?.[
+              campaignSlotKey(booking.id, period.id, slotIndex)
+            ] !== undefined ||
+            (period.vehicleIds[slotIndex] !== undefined &&
+              store.vehicleAttendance[date]?.[period.vehicleIds[slotIndex]] !== undefined),
+          );
+          const presentDays = hasAttendanceRecords
+            ? campaignSlotPresentDays(
             store,
             booking.id,
             period.id,
@@ -514,7 +545,8 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
             effectiveStart,
             effectiveEnd,
             period.vehicleIds[slotIndex],
-          );
+              )
+            : bookedDays;
           const lineLabel = options?.billLabel
             ? `${booking.client.firmName} · ${period.type} ${slotIndex + 1} (${options.billLabel})`
             : `${booking.client.firmName} · ${period.type} ${slotIndex + 1}`;
@@ -1243,7 +1275,7 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
   };
 
   const finalDialogContent = <>
-    {dialog && <EntryForm dialog={dialog} store={store} employeeId={editingEmployeeId} clientId={editingClientId} vehicleId={editingVehicleId} advanceId={editingAdvanceId} close={() => { setDialog(null); setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); }} commit={(updated, message) => { setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); commit(updated, message); }}/>} {campaignFormOpen && <CampaignBookingForm store={store} booking={editingCampaign} close={() => { setCampaignFormOpen(false); setEditingCampaign(null); }} save={(booking) => { setStore((current) => { const existingIds = current.campaignBookings.filter((item) => item.clientId === booking.clientId || item.client.firmName.trim().toLowerCase() === booking.client.firmName.trim().toLowerCase() || (editingCampaign && item.id === editingCampaign.id)).map((item) => item.id); const remaining = current.campaignBookings.filter((item) => !existingIds.includes(item.id)); return { ...current, campaignBookings: [...remaining, booking] }; }); setCampaignFormOpen(false); setEditingCampaign(null); notify("Campaign booking saved"); }}/>} {paymentBill && <BillPaymentModal bill={paymentBill} close={() => setPaymentBill(null)} save={(date, receivedAmount, mode, reference, note, lossOptions) => { setStore((current) => ({ ...current, bills: current.bills.map((bill) => { if (bill.id !== paymentBill.id) return bill; const payments = receivedAmount > 0 ? [...(bill.payments ?? []), { id: nextId(bill.payments ?? []), date, amount: receivedAmount, mode, reference, note }] : (bill.payments ?? []); const totalPaid = bill.advanceReceived + payments.reduce((sum, p) => sum + p.amount, 0); const lossAmount = lossOptions ? lossOptions.lossAmount : (bill.lossAmount ?? 0); const lossReason = lossOptions ? lossOptions.lossReason : bill.lossReason; const lossDate = lossOptions ? date : bill.lossDate; const remaining = Math.max(0, bill.total - totalPaid - lossAmount); return { ...bill, payments, lossAmount, lossReason, lossDate, status: remaining === 0 ? "Paid" : "Pending" }; }) })); setPaymentBill(null); notify(receivedAmount > 0 ? (lossOptions?.lossAmount ? `${mode} installment & loss recorded` : `${mode} installment recorded`) : "Client loss / bad debt recorded"); }}/>} {lossBill && <RecordLossModal bill={lossBill} close={() => setLossBill(null)} save={(lossAmount, lossReason, lossDate) => { setStore((current) => ({ ...current, bills: current.bills.map((b) => { if (b.id !== lossBill.id) return b; let newPayments = [...(b.payments ?? [])]; let newAdvance = b.advanceReceived; const rawPaid = newAdvance + newPayments.reduce((sum, p) => sum + p.amount, 0); let excess = Math.max(0, (rawPaid + lossAmount) - b.total); if (excess > 0 && newPayments.length > 0) { for (let i = newPayments.length - 1; i >= 0 && excess > 0; i--) { const deduction = Math.min(newPayments[i].amount, excess); newPayments[i] = { ...newPayments[i], amount: newPayments[i].amount - deduction }; excess -= deduction; } newPayments = newPayments.filter((p) => p.amount > 0); } if (excess > 0 && newAdvance > 0) { newAdvance = Math.max(0, newAdvance - excess); } const paid = newAdvance + newPayments.reduce((sum, p) => sum + p.amount, 0); return { ...b, advanceReceived: newAdvance, payments: newPayments, lossAmount: lossAmount > 0 ? lossAmount : undefined, lossReason: lossAmount > 0 ? lossReason : undefined, lossDate: lossAmount > 0 ? lossDate : undefined, status: (paid + lossAmount) >= b.total ? "Paid" : "Pending" }; }) })); setLossBill(null); notify(lossAmount > 0 ? "Credit note recorded" : "Credit note updated"); }}/>} {consolidateOpen && <ConsolidateBillsModal store={store} close={() => setConsolidateOpen(false)} preview={(bills) => { setConsolidateOpen(false); setConsolidatedBills(bills); }}/>} {invoice && <Invoice bill={invoice} store={store} close={() => setInvoice(null)} edit={() => { setEditingBill(invoice); setBillingClientId(invoice.clientId); setInvoice(null); setComposeBill(true); }} remove={() => removeBill(invoice.id)} recordLoss={setLossBill} generateReceipt={() => { setReceipt(invoice); setInvoice(null); }}/>} {receipt && <BillReceipt bill={receipt} store={store} close={() => setReceipt(null)} onUpdateBill={updateBill}/>} {consolidatedBills.length > 0 && <ConsolidatedInvoice bills={consolidatedBills.map((selected) => store.bills.find((bill) => bill.id === selected.id) ?? selected)} store={store} close={() => setConsolidatedBills([])}/>} {receiptFormOpen && <ClientReceiptFormModal store={store} receipt={editingReceipt} initialClientId={receiptFormClientId} close={() => { setReceiptFormOpen(false); setEditingReceipt(null); setReceiptFormClientId(null); }} save={saveReceipt} remove={removeReceipt}/>} {viewingReceipt && <ClientReceiptViewModal receipt={viewingReceipt} store={store} close={() => setViewingReceipt(null)} edit={() => { const target = viewingReceipt; setViewingReceipt(null); openEditReceipt(target); }} remove={removeReceipt}/>} {toast && <div className="op-toast"><Check/>{toast}</div>}
+    {dialog && <EntryForm dialog={dialog} store={store} employeeId={editingEmployeeId} clientId={editingClientId} vehicleId={editingVehicleId} advanceId={editingAdvanceId} close={() => { setDialog(null); setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); }} commit={(updated, message) => { setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); commit(updated, message); }}/>} {campaignFormOpen && <CampaignBookingForm store={store} booking={editingCampaign} close={() => { setCampaignFormOpen(false); setEditingCampaign(null); }} save={(booking) => { setStore((current) => { const hasExistingBooking = current.campaignBookings.some((item) => item.id === booking.id); const campaignBookings = hasExistingBooking ? current.campaignBookings.map((item) => item.id === booking.id ? booking : item) : [...current.campaignBookings, booking]; return { ...current, campaignBookings }; }); setCampaignFormOpen(false); setEditingCampaign(null); notify("Campaign booking saved"); }}/>} {paymentBill && <BillPaymentModal bill={paymentBill} close={() => setPaymentBill(null)} save={(date, receivedAmount, mode, reference, note, lossOptions) => { setStore((current) => ({ ...current, bills: current.bills.map((bill) => { if (bill.id !== paymentBill.id) return bill; const payments = receivedAmount > 0 ? [...(bill.payments ?? []), { id: nextId(bill.payments ?? []), date, amount: receivedAmount, mode, reference, note }] : (bill.payments ?? []); const totalPaid = bill.advanceReceived + payments.reduce((sum, p) => sum + p.amount, 0); const lossAmount = lossOptions ? lossOptions.lossAmount : (bill.lossAmount ?? 0); const lossReason = lossOptions ? lossOptions.lossReason : bill.lossReason; const lossDate = lossOptions ? date : bill.lossDate; const remaining = Math.max(0, bill.total - totalPaid - lossAmount); return { ...bill, payments, lossAmount, lossReason, lossDate, status: remaining === 0 ? "Paid" : "Pending" }; }) })); setPaymentBill(null); notify(receivedAmount > 0 ? (lossOptions?.lossAmount ? `${mode} installment & loss recorded` : `${mode} installment recorded`) : "Client loss / bad debt recorded"); }}/>} {lossBill && <RecordLossModal bill={lossBill} close={() => setLossBill(null)} save={(lossAmount, lossReason, lossDate) => { setStore((current) => ({ ...current, bills: current.bills.map((b) => { if (b.id !== lossBill.id) return b; let newPayments = [...(b.payments ?? [])]; let newAdvance = b.advanceReceived; const rawPaid = newAdvance + newPayments.reduce((sum, p) => sum + p.amount, 0); let excess = Math.max(0, (rawPaid + lossAmount) - b.total); if (excess > 0 && newPayments.length > 0) { for (let i = newPayments.length - 1; i >= 0 && excess > 0; i--) { const deduction = Math.min(newPayments[i].amount, excess); newPayments[i] = { ...newPayments[i], amount: newPayments[i].amount - deduction }; excess -= deduction; } newPayments = newPayments.filter((p) => p.amount > 0); } if (excess > 0 && newAdvance > 0) { newAdvance = Math.max(0, newAdvance - excess); } const paid = newAdvance + newPayments.reduce((sum, p) => sum + p.amount, 0); return { ...b, advanceReceived: newAdvance, payments: newPayments, lossAmount: lossAmount > 0 ? lossAmount : undefined, lossReason: lossAmount > 0 ? lossReason : undefined, lossDate: lossAmount > 0 ? lossDate : undefined, status: (paid + lossAmount) >= b.total ? "Paid" : "Pending" }; }) })); setLossBill(null); notify(lossAmount > 0 ? "Credit note recorded" : "Credit note updated"); }}/>} {consolidateOpen && <ConsolidateBillsModal store={store} close={() => setConsolidateOpen(false)} preview={(bills) => {     setConsolidateOpen(false); setConsolidatedBills(bills); }}/>} {invoice && <Invoice bill={invoice} store={store} close={() => setInvoice(null)} edit={() => { setEditingBill(invoice); setBillingClientId(invoice.clientId); setInvoice(null); setComposeBill(true); }} remove={() => removeBill(invoice.id)} recordLoss={setLossBill} generateReceipt={() => { setReceipt(invoice); setInvoice(null); }}/>} {receipt && <BillReceipt bill={receipt} store={store} close={() => setReceipt(null)} onUpdateBill={updateBill}/>} {consolidatedBills.length > 0 && <ConsolidatedInvoice bills={consolidatedBills.map((selected) => store.bills.find((bill) => bill.id === selected.id) ?? selected)} store={store} close={() => setConsolidatedBills([])}/>} {receiptFormOpen && <ClientReceiptFormModal store={store} receipt={editingReceipt} initialClientId={receiptFormClientId} close={() => { setReceiptFormOpen(false); setEditingReceipt(null); setReceiptFormClientId(null); }} save={saveReceipt} remove={removeReceipt}/>} {viewingReceipt && <ClientReceiptViewModal receipt={viewingReceipt} store={store} close={() => setViewingReceipt(null)} edit={() => { const target = viewingReceipt; setViewingReceipt(null); openEditReceipt(target); }} remove={removeReceipt}/>} {toast && <div className="op-toast"><Check/>{toast}</div>}
   </>;
   return <OperationsShell menu={menu} setMenu={setMenu} openNavSections={openNavSections} setOpenNavSections={setOpenNavSections} view={view} go={go} pendingPayrollCount={pendingPayrollCount} dialogContent={finalDialogContent}>
     {view === "overview" && <OverviewView store={store} totalBusiness={totalBusiness} outstanding={outstanding} totalExpenses={totalExpenses} activeEmployees={activeEmployees} currentWeek={currentWeek} activeCampaigns={activeCampaigns}/>}
@@ -1253,7 +1285,7 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
     {view === "clients" && <ClientsView store={store} clientCampaignFilter={clientCampaignFilter} clientCategoryFilter={clientCategoryFilter} clientSearch={clientSearch} normalizedClientSearch={normalizedClientSearch} matchingClients={matchingClients} visibleClients={visibleClients} ledgerClientId={ledgerClientId} setClientCampaignFilter={setClientCampaignFilter} setClientCategoryFilter={setClientCategoryFilter} setClientSearch={setClientSearch} addClient={() => { setEditingClientId(null); setDialog("client"); }} openLedger={setLedgerClientId} closeLedger={() => setLedgerClientId(null)} viewBill={(bill) => { setLedgerClientId(null); setInvoice(bill); }} createBill={(clientId) => { setBillingClientId(clientId); setEditingBill(null); setComposeBill(true); }} createReceipt={openCreateReceipt} viewReceipt={setViewingReceipt} editReceipt={openEditReceipt} removeReceipt={removeReceipt} editClient={(clientId) => { setEditingClientId(clientId); setDialog("client"); }} removeClient={(clientId) => remove("clients", clientId)} updateBill={updateBill}/>}
     {view === "quotations" && <QuotationsView store={store} setStore={setStore} notify={notify} />}
     {view === "ledgers" && <ClientLedgersView store={store} ledgerSearch={ledgerSearch} normalizedLedgerSearch={normalizedLedgerSearch} ledgerClients={ledgerClients} visibleLedgerClients={visibleLedgerClients} ledgerClientId={ledgerClientId} setLedgerSearch={setLedgerSearch} openLedger={setLedgerClientId} closeLedger={() => setLedgerClientId(null)} viewBill={(bill) => { setLedgerClientId(null); setInvoice(bill); }} createReceipt={openCreateReceipt} viewReceipt={setViewingReceipt} editReceipt={openEditReceipt} removeReceipt={removeReceipt} updateBill={updateBill}/>}
-    {view === "campaigns" && <CampaignsView store={store} campaignSearch={campaignSearch} normalizedCampaignSearch={normalizedCampaignSearch} filteredCampaignBookings={filteredCampaignBookings} setCampaignSearch={setCampaignSearch} newBooking={() => { setEditingCampaign(null); setRenewingCampaign(false); setCampaignFormOpen(true); }} editBooking={(booking) => { setEditingCampaign(booking); setRenewingCampaign(false); setCampaignFormOpen(true); }} renewBooking={(booking) => { const currentEnd = bookingEnd(booking); const endYear = Number(currentEnd.slice(0, 4)); const endMonth = Number(currentEnd.slice(5, 7)); const nextMonthDate = new Date(Date.UTC(endYear, endMonth, 1)); const nextEndDay = new Date(Date.UTC(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth() + 1, 0)).getUTCDate(); const nextEndDate = `${nextMonthDate.getUTCFullYear()}-${String(nextMonthDate.getUTCMonth() + 1).padStart(2, "0")}-${String(nextEndDay).padStart(2, "0")}`; const renewed = { ...booking, id: booking.id, startDate: booking.startDate, endDate: nextEndDate > booking.endDate ? nextEndDate : booking.endDate, stoppedAt: undefined, vehiclePeriods: booking.vehiclePeriods.map((period) => ({ ...period, endDate: nextEndDate > period.endDate ? nextEndDate : period.endDate })) }; setEditingCampaign(renewed); setRenewingCampaign(false); setCampaignFormOpen(true); }} deleteBooking={(booking) => { if (!window.confirm("Delete this campaign and its attendance link?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.filter((item) => item.clientId !== booking.clientId && item.client.firmName.trim().toLowerCase() !== booking.client.firmName.trim().toLowerCase() && item.id !== booking.id) })); notify("Campaign deleted"); }} stopBooking={(booking) => { if (!window.confirm("Stop this campaign immediately?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.map((item) => (item.clientId === booking.clientId || item.client.firmName.trim().toLowerCase() === booking.client.firmName.trim().toLowerCase() || item.id === booking.id) ? { ...item, stoppedAt: isoToday() } : item) })); notify("Campaign stopped"); }} generateBill={generateCampaignBill} viewBill={(bill) => setInvoice(bill)} generateReceipt={openCreateReceipt} viewReceipt={setViewingReceipt}/>}
+    {view === "campaigns" && <CampaignsView store={store} campaignSearch={campaignSearch} normalizedCampaignSearch={normalizedCampaignSearch} filteredCampaignBookings={filteredCampaignBookings} setCampaignSearch={setCampaignSearch} newBooking={() => { setEditingCampaign(null); setRenewingCampaign(false); setCampaignFormOpen(true); }} editBooking={(booking) => { setEditingCampaign(booking); setRenewingCampaign(false); setCampaignFormOpen(true); }} renewBooking={(booking) => { const currentEnd = bookingEnd(booking); const endYear = Number(currentEnd.slice(0, 4)); const endMonth = Number(currentEnd.slice(5, 7)); const nextMonthDate = new Date(Date.UTC(endYear, endMonth, 1)); const nextStartDate = nextMonthDate.toISOString().slice(0, 10); const nextEndDay = new Date(Date.UTC(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth() + 1, 0)).getUTCDate(); const nextEndDate = `${nextMonthDate.getUTCFullYear()}-${String(nextMonthDate.getUTCMonth() + 1).padStart(2, "0")}-${String(nextEndDay).padStart(2, "0")}`; const renewed = { ...booking, id: nextId(store.campaignBookings), generatedBillId: undefined, startDate: nextStartDate, endDate: nextEndDate, stoppedAt: undefined, vehiclePeriods: booking.vehiclePeriods.map((period) => ({ ...period, startDate: nextStartDate, endDate: nextEndDate, vehicleIds: [] })) }; setEditingCampaign(renewed); setRenewingCampaign(true); setCampaignFormOpen(true); }} deleteBooking={(booking) => { if (!window.confirm("Delete this campaign and its attendance link?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.filter((item) => item.clientId !== booking.clientId && item.client.firmName.trim().toLowerCase() !== booking.client.firmName.trim().toLowerCase() && item.id !== booking.id) })); notify("Campaign deleted"); }} stopBooking={(booking) => { if (!window.confirm("Stop this campaign immediately?")) return; setStore((current) => ({ ...current, campaignBookings: current.campaignBookings.map((item) => (item.clientId === booking.clientId || item.client.firmName.trim().toLowerCase() === booking.client.firmName.trim().toLowerCase() || item.id === booking.id) ? { ...item, stoppedAt: isoToday() } : item) })); notify("Campaign stopped"); }} generateBill={generateCampaignBill} viewBill={(bill) => setInvoice(bill)} generateReceipt={openCreateReceipt} viewReceipt={setViewingReceipt}/>}
     {view === "payroll" && (
       <PayrollView
         store={store}
