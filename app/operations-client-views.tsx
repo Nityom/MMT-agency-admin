@@ -183,6 +183,7 @@ export type CampaignsViewProps = {
   newBooking: () => void;
   editBooking: (booking: CampaignBooking) => void;
   renewBooking: (booking: CampaignBooking) => void;
+  extendBooking: (booking: CampaignBooking) => void;
   deleteBooking: (booking: CampaignBooking) => void;
   stopBooking: (booking: CampaignBooking) => void;
   generateBill: (booking: CampaignBooking) => void;
@@ -199,6 +200,7 @@ export function CampaignsView({
   newBooking,
   editBooking,
   renewBooking,
+  extendBooking,
   deleteBooking,
   stopBooking,
   generateBill,
@@ -329,6 +331,7 @@ export function CampaignsView({
                 booking={booking}
                 edit={() => editBooking(booking)}
                 renew={() => renewBooking(booking)}
+                extend={() => extendBooking(booking)}
                 deleteBooking={() => deleteBooking(booking)}
                 stop={() => stopBooking(booking)}
                 generateBill={() => generateBill(booking)}

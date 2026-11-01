@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useConvex } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
-import { emptyStore, FleetStore, migrateStore } from "./fleet-domain";
+import { emptyStore, FleetStore, migrateStore, type CampaignVehiclePeriod } from "./fleet-domain";
 
 const STORE_KEY = "primary";
 const STORE_CACHE_KEY = "fleet-store-cache-v1";
@@ -46,6 +46,105 @@ type CachedStore = {
   revision: number | null;
   store: FleetStore;
 };
+
+function restoreHistoricalCampaignBookings(store: FleetStore): FleetStore {
+  const existingIds = new Set(store.campaignBookings.map((booking) => booking.id));
+  const recovered = new Map<number, FleetStore["campaignBookings"][number]>();
+  const collisionIds = new Map<number, number>();
+  const remappedAttendance: Record<string, Record<string, boolean>> = {};
+  let nextRecoveredId = Math.max(0, ...store.campaignBookings.map((booking) => booking.id)) + 1;
+
+  for (const bill of store.bills) {
+    for (const line of bill.vehicleLines) {
+      if (line.vehicleId >= 0) continue;
+      const encodedId = Math.abs(line.vehicleId);
+      const sourceId = Math.floor(encodedId / 10000);
+      const periodId = Math.floor(encodedId / 100) % 100;
+      const slotIndex = encodedId % 100 - 1;
+      const current = store.campaignBookings.find((booking) => booking.id === sourceId);
+      const isHistoricalCollision = Boolean(current && line.endDate < current.startDate);
+      const alreadyRecovered = store.campaignBookings.some((booking) =>
+        booking.id !== sourceId &&
+        booking.clientId === bill.clientId &&
+        booking.vehiclePeriods.some((period) =>
+          period.startDate <= line.startDate &&
+          period.endDate >= line.endDate &&
+          period.quantity >= slotIndex + 1 &&
+          period.dailyRate === line.dailyRate,
+        ),
+      );
+      if (alreadyRecovered) continue;
+      const targetId = isHistoricalCollision
+        ? (collisionIds.get(sourceId) ?? nextRecoveredId++)
+        : sourceId;
+      if (isHistoricalCollision) collisionIds.set(sourceId, targetId);
+      if (existingIds.has(sourceId) && !isHistoricalCollision) continue;
+
+      const type: CampaignVehiclePeriod["type"] = /e[- ]?rickshaw/i.test(line.label ?? "") ? "E-rickshaw" : "Rickshaw";
+      const currentRecovered = recovered.get(targetId);
+      const currentPeriod = currentRecovered?.vehiclePeriods.find((period) => period.id === periodId);
+      const period = {
+        id: periodId,
+        type,
+        vehicleIds: [],
+        startDate: (currentPeriod?.startDate ?? line.startDate) < line.startDate
+          ? currentPeriod?.startDate ?? line.startDate
+          : line.startDate,
+        endDate: (currentPeriod?.endDate ?? line.endDate) > line.endDate
+          ? currentPeriod?.endDate ?? line.endDate
+          : line.endDate,
+        quantity: Math.max(currentPeriod?.quantity ?? 0, slotIndex + 1),
+        dailyRate: line.dailyRate,
+      };
+      const base = currentRecovered ?? {
+        id: targetId,
+        month: line.startDate.slice(0, 7),
+        clientId: bill.clientId,
+        client: bill.client,
+        startDate: line.startDate,
+        endDate: line.endDate,
+        vehiclePeriods: [],
+        facilities: [],
+      };
+      recovered.set(targetId, {
+        ...base,
+        startDate: base.startDate < line.startDate ? base.startDate : line.startDate,
+        endDate: base.endDate > line.endDate ? base.endDate : line.endDate,
+        vehiclePeriods: currentPeriod
+          ? base.vehiclePeriods.map((item) => item.id === periodId ? period : item)
+          : [...base.vehiclePeriods, period],
+      });
+
+      if (isHistoricalCollision) {
+        for (const [date, values] of Object.entries(store.campaignAttendance)) {
+          if (date >= line.startDate && date <= line.endDate) {
+            const oldKey = `${sourceId}:${periodId}:${slotIndex}`;
+            const newKey = `${targetId}:${periodId}:${slotIndex}`;
+            if (values[oldKey] !== undefined) {
+              remappedAttendance[date] = {
+                ...(remappedAttendance[date] ?? values),
+                [newKey]: values[oldKey],
+              };
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (!recovered.size) return store;
+  const campaignBookings = [
+    ...store.campaignBookings.filter((booking) => !recovered.has(booking.id)),
+    ...recovered.values(),
+  ];
+  const campaignAttendance = Object.keys(remappedAttendance).length
+    ? Object.fromEntries(Object.entries(store.campaignAttendance).map(([date, values]) => [
+        date,
+        { ...values, ...(remappedAttendance[date] ?? {}) },
+      ]))
+    : store.campaignAttendance;
+  return { ...store, campaignBookings, campaignAttendance };
+}
 
 function readStoreCache(): CachedStore | null {
   try {
@@ -157,9 +256,10 @@ export function useFleetStore() {
       initialMount.current = false;
       const cached = readStoreCache();
       if (cached && cached.revision === remoteRevision) {
+        const restoredStore = restoreHistoricalCampaignBookings(cached.store);
         revision.current = cached.revision;
         persisted.current = createSnapshot(cached.store);
-        setStore(cached.store);
+        setStore(restoredStore);
         setStorageReady(true);
         return;
       }
@@ -171,13 +271,18 @@ export function useFleetStore() {
     const targetRevision = remoteRevision;
     convex.query(api.adminStore.get, { key: STORE_KEY }).then((remoteStore: Awaited<ReturnType<typeof convex.query<typeof api.adminStore.get>>>) => {
       fetchingRevision.current = null;
-      if (!remoteStore) return;
+      if (!remoteStore) {
+        console.error("Convex returned no admin store payload");
+        setStorageReady(true);
+        return;
+      }
 
       let loadedStore = emptyStore;
       try {
         loadedStore = migrateStore(JSON.parse(remoteStore.payload), emptyStore);
-      } catch {
-        loadedStore = emptyStore;
+        loadedStore = restoreHistoricalCampaignBookings(loadedStore);
+      } catch (error: unknown) {
+        console.error("Unable to migrate admin store from Convex", error);
       }
 
       persisted.current = createSnapshot(loadedStore);

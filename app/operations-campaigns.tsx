@@ -49,11 +49,13 @@ type VehiclePeriodDraft = Omit<CampaignVehiclePeriod, "id">;
 export function CampaignBookingForm({
   store,
   booking,
+  mode = "edit",
   close,
   save,
 }: {
   store: FleetStore;
   booking?: CampaignBooking | null;
+  mode?: "edit" | "renew" | "extend";
   close: () => void;
   save: (booking: CampaignBooking) => void;
 }) {
@@ -249,7 +251,15 @@ export function CampaignBookingForm({
   };
   return (
     <Modal
-      title={booking ? "Edit campaign booking" : "New monthly campaign booking"}
+      title={
+        mode === "renew"
+          ? "Renew campaign (new record)"
+          : mode === "extend"
+            ? "Extend campaign (new record)"
+            : booking
+              ? "Edit campaign booking"
+              : "New monthly campaign booking"
+      }
       close={close}
     >
       <form className="op-form op-campaign-form" onSubmit={submit}>
@@ -577,7 +587,7 @@ export function CampaignBookingForm({
           </Button>
           <Button type="submit">
             <Check size={17} />
-            Save booking
+            {mode === "edit" ? "Save booking" : "Create new campaign record"}
           </Button>
         </footer>
       </form>
@@ -590,6 +600,7 @@ function LegacyCampaignBookingCard({
   booking,
   edit,
   renew,
+  extend,
   deleteBooking,
   stop,
   generateBill,
@@ -601,6 +612,7 @@ function LegacyCampaignBookingCard({
   booking: CampaignBooking;
   edit: () => void;
   renew: () => void;
+  extend: () => void;
   deleteBooking: () => void;
   stop: () => void;
   generateBill: () => void;
@@ -830,7 +842,10 @@ function LegacyCampaignBookingCard({
                 Edit campaign
               </Button>
               <Button secondary onClick={renew}>
-                Extend campaign (new record)
+                Renew campaign
+              </Button>
+              <Button secondary onClick={extend}>
+                Extend campaign
               </Button>
               <Button secondary onClick={deleteBooking}>
                 Delete campaign
@@ -882,6 +897,7 @@ function CampaignSlotCardContent({
   booking,
   edit,
   renew,
+  extend,
   deleteBooking,
   stop,
   generateBill,
@@ -893,6 +909,7 @@ function CampaignSlotCardContent({
   booking: CampaignBooking;
   edit: () => void;
   renew: () => void;
+  extend: () => void;
   deleteBooking: () => void;
   stop: () => void;
   generateBill: () => void;
@@ -907,6 +924,7 @@ function CampaignSlotCardContent({
         booking={booking}
         edit={edit}
         renew={renew}
+        extend={extend}
         deleteBooking={deleteBooking}
         stop={stop}
         generateBill={generateBill}
@@ -1133,7 +1151,10 @@ function CampaignSlotCardContent({
                 Edit campaign
               </Button>
               <Button secondary onClick={renew}>
-                Extend campaign (new record)
+                Renew campaign
+              </Button>
+              <Button secondary onClick={extend}>
+                Extend campaign
               </Button>
               <Button secondary onClick={deleteBooking}>
                 Delete campaign
@@ -1185,6 +1206,7 @@ export function CampaignSlotCard({
   booking,
   edit,
   renew,
+  extend,
   deleteBooking,
   stop,
   generateBill,
@@ -1196,6 +1218,7 @@ export function CampaignSlotCard({
   booking: CampaignBooking;
   edit: () => void;
   renew: () => void;
+  extend: () => void;
   deleteBooking: () => void;
   stop: () => void;
   generateBill: () => void;
@@ -1216,6 +1239,7 @@ export function CampaignSlotCard({
         booking={booking}
         edit={edit}
         renew={renew}
+        extend={extend}
         deleteBooking={deleteBooking}
         stop={stop}
         generateBill={generateBill}
@@ -1421,6 +1445,47 @@ export function CampaignAttendanceView({
   const [dirty, setDirty] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
 
+  const historicalBookings = (targetDate: string): CampaignBooking[] => {
+    const recovered = new Map<number, CampaignBooking>();
+    store.bills.forEach((bill) => {
+      bill.vehicleLines.forEach((line) => {
+        if (
+          line.vehicleId >= 0 ||
+          line.startDate > targetDate ||
+          line.endDate < targetDate
+        ) return;
+        const encodedId = Math.abs(line.vehicleId);
+        const bookingId = Math.floor(encodedId / 10000);
+        const periodId = Math.floor(encodedId / 100) % 100;
+        const slotIndex = encodedId % 100 - 1;
+        if (store.campaignBookings.some((booking) => booking.id === bookingId)) return;
+        const existing = recovered.get(bookingId);
+        const period = {
+          id: periodId,
+          type: "Rickshaw" as const,
+          vehicleIds: [],
+          startDate: line.startDate,
+          endDate: line.endDate,
+          quantity: Math.max(existing?.vehiclePeriods.find((item) => item.id === periodId)?.quantity ?? 0, slotIndex + 1),
+          dailyRate: line.dailyRate,
+        };
+        recovered.set(bookingId, {
+          id: bookingId,
+          month: line.startDate.slice(0, 7),
+          clientId: bill.clientId,
+          client: bill.client,
+          startDate: line.startDate,
+          endDate: line.endDate,
+          vehiclePeriods: existing
+            ? existing.vehiclePeriods.map((item) => item.id === periodId ? period : item)
+            : [period],
+          facilities: [],
+        });
+      });
+    });
+    return [...recovered.values()];
+  };
+
   const bookingsForDate = (targetDate: string) => {
     const matching = store.campaignBookings
       .filter((booking) => {
@@ -1430,6 +1495,7 @@ export function CampaignAttendanceView({
       .sort((left, right) =>
         left.startDate.localeCompare(right.startDate) || left.id - right.id,
       );
+    matching.push(...historicalBookings(targetDate));
     return Array.from(
       matching
         .reduce((groups, booking) => {
@@ -1501,7 +1567,7 @@ export function CampaignAttendanceView({
     <>
       <PageHead
         title="Campaign attendance"
-        detail="Mark requested vehicle slots by party; no vehicle assignment is required"
+        detail="Select a date to view and mark campaign vehicle slots; historical attendance remains saved by date"
       />
       <div className="op-attendance-layout">
         <AttendanceCalendar
