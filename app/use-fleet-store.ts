@@ -150,6 +150,8 @@ export function useFleetStore() {
     // Already fetching this exact revision — wait for it.
     if (fetchingRevision.current === remoteRevision) return;
 
+    setStorageReady(false);
+
     // On first load, try localStorage cache before doing any network call.
     if (initialMount.current) {
       initialMount.current = false;

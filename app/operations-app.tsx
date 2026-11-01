@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Banknote, Check, CircleDollarSign,
+  Banknote, CalendarDays, Check, CircleDollarSign,
   FileText, Printer, ReceiptText, Search, Trash2, Truck,
   UsersRound, WalletCards, Wrench, X,
 } from "lucide-react";
@@ -35,7 +35,7 @@ import { ReportsView } from "./operations-reports-view";
 import { AttendanceView, EmployeesView, PayrollView } from "./operations-workforce-views";
 import {
   billBalance, billPaid, bookingEnd, bookingStatus, bookingVehicleLines, campaignSlotKey,
-  campaignMonthOptions, campaignSlotPresentDays, consolidateCampaignBookings, expenseClientBilling,
+  campaignMonthOptions, campaignSlotPresentDays, expenseClientBilling,
   expenseProfit, findCampaignBillForRange, fmt, isoToday, matchesReportCategory, money, nextId, otherBillBalance, otherBillCost,
   ReportProfitCategory, reportProfitCategories, supplierBalance, supplierPaid,
 } from "./operations-utils";
@@ -414,7 +414,9 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
     const matchesMonth = !campaignMonth || booking.startDate <= selectedCampaignMonthEnd && bookingEnd(booking) >= selectedCampaignMonthStart;
     return matchesClient && matchesMonth;
   });
-  const filteredCampaignBookings = consolidateCampaignBookings(matchingCampaignBookings);
+  const filteredCampaignBookings = matchingCampaignBookings.sort((left, right) =>
+    right.startDate.localeCompare(left.startDate) || right.id - left.id,
+  );
   const normalizedLedgerSearch = ledgerSearch.trim().toLowerCase();
   const ledgerClients = store.clients.filter((client) => {
     if (!normalizedLedgerSearch) {
@@ -516,7 +518,7 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
     const vehicleLines: BillVehicleLine[] = booking.vehiclePeriods.flatMap(
       (period, periodIndex) => {
         const effectiveStart =
-          period.startDate > fromDate ? fromDate : period.startDate;
+          period.startDate > fromDate ? period.startDate : fromDate;
         const effectiveEnd = [
           period.endDate,
           bookingEnd(booking),
@@ -1246,7 +1248,18 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
       </>
     );
   }
-  if (String(view) === "vehicles") return recordViewShell(<CampaignAttendanceView store={store} setStore={setStore} notify={notify}/>);
+  if (String(view) === "vehicles") {
+    if (!storageReady) {
+      return recordViewShell(
+        <div className="op-empty-state">
+          <CalendarDays />
+          <h2>Loading attendance data</h2>
+          <p>Waiting for the latest saved attendance records.</p>
+        </div>,
+      );
+    }
+    return recordViewShell(<CampaignAttendanceView store={store} setStore={setStore} notify={notify}/>);
+  }
   if (view === "vehicleAttendance") return recordViewShell(<>
     <PageHead title="Vehicle attendance" detail="Mark vehicle attendance separately for the selected date"/>
     <div className="op-attendance-layout">

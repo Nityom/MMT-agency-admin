@@ -562,6 +562,11 @@ export function BillingComposer({
                     {vehicle.number} · {vehicle.type}
                   </option>
                 ))}
+                {line.vehicleId < 0 && (
+                  <option value={line.vehicleId}>
+                    {line.label ?? "Campaign vehicle"}
+                  </option>
+                )}
               </select>
             </label>
             <label>
@@ -1889,16 +1894,19 @@ export function CampaignBillModeModal({
   
   // Calculate monthly periods for the campaign
   const monthlyPeriods: { label: string; from: string; to: string; existingBill?: Bill }[] = [];
-  let cur = new Date(`${billingStartDate}T00:00:00Z`);
-  const fin = new Date(endDate);
+  let cur = new Date(`${billingStartDate.slice(0, 7)}-01T00:00:00Z`);
+  const fin = new Date(`${endDate}T00:00:00Z`);
   let cycle = 1;
   while (cur <= fin) {
-    const next = new Date(cur);
-    next.setMonth(next.getMonth() + 1);
-    next.setDate(next.getDate() - 1);
-    const chunkEnd = next < fin ? next : fin;
-    const fromStr = cur.toISOString().slice(0, 10);
-    const toStr = chunkEnd.toISOString().slice(0, 10);
+    const year = cur.getUTCFullYear();
+    const month = cur.getUTCMonth();
+    const monthStart = new Date(Date.UTC(year, month, 1));
+    const monthEnd = new Date(Date.UTC(year, month + 1, 0));
+    const fromStr = monthStart.toISOString().slice(0, 10) < billingStartDate
+      ? billingStartDate
+      : monthStart.toISOString().slice(0, 10);
+    const monthEndStr = monthEnd.toISOString().slice(0, 10);
+    const toStr = monthEndStr > endDate ? endDate : monthEndStr;
     const mName = cur.toLocaleString("default", { month: "short", year: "numeric" });
     const existingBill = store ? findCampaignBillForRange(store, booking, fromStr, toStr) : undefined;
     monthlyPeriods.push({
@@ -1907,8 +1915,7 @@ export function CampaignBillModeModal({
       to: toStr,
       existingBill,
     });
-    cur = new Date(chunkEnd);
-    cur.setDate(cur.getDate() + 1);
+    cur = new Date(Date.UTC(year, month + 1, 1));
     cycle++;
   }
 

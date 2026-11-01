@@ -827,10 +827,10 @@ function LegacyCampaignBookingCard({
             )}
             <footer>
               <Button secondary onClick={edit}>
-                Edit / extend / schedule stop
+                Edit campaign
               </Button>
               <Button secondary onClick={renew}>
-                Extend / Renew campaign
+                Extend campaign (new record)
               </Button>
               <Button secondary onClick={deleteBooking}>
                 Delete campaign
@@ -1130,10 +1130,10 @@ function CampaignSlotCardContent({
             )}
             <footer>
               <Button secondary onClick={edit}>
-                Edit / extend / schedule stop
+                Edit campaign
               </Button>
               <Button secondary onClick={renew}>
-                Extend / Renew campaign
+                Extend campaign (new record)
               </Button>
               <Button secondary onClick={deleteBooking}>
                 Delete campaign
@@ -1236,35 +1236,56 @@ export function CampaignSlotCard({
 export function CampaignAttendanceReportModal({
   store,
   close,
+  initialDate,
 }: {
   store: FleetStore;
   close: () => void;
+  initialDate: string;
 }) {
-  const [reportFrom, setReportFrom] = useState(`${isoToday().slice(0, 7)}-01`);
-  const [reportTo, setReportTo] = useState(isoToday());
+  const [reportFrom, setReportFrom] = useState(initialDate);
+  const [reportTo, setReportTo] = useState(initialDate);
   const [reportSearch, setReportSearch] = useState("");
 
-  const reportCampaigns = store.campaignBookings
-    .filter((b) => {
+  const reportCampaigns = Array.from(
+    store.campaignBookings
+      .filter((b) => {
       const end = bookingEnd(b);
       const overlaps = b.startDate <= reportTo && end >= reportFrom;
       if (!overlaps) return false;
+      return true;
+      })
+      .reduce((groups, booking) => {
+        const key = booking.clientId
+          ? `id:${booking.clientId}`
+          : `name:${booking.client.firmName.trim().toLowerCase()}`;
+        const group = groups.get(key) ?? [];
+        group.push(booking);
+        groups.set(key, group);
+        return groups;
+      }, new Map<string, CampaignBooking[]>())
+      .entries(),
+  )
+    .map(([key, bookings]) => {
+      const first = bookings[0];
       const q = reportSearch.trim().toLowerCase();
-      if (!q) return true;
-      return (
-        b.client.firmName.toLowerCase().includes(q) ||
-        (b.client.ownerName || "").toLowerCase().includes(q) ||
-        b.client.mobile.includes(q) ||
-        bookingStatus(b, store).toLowerCase().includes(q)
-      );
+      const matchesSearch =
+        !q ||
+        bookings.some((booking) =>
+          `${booking.client.firmName} ${booking.client.ownerName || ""} ${booking.client.mobile} ${bookingStatus(booking, store)}`
+            .toLowerCase()
+            .includes(q),
+        );
+      if (!matchesSearch) return null;
+      return {
+        key,
+        bookings,
+        client: first.client,
+        startDate: bookings.map((booking) => booking.startDate).sort()[0],
+        endDate: bookings.map((booking) => bookingEnd(booking)).sort().at(-1) ?? first.endDate,
+      };
     })
-    .sort((a, b) => {
-      const statusA = bookingStatus(a, store);
-      const statusB = bookingStatus(b, store);
-      if (statusA === "Active" && statusB !== "Active") return -1;
-      if (statusA !== "Active" && statusB === "Active") return 1;
-      return b.startDate.localeCompare(a.startDate);
-    });
+    .filter((group): group is NonNullable<typeof group> => Boolean(group))
+    .sort((a, b) => b.startDate.localeCompare(a.startDate));
 
   return (
     <Modal title="Campaign Attendance Report" close={close}>
@@ -1307,50 +1328,54 @@ export function CampaignAttendanceReportModal({
               "Total days",
             ]}
           >
-            {reportCampaigns.map((booking) => {
-              const status = bookingStatus(booking, store);
-              const start = booking.startDate > reportFrom ? booking.startDate : reportFrom;
-              const end = bookingEnd(booking) < reportTo ? bookingEnd(booking) : reportTo;
+            {reportCampaigns.map((group) => {
+              const status = group.bookings.some((booking) => bookingStatus(booking, store) === "Active")
+                ? "Active"
+                : bookingStatus(group.bookings[0], store);
               let presentSlots = 0;
               let totalSlots = 0;
 
-              if (end >= start) {
+              group.bookings.forEach((booking) => {
+                const start = booking.startDate > reportFrom ? booking.startDate : reportFrom;
+                const end = bookingEnd(booking) < reportTo ? bookingEnd(booking) : reportTo;
+                if (end < start) return;
                 const days = Array.from(
                   { length: inclusiveDays(start, end) },
                   (_, offset) => addDays(start, offset),
                 );
                 days.forEach((d) => {
-                  const periods = booking.vehiclePeriods.filter(
-                    (p) => p.startDate <= d && p.endDate >= d,
-                  );
-                  periods.forEach((period) => {
-                    for (let slotIndex = 0; slotIndex < period.quantity; slotIndex++) {
-                      const key = campaignSlotKey(booking.id, period.id, slotIndex);
-                      const val =
-                        store.campaignAttendance[d]?.[key] ??
-                        (period.vehicleIds[slotIndex]
-                          ? store.vehicleAttendance[d]?.[period.vehicleIds[slotIndex]]
-                          : undefined);
-                      totalSlots += 1;
-                      if (val === true) presentSlots += 1;
-                    }
-                  });
+                  booking.vehiclePeriods
+                    .filter((period) => period.startDate <= d && period.endDate >= d)
+                    .forEach((period) => {
+                      for (let slotIndex = 0; slotIndex < period.quantity; slotIndex++) {
+                        const attendanceKey = campaignSlotKey(booking.id, period.id, slotIndex);
+                        const val =
+                          store.campaignAttendance[d]?.[attendanceKey] ??
+                          (period.vehicleIds[slotIndex]
+                            ? store.vehicleAttendance[d]?.[period.vehicleIds[slotIndex]]
+                            : undefined);
+                        totalSlots += 1;
+                        if (val === true) presentSlots += 1;
+                      }
+                    });
                 });
-              }
+              });
 
               const absentSlots = totalSlots - presentSlots;
 
               return (
-                <Row key={`modal-campaign-report-${booking.id}`}>
+                <Row key={`modal-campaign-report-${group.key}`}>
                   <b>
-                    {booking.client.firmName}
+                    {group.client.firmName}
                     <small>
-                      {fmt(booking.startDate)} to {fmt(bookingEnd(booking))}
-                      {booking.client.ownerName ? ` · ${booking.client.ownerName}` : ""}
+                      {fmt(group.startDate)} to {fmt(group.endDate)}
+                      {group.client.ownerName ? ` · ${group.client.ownerName}` : ""}
                     </small>
                   </b>
                   <span>
-                    {booking.vehiclePeriods.map((p) => `${p.quantity} ${p.type}`).join(", ")}
+                    {Array.from(new Set(group.bookings.flatMap((booking) =>
+                      booking.vehiclePeriods.map((period) => `${period.quantity} ${period.type}`),
+                    ))).join(", ")}
                   </span>
                   <Status>{status}</Status>
                   <strong style={{ color: "#1f6a53" }}>{presentSlots} days</strong>
@@ -1396,23 +1421,48 @@ export function CampaignAttendanceView({
   const [dirty, setDirty] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
 
-  const rawBookings = store.campaignBookings
-    .filter((booking) => {
-      if (booking.stoppedAt && date >= booking.stoppedAt) return false;
-      return booking.startDate <= date && bookingEnd(booking) >= date;
-    })
-    .map((booking) => ({
-      booking,
-      periods: booking.vehiclePeriods.filter((period) => {
-        if (booking.stoppedAt && date >= booking.stoppedAt) return false;
-        const periodEnd =
-          booking.stoppedAt && booking.stoppedAt < period.endDate
-            ? booking.stoppedAt
-            : period.endDate;
-        return period.startDate <= date && periodEnd >= date;
-      }),
-    }))
-    .filter(({ periods }) => periods.length > 0);
+  const bookingsForDate = (targetDate: string) => {
+    const matching = store.campaignBookings
+      .filter((booking) => {
+        if (booking.stoppedAt && targetDate >= booking.stoppedAt) return false;
+        return booking.startDate <= targetDate && bookingEnd(booking) >= targetDate;
+      })
+      .sort((left, right) =>
+        left.startDate.localeCompare(right.startDate) || left.id - right.id,
+      );
+    return Array.from(
+      matching
+        .reduce((groups, booking) => {
+          const key = booking.clientId
+            ? `id:${booking.clientId}`
+            : `name:${booking.client.firmName.trim().toLowerCase()}`;
+          if (!groups.has(key)) groups.set(key, booking);
+          return groups;
+        }, new Map<string, CampaignBooking>())
+        .values(),
+    )
+      .map((booking) => ({
+        booking,
+        periods: booking.vehiclePeriods.filter((period) => {
+          if (booking.stoppedAt && targetDate >= booking.stoppedAt) return false;
+          const periodEnd =
+            booking.stoppedAt && booking.stoppedAt < period.endDate
+              ? booking.stoppedAt
+              : period.endDate;
+          return period.startDate <= targetDate && periodEnd >= targetDate;
+        }),
+      }))
+      .filter(({ periods }) => periods.length > 0);
+  };
+  const slotsForDate = (targetDate: string) =>
+    bookingsForDate(targetDate).flatMap(({ booking, periods }) =>
+      periods.flatMap((period) =>
+        Array.from({ length: period.quantity }, (_, slotIndex) =>
+          campaignSlotKey(booking.id, period.id, slotIndex),
+        ),
+      ),
+    );
+  const rawBookings = bookingsForDate(date);
 
   const bookings = [...rawBookings].sort((a, b) => {
     const statusA = bookingStatus(a.booking, store);
@@ -1422,13 +1472,7 @@ export function CampaignAttendanceView({
     return a.booking.client.firmName.localeCompare(b.booking.client.firmName);
   });
 
-  const slots = bookings.flatMap(({ booking, periods }) =>
-    periods.flatMap((period) =>
-      Array.from({ length: period.quantity }, (_, slotIndex) =>
-        campaignSlotKey(booking.id, period.id, slotIndex),
-      ),
-    ),
-  );
+  const slots = slotsForDate(date);
   const selectDate = (nextDate: string) => {
     if (
       dirty &&
@@ -1465,6 +1509,7 @@ export function CampaignAttendanceView({
           selected={date}
           attendance={calendarAttendance}
           employeeIds={slots}
+          employeeIdsForDate={slotsForDate}
           onSelect={selectDate}
         />
         <section className="op-attendance-sheet">
@@ -1598,6 +1643,7 @@ export function CampaignAttendanceView({
       {showReportModal && (
         <CampaignAttendanceReportModal
           store={store}
+          initialDate={date}
           close={() => setShowReportModal(false)}
         />
       )}
