@@ -241,6 +241,10 @@ export type Bill = {
   lossReason?: string;
   lossDate?: ISODate;
   facilities?: QuotationFacility[];
+  previousBalance?: number;
+  previousBalanceNote?: string;
+  carriedFromBillNumbers?: number[];
+  carriedToBillNumber?: number;
 };
 
 export type QuotationStatus = "Draft" | "Sent" | "Accepted" | "Converted" | "Expired";
@@ -327,6 +331,10 @@ export type OtherBill = {
   lossAmount?: number;
   lossReason?: string;
   lossDate?: ISODate;
+  previousBalance?: number;
+  previousBalanceNote?: string;
+  carriedFromBillNumbers?: number[];
+  carriedToBillNumber?: number;
 };
 
 export type BusinessExpenseCategory =

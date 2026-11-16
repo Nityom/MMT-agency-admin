@@ -459,7 +459,14 @@ export function BillingView({
                     0,
                   )}
                 </span>
-                <strong>{money(bill.total)}</strong>
+                <span>
+                  <strong>{money(bill.total + (bill.previousBalance ?? 0))}</strong>
+                  {bill.previousBalance ? (
+                    <small style={{ color: "#b45309", fontWeight: 600 }}>
+                      Incl. {money(bill.previousBalance)} prev
+                    </small>
+                  ) : null}
+                </span>
                 <span>
                   <b>{money(billPaid(bill))}</b>
                   {bill.lossAmount ? (
@@ -475,13 +482,22 @@ export function BillingView({
                         : `${bill.paymentMode} · No payment`}
                   </small>
                 </span>
-                <strong>{money(billBalance(bill))}</strong>
+                <span>
+                  <strong>{money(billBalance(bill))}</strong>
+                  {bill.carriedToBillNumber ? (
+                    <small style={{ color: "#92400e", fontWeight: 600 }}>
+                      Carried to INV-{String(bill.carriedToBillNumber).padStart(4, "0")}
+                    </small>
+                  ) : null}
+                </span>
                 <Status>
-                  {billBalance(bill) === 0
-                    ? "Paid"
-                    : bill.status === "Overdue"
-                      ? "Overdue"
-                      : "Pending"}
+                  {bill.carriedToBillNumber
+                    ? "Carried Forward"
+                    : billBalance(bill) === 0
+                      ? "Paid"
+                      : bill.status === "Overdue"
+                        ? "Overdue"
+                        : "Pending"}
                 </Status>
                 <Actions
                   edit={() => editBill(bill)}

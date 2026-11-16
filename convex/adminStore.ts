@@ -277,16 +277,9 @@ export const saveBackupChunk = mutation({
     index: v.number(),
     payload: v.string(),
   },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("backupSnapshotChunks")
-      .withIndex("by_store_revision", (queryBuilder) =>
-        queryBuilder.eq("storeKey", args.storeKey).eq("revision", args.revision),
-      )
-      .collect();
-    const matching = existing.find((chunk) => chunk.index === args.index);
-    if (matching) await ctx.db.patch(matching._id, { payload: args.payload });
-    else await ctx.db.insert("backupSnapshotChunks", args);
+  handler: async () => {
+    // Deprecated no-op: Prevents GBs of redundant full-store backup chunks
+    return;
   },
 });
 
@@ -298,14 +291,32 @@ export const commitBackup = mutation({
     schemaVersion: v.number(),
     createdAt: v.number(),
   },
-  handler: async (ctx, args) => {
-    const chunks = await ctx.db
-      .query("backupSnapshotChunks")
-      .withIndex("by_store_revision", (queryBuilder) =>
-        queryBuilder.eq("storeKey", args.storeKey).eq("revision", args.revision),
-      )
-      .collect();
-    if (chunks.length !== args.chunkCount) throw new Error("Backup snapshot upload is incomplete");
-    await ctx.db.insert("backupSnapshots", args);
+  handler: async () => {
+    // Deprecated no-op: Prevents GBs of redundant full-store backup commits
+    return;
+  },
+});
+
+export const purgeOldBackups = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const backupChunks = await ctx.db.query("backupSnapshotChunks").take(10);
+    for (const chunk of backupChunks) {
+      await ctx.db.delete(chunk._id);
+    }
+    const snapshots = await ctx.db.query("backupSnapshots").take(20);
+    for (const s of snapshots) {
+      await ctx.db.delete(s._id);
+    }
+    const storeChunks = await ctx.db.query("adminStoreChunks").take(10);
+    for (const sc of storeChunks) {
+      await ctx.db.delete(sc._id);
+    }
+    return {
+      deletedBackupChunks: backupChunks.length,
+      deletedSnapshots: snapshots.length,
+      deletedStoreChunks: storeChunks.length,
+      hasMore: backupChunks.length > 0 || snapshots.length > 0 || storeChunks.length > 0,
+    };
   },
 });

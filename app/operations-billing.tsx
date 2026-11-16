@@ -1,4 +1,4 @@
-"use client";
+ "use client";
 
 import { Check, FileText, Gauge, Plus, Printer, ReceiptText, Trash2, TrendingDown, X } from "lucide-react";
 import Image from "next/image";
@@ -57,7 +57,7 @@ export function BillingComposer({
   bill?: Bill | null;
   campaignBooking?: CampaignBooking | null;
   cancel: () => void;
-  save: (bill: Bill, appliedReceiptIds?: number[]) => void;
+  save: (bill: Bill, appliedReceiptIds?: number[], carriedBillIds?: number[]) => void;
 }) {
   const linkedCampaign =
     campaignBooking ??
@@ -239,6 +239,55 @@ export function BillingComposer({
   const [clientId, setClientId] = useState(initialBillingClientId);
   const [billDate, setBillDate] = useState(initialBillDate);
 
+  const getPreviousUnpaidBills = (targetClientId: number) => {
+    const cObj = store.clients.find((c) => c.id === targetClientId);
+    const firm = cObj?.firmName?.trim().toLowerCase() || effectiveFirmName?.toLowerCase() || "";
+    return store.bills.filter((b) => {
+      if (bill && b.id === bill.id) return false;
+      const isMatch =
+        b.clientId === targetClientId ||
+        (firm && b.client?.firmName && b.client.firmName.trim().toLowerCase() === firm);
+      const isCarriedToOther = b.carriedToBillNumber && (!bill || b.carriedToBillNumber !== bill.number);
+      return isMatch && !isCarriedToOther && (billBalance(b) > 0 || (bill && b.carriedToBillNumber === bill.number));
+    });
+  };
+
+  const initialPreviousUnpaidBills = getPreviousUnpaidBills(initialBillingClientId);
+  const initialSuggestedPrevBalance = initialPreviousUnpaidBills.reduce(
+    (sum, b) => sum + (b.carriedToBillNumber === bill?.number ? (bill?.previousBalance ?? 0) : billBalance(b)),
+    0,
+  );
+
+  const [enablePreviousBalance, setEnablePreviousBalance] = useState<boolean>(() => {
+    return (bill?.previousBalance ?? 0) > 0 || (!bill && initialSuggestedPrevBalance > 0);
+  });
+  const [previousBalance, setPreviousBalance] = useState<number>(() => {
+    return bill?.previousBalance ?? (initialSuggestedPrevBalance > 0 ? initialSuggestedPrevBalance : 0);
+  });
+  const [previousBalanceNote, setPreviousBalanceNote] = useState<string>(
+    bill?.previousBalanceNote ?? (initialPreviousUnpaidBills.length > 0
+      ? `Carried forward from ${initialPreviousUnpaidBills.map((b) => `INV-${String(b.number).padStart(4, "0")}`).join(", ")}`
+      : ""),
+  );
+  const [settlePreviousBills, setSettlePreviousBills] = useState<boolean>(true);
+
+  const handleClientChange = (newClientId: number) => {
+    setClientId(newClientId);
+    if (!bill) {
+      const unpaids = getPreviousUnpaidBills(newClientId);
+      const sum = unpaids.reduce((acc, b) => acc + billBalance(b), 0);
+      if (sum > 0) {
+        setEnablePreviousBalance(true);
+        setPreviousBalance(sum);
+        setPreviousBalanceNote(`Carried forward from ${unpaids.map((b) => `INV-${String(b.number).padStart(4, "0")}`).join(", ")}`);
+      } else {
+        setEnablePreviousBalance(false);
+        setPreviousBalance(0);
+        setPreviousBalanceNote("");
+      }
+    }
+  };
+
   const availableReceipts = (store.receipts ?? []).filter((r) => {
     if (bill && r.billId === bill.id) return true;
     if (r.status === "Billed" && r.billId && (!bill || r.billId !== bill.id)) return false;
@@ -351,13 +400,16 @@ export function BillingComposer({
   const [payments, setPayments] = useState<Bill["payments"]>(bill?.payments ?? []);
   const [enableLoss, setEnableLoss] = useState<boolean>((bill?.lossAmount ?? 0) > 0);
   const [lossAmount, setLossAmount] = useState<number>(bill?.lossAmount ?? 0);
-  const [lossReason, setLossReason] = useState<string>(bill?.lossReason ?? "Client underpayment settlement");
+  const [lossReason, setLossReason] = useState<string>(bill?.lossReason ?? "Credit Amount / Underpayment concession");
   const [lossDate, setLossDate] = useState<string>(bill?.lossDate ?? isoToday());
 
-  const total = calculateBillTotal(finalLines, finalCharges);
+  const subtotal = calculateBillTotal(finalLines, finalCharges);
+  const activePreviousBalance = enablePreviousBalance ? (Number(previousBalance) || 0) : 0;
+  const total = subtotal;
+  const totalPayable = subtotal + activePreviousBalance;
   const activeLoss = enableLoss ? (Number(lossAmount) || 0) : 0;
   const totalCollected = advance + payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const remainingBalance = Math.max(0, total - totalCollected - activeLoss);
+  const remainingBalance = Math.max(0, totalPayable - totalCollected - activeLoss);
 
   const submit = () => {
     const client =
@@ -389,8 +441,8 @@ export function BillingComposer({
           : 0;
     let cleanPayments = finalPayments;
     let cleanAdvance = advance;
-    if (activeLoss > 0 && (finalPaid + activeLoss) > total) {
-      let excess = (finalPaid + activeLoss) - total;
+    if (activeLoss > 0 && (finalPaid + activeLoss) > totalPayable) {
+      let excess = (finalPaid + activeLoss) - totalPayable;
       if (excess > 0 && cleanPayments.length > 0) {
         cleanPayments = [...cleanPayments];
         for (let i = cleanPayments.length - 1; i >= 0 && excess > 0; i--) {
@@ -405,6 +457,16 @@ export function BillingComposer({
       }
     }
     const cleanPaid = cleanAdvance + cleanPayments.reduce((sum, p) => sum + p.amount, 0);
+
+    const activePrev = enablePreviousBalance ? (Number(previousBalance) || 0) : 0;
+    const currentUnpaids = getPreviousUnpaidBills(finalClientId);
+    const carriedBills = (activePrev > 0 && settlePreviousBills)
+      ? currentUnpaids.map((b) => b.number)
+      : (bill?.carriedFromBillNumbers ?? undefined);
+    const carriedBillIds = (activePrev > 0 && settlePreviousBills)
+      ? currentUnpaids.map((b) => b.id)
+      : [];
+
     save({
       id: bill?.id ?? nextId(store.bills),
       number: bill?.number ?? nextBillNumber(store.bills, store.nextBillNumber),
@@ -423,11 +485,14 @@ export function BillingComposer({
       paymentMode,
       payments: cleanPayments,
       total,
+      previousBalance: activePrev > 0 ? activePrev : undefined,
+      previousBalanceNote: activePrev > 0 ? previousBalanceNote.trim() : undefined,
+      carriedFromBillNumbers: carriedBills && carriedBills.length > 0 ? carriedBills : undefined,
       lossAmount: activeLoss > 0 ? activeLoss : undefined,
       lossReason: activeLoss > 0 ? lossReason.trim() : undefined,
       lossDate: activeLoss > 0 ? lossDate : undefined,
-      status: (cleanPaid + activeLoss) >= total ? "Paid" : "Pending",
-    }, selectedReceiptIds);
+      status: (cleanPaid + activeLoss) >= totalPayable ? "Paid" : "Pending",
+    }, selectedReceiptIds, carriedBillIds);
   };
   return (
     <div className="op-workspace">
@@ -447,7 +512,7 @@ export function BillingComposer({
               value={clientId}
               onChange={(event) => {
                 const selectedClientId = Number(event.target.value);
-                setClientId(selectedClientId);
+                handleClientChange(selectedClientId);
                 const newClientUnbilled = (store.receipts ?? [])
                   .filter((r) => r.clientId === selectedClientId && (r.status !== "Billed" || !r.billId))
                   .map((r) => r.id);
@@ -901,10 +966,11 @@ export function BillingComposer({
             </div>
           ) : (
             <label className="op-field">
-              <span>Client advance received</span>
+              <span>Client payment / Advance received (₹)</span>
               <input
                 type="number"
                 min="0"
+                placeholder="0"
                 value={extraAdvance || ""}
                 onChange={(event) =>
                   setExtraAdvance(Math.max(0, Number(event.target.value)))
@@ -912,12 +978,112 @@ export function BillingComposer({
               />
             </label>
           )}
-          {bill && (
-            <div style={{ display: "grid", gap: "2px", textAlign: "right" }}>
-              <span style={{ fontSize: "12px", color: "#687670" }}>Total collected (Advance + Payments)</span>
-              <b>{money(totalCollected)}</b>
+
+          {/* Previous Balance Section */}
+          <div
+            style={{
+              padding: "14px 16px",
+              borderRadius: "8px",
+              background: enablePreviousBalance ? "#fffbeb" : "#f8faf9",
+              border: `1px solid ${enablePreviousBalance ? "#fde68a" : "#e2e8f0"}`,
+              display: "grid",
+              gap: "10px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  color: enablePreviousBalance ? "#92400e" : "#2d3748",
+                  fontSize: "14px",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={enablePreviousBalance}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setEnablePreviousBalance(checked);
+                    if (checked && (!previousBalance || previousBalance <= 0)) {
+                      const unpaids = getPreviousUnpaidBills(clientId);
+                      const sum = unpaids.reduce((acc, b) => acc + (b.carriedToBillNumber === bill?.number ? (bill?.previousBalance ?? 0) : billBalance(b)), 0);
+                      setPreviousBalance(sum > 0 ? sum : 0);
+                    }
+                  }}
+                  style={{ width: "16px", height: "16px", accentColor: "#d97706" }}
+                />
+                Add Previous Balance to this Bill
+              </label>
+              {(() => {
+                const unpaids = getPreviousUnpaidBills(clientId);
+                const sum = unpaids.reduce((acc, b) => acc + (b.carriedToBillNumber === bill?.number ? (bill?.previousBalance ?? 0) : billBalance(b)), 0);
+                return sum > 0 ? (
+                  <span style={{ fontSize: "12.5px", background: "#fef3c7", color: "#92400e", padding: "2px 8px", borderRadius: "12px", fontWeight: 700 }}>
+                    Detected Unpaid Balance: {money(sum)}
+                  </span>
+                ) : null;
+              })()}
             </div>
-          )}
+
+            {(() => {
+              const unpaids = getPreviousUnpaidBills(clientId);
+              if (unpaids.length === 0) return null;
+              return (
+                <div style={{ fontSize: "12.5px", color: "#78350f", background: "#fef9c3", padding: "8px 12px", borderRadius: "6px", display: "grid", gap: "4px" }}>
+                  <div style={{ fontWeight: 600 }}>Unpaid bills found for this client:</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                    {unpaids.map((b) => (
+                      <span key={b.id} style={{ background: "white", padding: "2px 6px", borderRadius: "4px", border: "1px solid #fef08a" }}>
+                        INV-{String(b.number).padStart(4, "0")} · Due: <b>{money(b.carriedToBillNumber === bill?.number ? (bill?.previousBalance ?? 0) : billBalance(b))}</b> ({fmt(b.billDate)})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {enablePreviousBalance && (
+              <>
+                <div className="op-form-grid" style={{ gap: "10px" }}>
+                  <label className="op-field">
+                    <span>Previous Balance Amount (₹)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={previousBalance || ""}
+                      onChange={(e) => setPreviousBalance(Math.max(0, Number(e.target.value)))}
+                      placeholder="e.g. 500"
+                      required
+                    />
+                  </label>
+                  <label className="op-field">
+                    <span>Previous Balance Note / Source</span>
+                    <input
+                      type="text"
+                      value={previousBalanceNote}
+                      onChange={(e) => setPreviousBalanceNote(e.target.value)}
+                      placeholder="e.g. Balance carried forward from previous bill"
+                    />
+                  </label>
+                </div>
+                {getPreviousUnpaidBills(clientId).length > 0 && (
+                  <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12.5px", color: "#78350f", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={settlePreviousBills}
+                      onChange={(e) => setSettlePreviousBills(e.target.checked)}
+                      style={{ accentColor: "#d97706" }}
+                    />
+                    Mark earlier bill(s) as settled / carried forward into this invoice (prevents double-counting in ledger)
+                  </label>
+                )}
+              </>
+            )}
+          </div>
 
           {bill && payments.length > 0 && (
             <div
@@ -1007,81 +1173,80 @@ export function BillingComposer({
             </div>
           )}
 
-          {bill && (
-            <div
+          {/* Credit Amount / Note Section - available for all bills */}
+          <div
+            style={{
+              padding: "14px 16px",
+              borderRadius: "8px",
+              background: enableLoss ? "#fff5f5" : "#f8faf9",
+              border: `1px solid ${enableLoss ? "#fed7d7" : "#e2e8f0"}`,
+              display: "grid",
+              gap: "8px",
+            }}
+          >
+            <label
               style={{
-                padding: "12px 14px",
-                borderRadius: "8px",
-                background: enableLoss ? "#fff5f5" : "#f8faf9",
-                border: `1px solid ${enableLoss ? "#fed7d7" : "#e2e8f0"}`,
-                display: "grid",
+                display: "flex",
+                alignItems: "center",
                 gap: "8px",
+                cursor: "pointer",
+                fontWeight: 700,
+                color: enableLoss ? "#9b2c2c" : "#2d3748",
+                fontSize: "13.5px",
               }}
             >
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  color: enableLoss ? "#9b2c2c" : "#2d3748",
-                  fontSize: "13.5px",
+              <input
+                type="checkbox"
+                checked={enableLoss}
+                onChange={(e) => {
+                  setEnableLoss(e.target.checked);
+                  if (e.target.checked && (!lossAmount || lossAmount <= 0)) {
+                    setLossAmount(remainingBalance > 0 ? remainingBalance : 0);
+                  }
                 }}
-              >
-                <input
-                  type="checkbox"
-                  checked={enableLoss}
-                  onChange={(e) => {
-                    setEnableLoss(e.target.checked);
-                    if (e.target.checked && (!lossAmount || lossAmount <= 0)) {
-                      setLossAmount(remainingBalance > 0 ? remainingBalance : 0);
-                    }
-                  }}
-                  style={{ width: "16px", height: "16px", accentColor: "#c53030" }}
-                />
-                Record / Adjust Credit Note for this bill
-              </label>
-              {enableLoss && (
-                <>
-                  <div className="op-form-grid" style={{ gap: "10px" }}>
-                    <label className="op-field">
-                      <span>Credit Note Amount (₹)</span>
-                      <input
-                        type="number"
-                        min="0"
-                        value={lossAmount || ""}
-                        onChange={(e) => setLossAmount(Math.max(0, Number(e.target.value)))}
-                        placeholder="e.g. 500"
-                        required
-                      />
-                    </label>
-                    <label className="op-field">
-                      <span>Credit Note Date</span>
-                      <input
-                        type="date"
-                        value={lossDate}
-                        onChange={(e) => setLossDate(e.target.value)}
-                        required
-                      />
-                    </label>
-                  </div>
-                  <label className="op-field" style={{ margin: 0 }}>
-                    <span>Credit Note Reason / Note</span>
+                style={{ width: "16px", height: "16px", accentColor: "#c53030" }}
+              />
+              Deduct Credit Amount / Credit Note (Amount client won&apos;t pay)
+            </label>
+            {enableLoss && (
+              <>
+                <div className="op-form-grid" style={{ gap: "10px" }}>
+                  <label className="op-field">
+                    <span>Credit Amount (₹)</span>
                     <input
-                      type="text"
-                      value={lossReason}
-                      onChange={(e) => setLossReason(e.target.value)}
-                      placeholder="e.g. Client underpayment / short-payment settlement"
+                      type="number"
+                      min="0"
+                      value={lossAmount || ""}
+                      onChange={(e) => setLossAmount(Math.max(0, Number(e.target.value)))}
+                      placeholder="e.g. 80"
+                      required
                     />
                   </label>
-                  <small style={{ color: "#742a2a", fontSize: "12px" }}>
-                    Settlement credit note allowance — deducted from receivable balance and shown on receipts and reports.
-                  </small>
-                </>
-              )}
-            </div>
-          )}
+                  <label className="op-field">
+                    <span>Credit Note Date</span>
+                    <input
+                      type="date"
+                      value={lossDate}
+                      onChange={(e) => setLossDate(e.target.value)}
+                      required
+                    />
+                  </label>
+                </div>
+                <label className="op-field" style={{ margin: 0 }}>
+                  <span>Credit Note Reason / Note</span>
+                  <input
+                    type="text"
+                    value={lossReason}
+                    onChange={(e) => setLossReason(e.target.value)}
+                    placeholder="e.g. Client underpayment / short-payment settlement"
+                  />
+                </label>
+                <small style={{ color: "#742a2a", fontSize: "12px" }}>
+                  Settlement credit note allowance — deducted from receivable balance and shown on receipts and reports.
+                </small>
+              </>
+            )}
+          </div>
 
           {bill && remainingBalance > 0 && !enableLoss && (
             <div className="op-full-payment">
@@ -1106,25 +1271,36 @@ export function BillingComposer({
             </div>
           )}
 
-          <div style={{ display: "grid", gap: "4px", textAlign: "right", marginTop: "8px" }}>
-            <span style={{ fontSize: "13px", color: "#687670" }}>
-              Total Collected: <b>{money(totalCollected)}</b>
-            </span>
-            {activeLoss > 0 && (
-              <span style={{ fontSize: "13px", color: "#c2410c", fontWeight: 700 }}>
-                Credit Note: −{money(activeLoss)}
-              </span>
+          <div style={{ display: "grid", gap: "6px", marginTop: "12px", background: "#f8fafc", padding: "14px 18px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13.5px", color: "#475569" }}>
+              <span>Current Services Subtotal:</span>
+              <b>{money(subtotal)}</b>
+            </div>
+            {activePreviousBalance > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13.5px", color: "#b45309", fontWeight: 600 }}>
+                <span>+ Previous Balance:</span>
+                <b>+{money(activePreviousBalance)}</b>
+              </div>
             )}
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", color: "#0f172a", fontWeight: 700, borderTop: "1px dashed #cbd5e1", paddingTop: "5px" }}>
+              <span>Total Bill Payable:</span>
+              <b>{money(totalPayable)}</b>
+            </div>
+            {activeLoss > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13.5px", color: "#c2410c", fontWeight: 600 }}>
+                <span>− Credit Amount / Note:</span>
+                <b>−{money(activeLoss)}</b>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13.5px", color: "#166534" }}>
+              <span>− Paid / Received:</span>
+              <b>−{money(totalCollected)}</b>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "16px", color: remainingBalance > 0 ? "#b91c1c" : "#166534", fontWeight: 800, borderTop: "2px solid #cbd5e1", paddingTop: "8px" }}>
+              <span>Balance Amount:</span>
+              <strong style={{ fontSize: "17px" }}>{money(markFullPayment ? 0 : remainingBalance)}</strong>
+            </div>
           </div>
-          <p>
-            <span>Bill total</span>
-            <strong>{money(total)}</strong>
-            <small style={{ color: remainingBalance === 0 ? "#1f6a53" : "#9a493d", fontWeight: 700 }}>
-              {remainingBalance === 0
-                ? "Balance ₹0 (Settled / Paid)"
-                : `Balance ${money(markFullPayment ? 0 : remainingBalance)}`}
-            </small>
-          </p>
         </div>
         <footer className="op-editor-actions">
           <Button secondary onClick={cancel}>
@@ -2877,6 +3053,11 @@ export function Invoice({
                 {bill.client.mobile} · {bill.client.email}
               </span>
             </p>
+            {bill.carriedToBillNumber && (
+              <p style={{ gridColumn: "1 / -1", padding: "8px 12px", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: "6px", color: "#92400e", fontSize: "12.5px", fontWeight: 600 }}>
+                ℹ️ Note: Unpaid balance from this bill was settled &amp; carried forward into Bill INV-{String(bill.carriedToBillNumber).padStart(4, "0")}.
+              </p>
+            )}
           </section>
           <table className="invoice-table">
             <thead>
@@ -3015,22 +3196,41 @@ export function Invoice({
             ) : (
               <>
                 <p>
-                  <span>Total</span>
+                  <span>{bill.previousBalance ? "Current Bill Subtotal" : "Total"}</span>
                   <b>{money(bill.total)}</b>
                 </p>
+                {bill.previousBalance ? (
+                  <p style={{ color: "#b45309" }}>
+                    <span>
+                      Previous Balance
+                      {bill.carriedFromBillNumbers?.length
+                        ? ` (from INV-${bill.carriedFromBillNumbers.map((n) => String(n).padStart(4, "0")).join(", ")})`
+                        : bill.previousBalanceNote ? ` (${bill.previousBalanceNote})` : ""}
+                    </span>
+                    <b>+{money(bill.previousBalance)}</b>
+                  </p>
+                ) : null}
+                {bill.previousBalance ? (
+                  <p style={{ borderTop: "1px dashed #cbd5e1", paddingTop: "4px" }}>
+                    <span>Total Payable</span>
+                    <b>{money(bill.total + bill.previousBalance)}</b>
+                  </p>
+                ) : null}
                 <p>
                   <span>Total received</span>
                   <b>−{money(billPaid(bill))}</b>
                 </p>
                 {bill.lossAmount ? (
                   <p style={{ color: "#c2410c" }}>
-                    <span>Credit Note ({bill.lossReason || "Settlement"})</span>
+                    <span>Credit Note / Amount ({bill.lossReason || "Settlement"})</span>
                     <b>−{money(bill.lossAmount)}</b>
                   </p>
                 ) : null}
-                <p>
-                  <span>Outstanding</span>
-                  <strong>{money(balance)}</strong>
+                <p style={{ borderTop: "2px solid #165b47", paddingTop: "6px" }}>
+                  <span style={{ fontWeight: 700 }}>Balance Amount</span>
+                  <strong style={{ color: balance > 0 ? "#b91c1c" : "#165b47", fontSize: "18px" }}>
+                    {money(balance)}
+                  </strong>
                 </p>
               </>
             )}
@@ -3322,6 +3522,7 @@ export function BillReceipt({
     if (!onUpdateBill) return;
     const numAmount = Number(editAmount) || 0;
     const activeLoss = enableLoss ? (Number(editLossAmount) || 0) : 0;
+    const netBillTotal = bill.total + (bill.previousBalance ?? 0);
     if (activePayment) {
       let updatedPayments = bill.payments.map((p) =>
         p.id === activePayment.id
@@ -3329,7 +3530,7 @@ export function BillReceipt({
           : p
       );
       const rawPaid = bill.advanceReceived + updatedPayments.reduce((sum, p) => sum + p.amount, 0);
-      let excess = Math.max(0, (rawPaid + activeLoss) - bill.total);
+      let excess = Math.max(0, (rawPaid + activeLoss) - netBillTotal);
       if (excess > 0) {
         updatedPayments = updatedPayments.map((p) => {
           if (p.id === activePayment.id) {
@@ -3341,7 +3542,7 @@ export function BillReceipt({
         }).filter((p) => p.amount > 0);
       }
       const newPaid = bill.advanceReceived + updatedPayments.reduce((sum, p) => sum + p.amount, 0);
-      const remaining = Math.max(0, bill.total - newPaid - activeLoss);
+      const remaining = Math.max(0, netBillTotal - newPaid - activeLoss);
       const updatedBill: Bill = {
         ...bill,
         payments: updatedPayments,
@@ -3354,12 +3555,12 @@ export function BillReceipt({
     } else {
       let adv = numAmount;
       const otherPaymentsSum = (bill.payments ?? []).reduce((sum, p) => sum + p.amount, 0);
-      let excess = Math.max(0, (adv + otherPaymentsSum + activeLoss) - bill.total);
+      let excess = Math.max(0, (adv + otherPaymentsSum + activeLoss) - netBillTotal);
       if (excess > 0) {
         adv = Math.max(0, adv - excess);
       }
       const newPaid = adv + otherPaymentsSum;
-      const remaining = Math.max(0, bill.total - newPaid - activeLoss);
+      const remaining = Math.max(0, netBillTotal - newPaid - activeLoss);
       const updatedBill: Bill = {
         ...bill,
         advanceReceived: adv,
@@ -3620,9 +3821,26 @@ export function BillReceipt({
           </table>
           <section className="op-invoice-total">
             <p>
-              <span>Invoice Total</span>
+              <span>{bill.previousBalance ? "Current Bill Subtotal" : "Invoice Total"}</span>
               <b>{money(bill.total)}</b>
             </p>
+            {bill.previousBalance ? (
+              <p style={{ color: "#b45309" }}>
+                <span>
+                  Previous Balance
+                  {bill.carriedFromBillNumbers?.length
+                    ? ` (from INV-${bill.carriedFromBillNumbers.map((n) => String(n).padStart(4, "0")).join(", ")})`
+                    : bill.previousBalanceNote ? ` (${bill.previousBalanceNote})` : ""}
+                </span>
+                <b>+{money(bill.previousBalance)}</b>
+              </p>
+            ) : null}
+            {bill.previousBalance ? (
+              <p style={{ borderTop: "1px dashed #cbd5e1", paddingTop: "4px" }}>
+                <span>Total Payable</span>
+                <b>{money(bill.total + bill.previousBalance)}</b>
+              </p>
+            ) : null}
             <p>
               <span>This Receipt Amount</span>
               <strong style={{ color: "#1f6a53" }}>{money(paymentAmount)}</strong>
@@ -3633,13 +3851,15 @@ export function BillReceipt({
             </p>
             {bill.lossAmount ? (
               <p style={{ color: "#c2410c" }}>
-                <span>Credit Note ({bill.lossReason || "Settlement"})</span>
+                <span>Credit Note / Amount ({bill.lossReason || "Settlement"})</span>
                 <b>−{money(bill.lossAmount)}</b>
               </p>
             ) : null}
-            <p>
-              <span>Remaining Invoice Balance</span>
-              <strong>{money(balance)}</strong>
+            <p style={{ borderTop: "2px solid #165b47", paddingTop: "6px" }}>
+              <span style={{ fontWeight: 700 }}>Balance Amount</span>
+              <strong style={{ color: balance > 0 ? "#b91c1c" : "#165b47", fontSize: "18px" }}>
+                {money(balance)}
+              </strong>
             </p>
           </section>
           <footer className="invoice-footer">

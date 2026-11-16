@@ -7,10 +7,9 @@ import { emptyStore, FleetStore, migrateStore, type CampaignVehiclePeriod } from
 
 const STORE_KEY = "primary";
 const STORE_CACHE_KEY = "fleet-store-cache-v1";
-const SAVE_DELAY_MS = 350;
+const SAVE_DELAY_MS = 1500;
 const MUTATION_BATCH_SIZE = 75;
 const MUTATION_CONCURRENCY = 8;
-const BACKUP_CHUNK_SIZE = 400_000;
 
 const arrayCollections = [
   ["employees", "employees"],
@@ -234,11 +233,10 @@ export function useFleetStore() {
   const saveSettings = useMutation(api.adminStore.saveSettings);
   const saveEntities = useMutation(api.adminStore.saveEntities);
   const deleteEntities = useMutation(api.adminStore.deleteEntities);
-  const saveBackupChunk = useMutation(api.adminStore.saveBackupChunk);
-  const commitBackup = useMutation(api.adminStore.commitBackup);
 
   const persisted = useRef<StoreSnapshot | null>(null);
   const revision = useRef<number | null>(null);
+  const pendingRevision = useRef<number | null>(null);
   const saveQueue = useRef(Promise.resolve());
   const initialMount = useRef(true);
   // Track which revision is currently being fetched to prevent duplicate concurrent fetches.
@@ -246,9 +244,11 @@ export function useFleetStore() {
 
   // Load store whenever the remote revision differs from what we have locally.
   useEffect(() => {
-    if (remoteRevision === undefined) return;
-    // Already up to date — nothing to do.
-    if (remoteRevision === revision.current) return;
+    if (remoteRevision === undefined || remoteRevision === null) return;
+    // Already up to date locally — nothing to do.
+    if (revision.current !== null && remoteRevision <= revision.current) return;
+    // Our own pending save revision — skip reload.
+    if (pendingRevision.current !== null && remoteRevision <= pendingRevision.current) return;
     // Already fetching this exact revision — wait for it.
     if (fetchingRevision.current === remoteRevision) return;
 
@@ -311,6 +311,7 @@ export function useFleetStore() {
         if (!previous) return;
 
         const updatedAt = Date.now();
+        pendingRevision.current = updatedAt;
         const mutations: (() => Promise<unknown>)[] = [];
 
         for (const [table, rows] of collectionRows(nextStore)) {
@@ -343,41 +344,26 @@ export function useFleetStore() {
           );
         }
 
-        if (mutations.length === 0) return;
+        if (mutations.length === 0) {
+          pendingRevision.current = null;
+          return;
+        }
 
         await runMutationQueue(mutations);
-        const backupPayload = JSON.stringify(nextStore);
-        const backupChunks = Array.from(
-          { length: Math.ceil(backupPayload.length / BACKUP_CHUNK_SIZE) },
-          (_, index) => backupPayload.slice(index * BACKUP_CHUNK_SIZE, (index + 1) * BACKUP_CHUNK_SIZE),
-        );
-        await runMutationQueue(backupChunks.map((payload, index) => () =>
-          saveBackupChunk({
-            storeKey: STORE_KEY,
-            revision: updatedAt,
-            index,
-            payload,
-          }),
-        ));
-        await commitBackup({
-          storeKey: STORE_KEY,
-          revision: updatedAt,
-          chunkCount: backupChunks.length,
-          schemaVersion: nextStore.schemaVersion,
-          createdAt: updatedAt,
-        });
 
         // Update local revision so that when getRevision returns this updatedAt value,
         // the load effect skips the reload — we already have the latest data locally.
         persisted.current = createSnapshot(nextStore);
         revision.current = updatedAt;
+        pendingRevision.current = null;
         writeStoreCache(nextStore, updatedAt);
       }).catch((error: unknown) => {
+        pendingRevision.current = null;
         console.error("Unable to save admin data to Convex", error);
       });
     }, SAVE_DELAY_MS);
     return () => window.clearTimeout(timeout);
-  }, [commitBackup, deleteEntities, saveBackupChunk, saveEntities, saveSettings, storageReady, store]);
+  }, [deleteEntities, saveEntities, saveSettings, storageReady, store]);
 
   return { store, setStore, storageReady };
 }

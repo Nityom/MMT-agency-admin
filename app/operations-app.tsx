@@ -269,10 +269,13 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
   const saveVehicleAttendance = () => { setStore((current) => ({ ...current, vehicleAttendance: { ...current.vehicleAttendance, [vehicleAttendanceDate]: vehicleAttendanceDraft } })); setVehicleAttendanceDirty(false); notify(`Vehicle attendance saved for ${fmt(vehicleAttendanceDate)}`); };
   const remove = (collection: "employees" | "vehicles" | "clients" | "businessExpenses", id: number) => { if (!window.confirm("Delete this record?")) return; setStore((current) => ({ ...current, [collection]: current[collection].filter((item) => item.id !== id) })); };
   const removeBill = (id: number) => {
+    const deletingBill = store.bills.find((b) => b.id === id);
     if (!window.confirm("Are you sure you want to delete this bill? This will also un-link it from any campaign.")) return;
     setStore((current) => ({
       ...current,
-      bills: current.bills.filter((b) => b.id !== id),
+      bills: current.bills
+        .filter((b) => b.id !== id)
+        .map((b) => (b.carriedToBillNumber === deletingBill?.number ? { ...b, carriedToBillNumber: undefined } : b)),
       campaignBookings: current.campaignBookings.map((c) =>
         c.generatedBillId === id ? { ...c, generatedBillId: undefined } : c
       ),
@@ -972,24 +975,40 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
 
   const pendingPayrollCount = store.payrollPayments.filter((payment) => payment.status === "Pending").length;
 
-  if (composeBill) return <BillingComposer store={store} initialClientId={billingClientId} bill={editingBill} campaignBooking={draftCampaignBooking} cancel={() => { setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); }} save={(bill, appliedReceiptIds) => {
+  if (composeBill) return <BillingComposer store={store} initialClientId={billingClientId} bill={editingBill} campaignBooking={draftCampaignBooking} cancel={() => { setComposeBill(false); setEditingBill(null); setDraftCampaignBooking(null); }} save={(bill, appliedReceiptIds, carriedBillIds) => {
     const isExisting = store.bills.some((item) => item.id === bill.id);
     const receiptIdsToBill = new Set(appliedReceiptIds ?? []);
-    setStore((current) => ({
-      ...current,
-      bills: isExisting ? current.bills.map((item) => item.id === bill.id ? bill : item) : [...current.bills, bill],
-      nextBillNumber: isExisting ? current.nextBillNumber : bill.number + 1,
-      campaignBookings: draftCampaignBooking ? current.campaignBookings.map((item) => item.id === draftCampaignBooking.id ? { ...item, generatedBillId: bill.id } : item) : current.campaignBookings,
-      receipts: (current.receipts ?? []).map((r) => {
-        if (receiptIdsToBill.has(r.id)) {
-          return { ...r, status: "Billed" as const, billId: bill.id, billNumber: bill.number };
+    const carriedIdsSet = new Set(carriedBillIds ?? []);
+    setStore((current) => {
+      let updatedBills = current.bills.map((item) => {
+        if (item.id === bill.id) return bill;
+        if (carriedIdsSet.has(item.id)) {
+          return { ...item, carriedToBillNumber: bill.number };
         }
-        if (isExisting && r.billId === bill.id && !receiptIdsToBill.has(r.id)) {
-          return { ...r, status: "Unbilled" as const, billId: undefined, billNumber: undefined };
+        if (isExisting && item.carriedToBillNumber === bill.number && !carriedIdsSet.has(item.id)) {
+          return { ...item, carriedToBillNumber: undefined };
         }
-        return r;
-      }),
-    }));
+        return item;
+      });
+      if (!isExisting) {
+        updatedBills = [...updatedBills, bill];
+      }
+      return {
+        ...current,
+        bills: updatedBills,
+        nextBillNumber: isExisting ? current.nextBillNumber : bill.number + 1,
+        campaignBookings: draftCampaignBooking ? current.campaignBookings.map((item) => item.id === draftCampaignBooking.id ? { ...item, generatedBillId: bill.id } : item) : current.campaignBookings,
+        receipts: (current.receipts ?? []).map((r) => {
+          if (receiptIdsToBill.has(r.id)) {
+            return { ...r, status: "Billed" as const, billId: bill.id, billNumber: bill.number };
+          }
+          if (isExisting && r.billId === bill.id && !receiptIdsToBill.has(r.id)) {
+            return { ...r, status: "Unbilled" as const, billId: undefined, billNumber: undefined };
+          }
+          return r;
+        }),
+      };
+    });
     setComposeBill(false);
     setEditingBill(null);
     setDraftCampaignBooking(null);
@@ -1288,7 +1307,7 @@ export default function OperationsApp({ initialView = "overview" }: { initialVie
   };
 
   const finalDialogContent = <>
-    {dialog && <EntryForm dialog={dialog} store={store} employeeId={editingEmployeeId} clientId={editingClientId} vehicleId={editingVehicleId} advanceId={editingAdvanceId} close={() => { setDialog(null); setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); }} commit={(updated, message) => { setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); commit(updated, message); }}/>} {campaignFormOpen && <CampaignBookingForm mode={campaignFormMode} store={store} booking={editingCampaign} close={() => { setCampaignFormOpen(false); setEditingCampaign(null); }} save={(booking) => { setStore((current) => { const hasExistingBooking = current.campaignBookings.some((item) => item.id === booking.id); const campaignBookings = hasExistingBooking ? current.campaignBookings.map((item) => item.id === booking.id ? booking : item) : [...current.campaignBookings, booking]; return { ...current, campaignBookings }; }); setCampaignFormOpen(false); setEditingCampaign(null); notify(campaignFormMode === "edit" ? "Campaign booking saved" : `${campaignFormMode === "renew" ? "Renewed" : "Extended"} campaign created`); }}/>} {paymentBill && <BillPaymentModal bill={paymentBill} close={() => setPaymentBill(null)} save={(date, receivedAmount, mode, reference, note, lossOptions) => { setStore((current) => ({ ...current, bills: current.bills.map((bill) => { if (bill.id !== paymentBill.id) return bill; const payments = receivedAmount > 0 ? [...(bill.payments ?? []), { id: nextId(bill.payments ?? []), date, amount: receivedAmount, mode, reference, note }] : (bill.payments ?? []); const totalPaid = bill.advanceReceived + payments.reduce((sum, p) => sum + p.amount, 0); const lossAmount = lossOptions ? lossOptions.lossAmount : (bill.lossAmount ?? 0); const lossReason = lossOptions ? lossOptions.lossReason : bill.lossReason; const lossDate = lossOptions ? date : bill.lossDate; const remaining = Math.max(0, bill.total - totalPaid - lossAmount); return { ...bill, payments, lossAmount, lossReason, lossDate, status: remaining === 0 ? "Paid" : "Pending" }; }) })); setPaymentBill(null); notify(receivedAmount > 0 ? (lossOptions?.lossAmount ? `${mode} installment & loss recorded` : `${mode} installment recorded`) : "Client loss / bad debt recorded"); }}/>} {lossBill && <RecordLossModal bill={lossBill} close={() => setLossBill(null)} save={(lossAmount, lossReason, lossDate) => { setStore((current) => ({ ...current, bills: current.bills.map((b) => { if (b.id !== lossBill.id) return b; let newPayments = [...(b.payments ?? [])]; let newAdvance = b.advanceReceived; const rawPaid = newAdvance + newPayments.reduce((sum, p) => sum + p.amount, 0); let excess = Math.max(0, (rawPaid + lossAmount) - b.total); if (excess > 0 && newPayments.length > 0) { for (let i = newPayments.length - 1; i >= 0 && excess > 0; i--) { const deduction = Math.min(newPayments[i].amount, excess); newPayments[i] = { ...newPayments[i], amount: newPayments[i].amount - deduction }; excess -= deduction; } newPayments = newPayments.filter((p) => p.amount > 0); } if (excess > 0 && newAdvance > 0) { newAdvance = Math.max(0, newAdvance - excess); } const paid = newAdvance + newPayments.reduce((sum, p) => sum + p.amount, 0); return { ...b, advanceReceived: newAdvance, payments: newPayments, lossAmount: lossAmount > 0 ? lossAmount : undefined, lossReason: lossAmount > 0 ? lossReason : undefined, lossDate: lossAmount > 0 ? lossDate : undefined, status: (paid + lossAmount) >= b.total ? "Paid" : "Pending" }; }) })); setLossBill(null); notify(lossAmount > 0 ? "Credit note recorded" : "Credit note updated"); }}/>} {consolidateOpen && <ConsolidateBillsModal store={store} close={() => setConsolidateOpen(false)} preview={(bills) => {     setConsolidateOpen(false); setConsolidatedBills(bills); }}/>} {invoice && <Invoice bill={invoice} store={store} close={() => setInvoice(null)} edit={() => { setEditingBill(invoice); setBillingClientId(invoice.clientId); setInvoice(null); setComposeBill(true); }} remove={() => removeBill(invoice.id)} recordLoss={setLossBill} generateReceipt={() => { setReceipt(invoice); setInvoice(null); }}/>} {receipt && <BillReceipt bill={receipt} store={store} close={() => setReceipt(null)} onUpdateBill={updateBill}/>} {consolidatedBills.length > 0 && <ConsolidatedInvoice bills={consolidatedBills.map((selected) => store.bills.find((bill) => bill.id === selected.id) ?? selected)} store={store} close={() => setConsolidatedBills([])}/>} {receiptFormOpen && <ClientReceiptFormModal store={store} receipt={editingReceipt} initialClientId={receiptFormClientId} close={() => { setReceiptFormOpen(false); setEditingReceipt(null); setReceiptFormClientId(null); }} save={saveReceipt} remove={removeReceipt}/>} {viewingReceipt && <ClientReceiptViewModal receipt={viewingReceipt} store={store} close={() => setViewingReceipt(null)} edit={() => { const target = viewingReceipt; setViewingReceipt(null); openEditReceipt(target); }} remove={removeReceipt}/>} {toast && <div className="op-toast"><Check/>{toast}</div>}
+    {dialog && <EntryForm dialog={dialog} store={store} employeeId={editingEmployeeId} clientId={editingClientId} vehicleId={editingVehicleId} advanceId={editingAdvanceId} close={() => { setDialog(null); setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); }} commit={(updated, message) => { setEditingEmployeeId(null); setEditingClientId(null); setEditingVehicleId(null); setEditingAdvanceId(null); commit(updated, message); }}/>} {campaignFormOpen && <CampaignBookingForm mode={campaignFormMode} store={store} booking={editingCampaign} close={() => { setCampaignFormOpen(false); setEditingCampaign(null); }} save={(booking) => { setStore((current) => { const hasExistingBooking = current.campaignBookings.some((item) => item.id === booking.id); const campaignBookings = hasExistingBooking ? current.campaignBookings.map((item) => item.id === booking.id ? booking : item) : [...current.campaignBookings, booking]; return { ...current, campaignBookings }; }); setCampaignFormOpen(false); setEditingCampaign(null); notify(campaignFormMode === "edit" ? "Campaign booking saved" : `${campaignFormMode === "renew" ? "Renewed" : "Extended"} campaign created`); }}/>} {paymentBill && <BillPaymentModal bill={paymentBill} close={() => setPaymentBill(null)} save={(date, receivedAmount, mode, reference, note, lossOptions) => { setStore((current) => ({ ...current, bills: current.bills.map((bill) => { if (bill.id !== paymentBill.id) return bill; const payments = receivedAmount > 0 ? [...(bill.payments ?? []), { id: nextId(bill.payments ?? []), date, amount: receivedAmount, mode, reference, note }] : (bill.payments ?? []); const totalPaid = bill.advanceReceived + payments.reduce((sum, p) => sum + p.amount, 0); const lossAmount = lossOptions ? lossOptions.lossAmount : (bill.lossAmount ?? 0); const lossReason = lossOptions ? lossOptions.lossReason : bill.lossReason; const lossDate = lossOptions ? date : bill.lossDate; const netBillTotal = bill.total + (bill.previousBalance ?? 0); const remaining = Math.max(0, netBillTotal - totalPaid - lossAmount); return { ...bill, payments, lossAmount, lossReason, lossDate, status: remaining === 0 ? "Paid" : "Pending" }; }) })); setPaymentBill(null); notify(receivedAmount > 0 ? (lossOptions?.lossAmount ? `${mode} installment & loss recorded` : `${mode} installment recorded`) : "Client loss / bad debt recorded"); }}/>} {lossBill && <RecordLossModal bill={lossBill} close={() => setLossBill(null)} save={(lossAmount, lossReason, lossDate) => { setStore((current) => ({ ...current, bills: current.bills.map((b) => { if (b.id !== lossBill.id) return b; let newPayments = [...(b.payments ?? [])]; let newAdvance = b.advanceReceived; const rawPaid = newAdvance + newPayments.reduce((sum, p) => sum + p.amount, 0); const netBillTotal = b.total + (b.previousBalance ?? 0); let excess = Math.max(0, (rawPaid + lossAmount) - netBillTotal); if (excess > 0 && newPayments.length > 0) { for (let i = newPayments.length - 1; i >= 0 && excess > 0; i--) { const deduction = Math.min(newPayments[i].amount, excess); newPayments[i] = { ...newPayments[i], amount: newPayments[i].amount - deduction }; excess -= deduction; } newPayments = newPayments.filter((p) => p.amount > 0); } if (excess > 0 && newAdvance > 0) { newAdvance = Math.max(0, newAdvance - excess); } const paid = newAdvance + newPayments.reduce((sum, p) => sum + p.amount, 0); return { ...b, advanceReceived: newAdvance, payments: newPayments, lossAmount: lossAmount > 0 ? lossAmount : undefined, lossReason: lossAmount > 0 ? lossReason : undefined, lossDate: lossAmount > 0 ? lossDate : undefined, status: (paid + lossAmount) >= netBillTotal ? "Paid" : "Pending" }; }) })); setLossBill(null); notify(lossAmount > 0 ? "Credit note recorded" : "Credit note updated"); }}/>} {consolidateOpen && <ConsolidateBillsModal store={store} close={() => setConsolidateOpen(false)} preview={(bills) => {     setConsolidateOpen(false); setConsolidatedBills(bills); }}/>} {invoice && <Invoice bill={invoice} store={store} close={() => setInvoice(null)} edit={() => { setEditingBill(invoice); setBillingClientId(invoice.clientId); setInvoice(null); setComposeBill(true); }} remove={() => removeBill(invoice.id)} recordLoss={setLossBill} generateReceipt={() => { setReceipt(invoice); setInvoice(null); }}/>} {receipt && <BillReceipt bill={receipt} store={store} close={() => setReceipt(null)} onUpdateBill={updateBill}/>} {consolidatedBills.length > 0 && <ConsolidatedInvoice bills={consolidatedBills.map((selected) => store.bills.find((bill) => bill.id === selected.id) ?? selected)} store={store} close={() => setConsolidatedBills([])}/>} {receiptFormOpen && <ClientReceiptFormModal store={store} receipt={editingReceipt} initialClientId={receiptFormClientId} close={() => { setReceiptFormOpen(false); setEditingReceipt(null); setReceiptFormClientId(null); }} save={saveReceipt} remove={removeReceipt}/>} {viewingReceipt && <ClientReceiptViewModal receipt={viewingReceipt} store={store} close={() => setViewingReceipt(null)} edit={() => { const target = viewingReceipt; setViewingReceipt(null); openEditReceipt(target); }} remove={removeReceipt}/>} {toast && <div className="op-toast"><Check/>{toast}</div>}
   </>;
   return <OperationsShell menu={menu} setMenu={setMenu} openNavSections={openNavSections} setOpenNavSections={setOpenNavSections} view={view} go={go} pendingPayrollCount={pendingPayrollCount} dialogContent={finalDialogContent}>
     {view === "overview" && <OverviewView store={store} totalBusiness={totalBusiness} outstanding={outstanding} totalExpenses={totalExpenses} activeEmployees={activeEmployees} currentWeek={currentWeek} activeCampaigns={activeCampaigns}/>}
