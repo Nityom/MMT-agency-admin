@@ -47,35 +47,4 @@ export default defineSchema({
     storeKey: v.string(),
     revision: v.number(),
   }).index("by_store", ["storeKey"]),
-
-  // Kept temporarily so existing deployments can migrate on their next save.
-  adminStores: defineTable({
-    key: v.string(),
-    payload: v.optional(v.string()),
-    revision: v.optional(v.number()),
-    chunkCount: v.optional(v.number()),
-    schemaVersion: v.number(),
-    updatedAt: v.number(),
-  }).index("by_key", ["key"]),
-  adminStoreChunks: defineTable({
-    key: v.string(),
-    revision: v.number(),
-    index: v.number(),
-    payload: v.string(),
-  })
-    .index("by_key", ["key"])
-    .index("by_key_revision", ["key", "revision"]),
-  backupSnapshots: defineTable({
-    storeKey: v.string(),
-    revision: v.number(),
-    chunkCount: v.number(),
-    schemaVersion: v.number(),
-    createdAt: v.number(),
-  }).index("by_store", ["storeKey"]),
-  backupSnapshotChunks: defineTable({
-    storeKey: v.string(),
-    revision: v.number(),
-    index: v.number(),
-    payload: v.string(),
-  }).index("by_store_revision", ["storeKey", "revision"]),
 });
