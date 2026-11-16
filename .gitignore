@@ -16,4 +16,5 @@
 next-env.d.ts
 
 # deployment
-.vercelconvex_backup_clean.zip
+.vercel
+convex_backup_clean.zip
