@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "convex:usage": "convex deployment usage",
+    "convex:limits": "convex deployment usage-limits list",
+    "convex:limits:prod": "convex deployment usage-limits list --prod"
   },
   "dependencies": {
     "convex": "^1.44.0",
