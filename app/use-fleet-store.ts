@@ -233,6 +233,7 @@ export function useFleetStore() {
   const saveSettings = useMutation(api.adminStore.saveSettings);
   const saveEntities = useMutation(api.adminStore.saveEntities);
   const deleteEntities = useMutation(api.adminStore.deleteEntities);
+  const touchRevision = useMutation(api.adminStore.touchRevision);
 
   const persisted = useRef<StoreSnapshot | null>(null);
   const revision = useRef<number | null>(null);
@@ -350,6 +351,7 @@ export function useFleetStore() {
         }
 
         await runMutationQueue(mutations);
+        await touchRevision({ storeKey: STORE_KEY, revision: updatedAt });
 
         // Update local revision so that when getRevision returns this updatedAt value,
         // the load effect skips the reload — we already have the latest data locally.
